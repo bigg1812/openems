@@ -1,0 +1,44 @@
+{
+  "network": {
+    "controller_ip": "192.168.1.100",
+    "controller_port": 47808,
+    "local_ip": "192.168.1.50",
+    "local_port": 47809,
+    "response_timeout_seconds": 2.0,
+    "retries": 1
+  },
+  "points": {
+    "grid_active_power_kw": 300,
+    "spot_price_start_hour_instance": 1001,
+    "grid_lockout_bv": 400,
+    "spotmarket_lockout_bv": 401
+  },
+  "timing": {
+    "cycle_seconds": 60,
+    "inter_read_delay_seconds": 0.05
+  },
+  "controllers": {
+    "grid_lockout": {
+      "threshold_kw": 5.0,
+      "clear_threshold_kw": 5.5,
+      "below_threshold_cycles_required": 3
+    },
+    "spotmarket_lockout": {
+      "negative_hours_min_consecutive": 4,
+      "min_valid_hours": 24,
+      "invalid_price_sentinel": null
+    }
+  },
+  "safety": {
+    "fail_safe_output": false,
+    "comm_error_safe_mode_threshold": 2
+  },
+  "logging": {
+    "directory": "logs",
+    "log_file": "mini_ems.log",
+    "state_file": "state.json",
+    "health_file": "health.json",
+    "level": "INFO",
+    "stdout": true
+  }
+}
