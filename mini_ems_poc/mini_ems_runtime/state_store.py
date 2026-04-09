@@ -9,7 +9,7 @@ from .controllers import GridLockoutState, SpotMarketLockoutState
 
 @dataclass
 class OutputState:
-    value: bool = False
+    value: object = False
     is_confirmed: bool = False
     last_confirmed_at: Optional[str] = None
     last_error: Optional[str] = None
@@ -26,7 +26,7 @@ class OutputState:
     def from_dict(cls, raw: Optional[Dict[str, object]]) -> "OutputState":
         raw = raw or {}
         return cls(
-            value=bool(raw.get("value", False)),
+            value=raw.get("value", False),
             is_confirmed=bool(raw.get("is_confirmed", False)),
             last_confirmed_at=_optional_string(raw.get("last_confirmed_at")),
             last_error=_optional_string(raw.get("last_error")),

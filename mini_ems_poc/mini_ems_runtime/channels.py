@@ -7,6 +7,7 @@ BACNET_AV = 2
 BACNET_BV = 5
 
 GRID_ACTIVE_POWER_CHANNEL = "grid.active_power_kw"
+CURRENT_PRICE_CHANNEL = "tariff.current_price_ct_kwh"
 GRID_LOCKOUT_CHANNEL = "ems.lockout_grid"
 SPOTMARKET_LOCKOUT_CHANNEL = "ems.lockout_spotmarket"
 HEALTH_CHANNEL = "system.health"
@@ -41,6 +42,13 @@ class ChannelRegistry:
                 access="read",
                 description="Grid active power in kW",
             ),
+            CURRENT_PRICE_CHANNEL: PointConfig(
+                channel_id=CURRENT_PRICE_CHANNEL,
+                object_type=BACNET_AV,
+                instance=points.current_price_av,
+                access="write",
+                description="Current spot price in ct/kWh",
+            ),
             GRID_LOCKOUT_CHANNEL: PointConfig(
                 channel_id=GRID_LOCKOUT_CHANNEL,
                 object_type=BACNET_BV,
@@ -56,15 +64,6 @@ class ChannelRegistry:
                 description="Fail-safe spot market lockout output",
             ),
         }
-        for hour in range(24):
-            channel_id = "tariff.price_hour_{0:02d}".format(hour)
-            registry[channel_id] = PointConfig(
-                channel_id=channel_id,
-                object_type=BACNET_AV,
-                instance=points.spot_price_start_hour_instance + hour,
-                access="read",
-                description="Spot price for hour {0:02d}:00".format(hour),
-            )
         return cls(registry)
 
     def get(self, channel_id: str) -> PointConfig:
@@ -79,10 +78,7 @@ class ChannelRegistry:
         return [point.channel_id for point in self._points_by_id.values() if point.can_read()]
 
     def output_channel_ids(self) -> List[str]:
-        return [GRID_LOCKOUT_CHANNEL, SPOTMARKET_LOCKOUT_CHANNEL]
-
-    def price_channel_ids(self) -> List[str]:
-        return ["tariff.price_hour_{0:02d}".format(hour) for hour in range(24)]
+        return [CURRENT_PRICE_CHANNEL, GRID_LOCKOUT_CHANNEL, SPOTMARKET_LOCKOUT_CHANNEL]
 
     def internal_channels(self) -> List[str]:
         return [HEALTH_CHANNEL]

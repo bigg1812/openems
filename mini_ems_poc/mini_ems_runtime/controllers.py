@@ -49,12 +49,12 @@ class GridLockoutState:
 @dataclass
 class SpotMarketLockoutState:
     mode: str = "normal"
-    longest_negative_block: int = 0
+    longest_negative_block_quarters: int = 0
 
     def to_dict(self) -> Dict[str, object]:
         return {
             "mode": self.mode,
-            "longest_negative_block": self.longest_negative_block,
+            "longest_negative_block_quarters": self.longest_negative_block_quarters,
         }
 
     @classmethod
@@ -62,7 +62,12 @@ class SpotMarketLockoutState:
         raw = raw or {}
         return cls(
             mode=str(raw.get("mode", "normal")),
-            longest_negative_block=int(raw.get("longest_negative_block", 0)),
+            longest_negative_block_quarters=int(
+                raw.get(
+                    "longest_negative_block_quarters",
+                    raw.get("longest_negative_block", 0),
+                )
+            ),
         )
 
 
@@ -156,54 +161,54 @@ class SpotMarketLockoutController:
         self.config = config
 
     def evaluate(self, prices: Sequence[Optional[float]], state: SpotMarketLockoutState) -> ControllerOutcome:
-        if len(prices) != 24:
+        if len(prices) != 96:
             return ControllerOutcome(
                 name="spotmarket_lockout",
                 valid=False,
                 desired_value=False,
-                reason="Expected 24 hourly prices, got {0}".format(len(prices)),
+                reason="Expected 96 quarter-hour prices, got {0}".format(len(prices)),
                 state_name=state.mode,
                 safe_mode_required=True,
             )
 
-        invalid_hours: List[int] = []
+        invalid_quarters: List[int] = []
         valid_prices: List[float] = []
         longest_block = 0
         current_block = 0
-        negative_hours: List[int] = []
+        negative_quarters: List[int] = []
 
-        for hour, price in enumerate(prices):
+        for quarter_index, price in enumerate(prices):
             if price is None or self._is_invalid_sentinel(price):
-                invalid_hours.append(hour)
+                invalid_quarters.append(quarter_index)
                 current_block = 0
                 continue
             valid_prices.append(price)
-            if price < 0:
-                negative_hours.append(hour)
+            if price <= 0:
+                negative_quarters.append(quarter_index)
                 current_block += 1
                 if current_block > longest_block:
                     longest_block = current_block
             else:
                 current_block = 0
 
-        state.longest_negative_block = longest_block
+        state.longest_negative_block_quarters = longest_block
 
-        if len(valid_prices) < self.config.min_valid_hours:
+        if len(valid_prices) < self.config.min_valid_quarters:
             state.mode = "invalid_input"
             return ControllerOutcome(
                 name="spotmarket_lockout",
                 valid=False,
                 desired_value=False,
-                reason="Only {0}/24 valid hourly prices available".format(len(valid_prices)),
+                reason="Only {0}/96 valid quarter-hour prices available".format(len(valid_prices)),
                 state_name=state.mode,
                 metrics={
-                    "valid_hours": len(valid_prices),
-                    "invalid_hours": invalid_hours,
+                    "valid_quarters": len(valid_prices),
+                    "invalid_quarters": invalid_quarters,
                 },
                 safe_mode_required=True,
             )
 
-        desired_value = longest_block >= self.config.negative_hours_min_consecutive
+        desired_value = longest_block >= self.config.negative_quarters_min_consecutive
         state.mode = "lockout_active" if desired_value else "normal"
         return ControllerOutcome(
             name="spotmarket_lockout",
@@ -216,10 +221,10 @@ class SpotMarketLockoutController:
             ),
             state_name=state.mode,
             metrics={
-                "valid_hours": len(valid_prices),
-                "invalid_hours": invalid_hours,
-                "negative_hours": negative_hours,
-                "longest_negative_block": longest_block,
+                "valid_quarters": len(valid_prices),
+                "invalid_quarters": invalid_quarters,
+                "negative_quarters": negative_quarters,
+                "longest_negative_block_quarters": longest_block,
             },
         )
 

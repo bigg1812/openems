@@ -15,8 +15,9 @@ Es uebernimmt aber die wichtigsten OpenEMS-Prinzipien in einer kleinen Python-Ed
 Der fachliche Scope bleibt absichtlich klein:
 
 - ein Delta Controls Controller
-- BACnet Read auf Netzleistung und 24 Stundenpreise
-- BACnet Write nur auf `BV:400` und `BV:401`
+- BACnet Read auf Netzleistung
+- API-Read auf Spotmarktpreise
+- BACnet Write auf `AV:1000`, `BV:400` und `BV:401`
 
 Damit beweist das System zweierlei:
 
@@ -42,6 +43,17 @@ Damit beweist das System zweierlei:
 - einziger BACnet-Layer
 - UDP-Socket, Allowlist, Timeout, Retry, ACK-Pruefung, Absenderpruefung
 
+`mini_ems_runtime/price_provider_smard.py`
+- einziger Preisquellen-Layer fuer SMARD
+- holt Spotmarktpreise direkt auf dem IPC
+
+`mini_ems_runtime/price_cache.py`
+- verwaltet den lokalen Pufferspeicher fuer Day-Ahead-Preise
+- speichert getrennt `today` und `tomorrow`
+
+`mini_ems_runtime/operator_status.py`
+- erzeugt einfache, lesbare Erklaertexte fuer Nicht-Techniker
+
 `mini_ems_runtime/controllers.py`
 - reine Entscheidungslogik
 - keine direkte BACnet-Kommunikation
@@ -51,8 +63,8 @@ Damit beweist das System zweierlei:
 - erzwingt Fail-safe-Modus
 
 `mini_ems_runtime/state_store.py`
-- persistiert `state.json`
-- schreibt `health.json`
+- persistiert `runtime/state.json`
+- schreibt `runtime/health.json`
 
 `tests/`
 - Unit-Tests fuer Controller
@@ -61,7 +73,7 @@ Damit beweist das System zweierlei:
 ### Wichtige interne Channels
 
 - `grid.active_power_kw`
-- `tariff.price_hour_00` bis `tariff.price_hour_23`
+- `tariff.current_price_ct_kwh`
 - `ems.lockout_grid`
 - `ems.lockout_spotmarket`
 - `system.health`
@@ -71,6 +83,7 @@ Damit beweist das System zweierlei:
 Die Naehe zu OpenEMS liegt im Denkmodell:
 
 - BACnet-Objekte werden intern als standardisierte Channels behandelt
+- externe Marktdaten werden auf dem IPC geholt und intern normalisiert
 - Entscheidungen liegen in separaten Controllern
 - der Zyklus ist deterministisch
 - lokaler Zustand wird persistiert
@@ -128,9 +141,22 @@ Passe zuerst `config.json` an.
 ```json
 "points": {
   "grid_active_power_kw": 300,
-  "spot_price_start_hour_instance": 1001,
+  "current_price_av": 1000,
   "grid_lockout_bv": 400,
   "spotmarket_lockout_bv": 401
+}
+```
+
+### Preisquelle
+
+```json
+"price_source": {
+  "provider": "smard",
+  "region": "DE-LU",
+  "filter": 4169,
+  "resolution": "quarterhour",
+  "timeout_seconds": 30,
+  "price_factor": 0.1
 }
 ```
 
@@ -144,8 +170,8 @@ Passe zuerst `config.json` an.
     "below_threshold_cycles_required": 3
   },
   "spotmarket_lockout": {
-    "negative_hours_min_consecutive": 4,
-    "min_valid_hours": 24,
+    "negative_quarters_min_consecutive": 8,
+    "min_valid_quarters": 96,
     "invalid_price_sentinel": null
   }
 }
@@ -153,8 +179,9 @@ Passe zuerst `config.json` an.
 
 Wichtig:
 
-- Preise werden als **24 Stundenwerte** behandelt.
-- `negative_hours_min_consecutive = 4` bedeutet vier zusammenhaengende negative Stunden.
+- Preise werden direkt auf dem IPC aus der API geholt.
+- Die Spotmarket-Entscheidung arbeitet direkt auf 96 Viertelstundenwerten.
+- `negative_quarters_min_consecutive = 8` bedeutet acht zusammenhaengende Viertelstunden, also 2 Stunden.
 - `-0.2` gilt als echter negativer Preis.
 - Nur wenn dein Controller einen echten Fehlerwert wie `-1.0` liefert, setzt du `invalid_price_sentinel` explizit darauf.
 
@@ -178,7 +205,8 @@ Jeder Zyklus laeuft in fester Reihenfolge:
 
 ### Spotmarket-Lockout
 
-- liest 24 Stundenpreise
+- holt Spotmarktpreise ueber die API
+- schreibt den aktuellen Preis auf `AV:1000`
 - validiert die Reihe
 - sucht den laengsten negativen Block
 - setzt Sperre nur, wenn der Block lang genug ist
@@ -206,15 +234,28 @@ Im Safe-Mode:
 - JSON-Logzeilen
 - pro Zyklus Status, Entscheidungen und Write-Ergebnisse
 
-### `state.json`
+### `runtime/state.json`
 
 - persistierter Controller- und Output-State
 - ueberlebt Neustarts
 
-### `health.json`
+### `runtime/health.json`
 
 - aktueller Health-Snapshot fuer Betrieb und BA-Nachweis
 - enthaelt Safe-Mode-Status, letzte erfolgreiche Zyklen und Output-Status
+- enthaelt eine `operator_message` fuer einfaches Verstaendnis
+
+### `data/spotmarket/spotmarket_price_cache.json`
+
+- lokaler Puffer fuer veroefentlichte Day-Ahead-Preise
+- heute und morgen als 96 Viertelstundenwerte
+
+### `data/spotmarket/spotmarket_tomorrow_windows.json`
+
+- uebersichtliche Liste negativer Preisfenster fuer morgen
+- gedacht fuer spaetere UI-Anzeige und einfache Fachpruefung
+- speichert getrennt 96 Viertelstundenwerte fuer `today` und `tomorrow`
+- dient als Grundlage fuer das Ueberschreiben von `AV:1000`
 
 ## Lokaler Start
 
@@ -263,7 +304,7 @@ Get-Service MiniEmsPoC
 ### A. Normalstart
 
 - `python mini_ems.py --once`
-- pruefen, dass `health.json` geschrieben wird
+- pruefen, dass `runtime/health.json` geschrieben wird
 - pruefen, dass keine fremden BVs geschrieben werden
 
 ### B. Grid-Lockout
@@ -285,7 +326,7 @@ Test:
 Wichtig:
 
 - der Zaehler lebt jetzt nicht mehr nur im RAM
-- er wird in `state.json` persistiert
+- er wird in `runtime/state.json` persistiert
 
 ### C. Spotmarket-Lockout
 
@@ -305,7 +346,7 @@ Test:
 
 1. Controller-IP in `config.json` absichtlich falsch setzen oder Controller kurz trennen
 2. `python mini_ems.py --once`
-3. `health.json` muss `safe_mode_active = true` zeigen
+3. `runtime/health.json` muss `safe_mode_active = true` zeigen
 4. beide Outputs muessen auf `OFF/OFF` fallen oder als nicht bestaetigt markiert bleiben, wenn Safe-Write selbst scheitert
 
 ### E. Prozessneustart
@@ -323,7 +364,7 @@ Wenn die Tests erfolgreich sind, ist gezeigt:
 
 1. Python auf dem IPC kann BACnet-Objekte lesen.
 2. Die Entscheidungslogik ist getrennt von der Kommunikation.
-3. Das System schreibt nur die zwei explizit erlaubten Outputs.
+3. Das System schreibt nur die explizit erlaubten Outputs.
 4. Outputs gelten erst nach bestaetigtem Write als lokal bestaetigt.
 5. Kommunikationsfehler fuehren in einen konservativen Safe-Mode.
 6. Das PoC ist technisch naeher an einer OpenEMS-artigen Edge-Logik als ein einzelnes Skript.

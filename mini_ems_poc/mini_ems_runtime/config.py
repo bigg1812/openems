@@ -17,7 +17,7 @@ class NetworkConfig:
 @dataclass(frozen=True)
 class PointsConfig:
     grid_active_power_kw: int
-    spot_price_start_hour_instance: int
+    current_price_av: int
     grid_lockout_bv: int
     spotmarket_lockout_bv: int
 
@@ -29,6 +29,16 @@ class TimingConfig:
 
 
 @dataclass(frozen=True)
+class PriceSourceConfig:
+    provider: str
+    region: str
+    filter: int
+    resolution: str
+    timeout_seconds: float
+    price_factor: float
+
+
+@dataclass(frozen=True)
 class GridLockoutConfig:
     threshold_kw: float
     clear_threshold_kw: float
@@ -37,8 +47,8 @@ class GridLockoutConfig:
 
 @dataclass(frozen=True)
 class SpotMarketLockoutConfig:
-    negative_hours_min_consecutive: int
-    min_valid_hours: int
+    negative_quarters_min_consecutive: int
+    min_valid_quarters: int
     invalid_price_sentinel: Optional[float]
 
 
@@ -60,6 +70,9 @@ class LoggingConfig:
     log_file: str
     state_file: str
     health_file: str
+    price_cache_file: str
+    spotmarket_plan_file: str
+    spotmarket_override_file: str
     level: str
     stdout: bool
 
@@ -70,6 +83,7 @@ class MiniEmsConfig:
     network: NetworkConfig
     points: PointsConfig
     timing: TimingConfig
+    price_source: PriceSourceConfig
     controllers: ControllersConfig
     safety: SafetyConfig
     logging: LoggingConfig
@@ -96,6 +110,18 @@ class MiniEmsConfig:
     def health_path(self) -> Path:
         return self.resolve_path(self.logging.health_file)
 
+    @property
+    def price_cache_path(self) -> Path:
+        return self.resolve_path(self.logging.price_cache_file)
+
+    @property
+    def spotmarket_plan_path(self) -> Path:
+        return self.resolve_path(self.logging.spotmarket_plan_file)
+
+    @property
+    def spotmarket_override_path(self) -> Path:
+        return self.resolve_path(self.logging.spotmarket_override_file)
+
 
 def load_config(path: Path) -> MiniEmsConfig:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -103,6 +129,7 @@ def load_config(path: Path) -> MiniEmsConfig:
     network = _require_dict(raw, "network")
     points = _require_dict(raw, "points")
     timing = _require_dict(raw, "timing")
+    price_source = _require_dict(raw, "price_source")
     controllers = _require_dict(raw, "controllers")
     grid_lockout = _require_dict(controllers, "grid_lockout")
     spotmarket_lockout = _require_dict(controllers, "spotmarket_lockout")
@@ -121,7 +148,7 @@ def load_config(path: Path) -> MiniEmsConfig:
         ),
         points=PointsConfig(
             grid_active_power_kw=int(points["grid_active_power_kw"]),
-            spot_price_start_hour_instance=int(points["spot_price_start_hour_instance"]),
+            current_price_av=int(points["current_price_av"]),
             grid_lockout_bv=int(points["grid_lockout_bv"]),
             spotmarket_lockout_bv=int(points["spotmarket_lockout_bv"]),
         ),
@@ -129,18 +156,36 @@ def load_config(path: Path) -> MiniEmsConfig:
             cycle_seconds=int(timing["cycle_seconds"]),
             inter_read_delay_seconds=float(timing["inter_read_delay_seconds"]),
         ),
-        controllers=ControllersConfig(
-            grid_lockout=GridLockoutConfig(
-                threshold_kw=float(grid_lockout["threshold_kw"]),
-                clear_threshold_kw=float(grid_lockout["clear_threshold_kw"]),
-                below_threshold_cycles_required=int(grid_lockout["below_threshold_cycles_required"]),
-            ),
-            spotmarket_lockout=SpotMarketLockoutConfig(
-                negative_hours_min_consecutive=int(spotmarket_lockout["negative_hours_min_consecutive"]),
-                min_valid_hours=int(spotmarket_lockout["min_valid_hours"]),
-                invalid_price_sentinel=_optional_float(spotmarket_lockout.get("invalid_price_sentinel")),
-            ),
+        price_source=PriceSourceConfig(
+            provider=str(price_source["provider"]).lower(),
+            region=str(price_source["region"]),
+            filter=int(price_source["filter"]),
+            resolution=str(price_source["resolution"]).lower(),
+            timeout_seconds=float(price_source["timeout_seconds"]),
+            price_factor=float(price_source["price_factor"]),
         ),
+            controllers=ControllersConfig(
+                grid_lockout=GridLockoutConfig(
+                    threshold_kw=float(grid_lockout["threshold_kw"]),
+                    clear_threshold_kw=float(grid_lockout["clear_threshold_kw"]),
+                    below_threshold_cycles_required=int(grid_lockout["below_threshold_cycles_required"]),
+                ),
+                spotmarket_lockout=SpotMarketLockoutConfig(
+                    negative_quarters_min_consecutive=int(
+                        spotmarket_lockout.get(
+                            "negative_quarters_min_consecutive",
+                            spotmarket_lockout.get("negative_hours_min_consecutive"),
+                        )
+                    ),
+                    min_valid_quarters=int(
+                        spotmarket_lockout.get(
+                            "min_valid_quarters",
+                            spotmarket_lockout.get("min_valid_hours"),
+                        )
+                    ),
+                    invalid_price_sentinel=_optional_float(spotmarket_lockout.get("invalid_price_sentinel")),
+                ),
+            ),
         safety=SafetyConfig(
             fail_safe_output=bool(safety["fail_safe_output"]),
             comm_error_safe_mode_threshold=int(safety["comm_error_safe_mode_threshold"]),
@@ -150,6 +195,9 @@ def load_config(path: Path) -> MiniEmsConfig:
             log_file=str(logging["log_file"]),
             state_file=str(logging["state_file"]),
             health_file=str(logging["health_file"]),
+            price_cache_file=str(logging["price_cache_file"]),
+            spotmarket_plan_file=str(logging.get("spotmarket_plan_file", "data/spotmarket/spotmarket_tomorrow_windows.json")),
+            spotmarket_override_file=str(logging.get("spotmarket_override_file", "data/spotmarket/spotmarket_manual_override.json")),
             level=str(logging["level"]).upper(),
             stdout=bool(logging["stdout"]),
         ),
@@ -184,17 +232,28 @@ def _validate_config(config: MiniEmsConfig) -> None:
         raise ValueError("cycle_seconds must be > 0")
     if config.timing.inter_read_delay_seconds < 0:
         raise ValueError("inter_read_delay_seconds must be >= 0")
+    if config.price_source.provider != "smard":
+        raise ValueError("provider must be 'smard'")
+    if config.price_source.resolution not in ("hour", "quarterhour"):
+        raise ValueError("resolution must be 'hour' or 'quarterhour'")
+    if config.price_source.timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be > 0")
+    if config.price_source.price_factor <= 0:
+        raise ValueError("price_factor must be > 0")
     if config.controllers.grid_lockout.threshold_kw <= 0:
         raise ValueError("threshold_kw must be > 0")
     if config.controllers.grid_lockout.clear_threshold_kw < config.controllers.grid_lockout.threshold_kw:
         raise ValueError("clear_threshold_kw must be >= threshold_kw")
     if config.controllers.grid_lockout.below_threshold_cycles_required <= 0:
         raise ValueError("below_threshold_cycles_required must be > 0")
-    if config.controllers.spotmarket_lockout.negative_hours_min_consecutive <= 0:
-        raise ValueError("negative_hours_min_consecutive must be > 0")
-    if config.controllers.spotmarket_lockout.min_valid_hours <= 0:
-        raise ValueError("min_valid_hours must be > 0")
-    if config.controllers.spotmarket_lockout.min_valid_hours > 24:
-        raise ValueError("min_valid_hours must be <= 24")
+    if config.controllers.spotmarket_lockout.negative_quarters_min_consecutive <= 0:
+        raise ValueError("negative_quarters_min_consecutive must be > 0")
+    if config.controllers.spotmarket_lockout.min_valid_quarters <= 0:
+        raise ValueError("min_valid_quarters must be > 0")
+    if config.price_source.resolution == "quarterhour":
+        if config.controllers.spotmarket_lockout.min_valid_quarters > 96:
+            raise ValueError("min_valid_quarters must be <= 96 for quarterhour resolution")
+    elif config.controllers.spotmarket_lockout.min_valid_quarters > 24:
+        raise ValueError("min_valid_quarters must be <= 24 for hourly resolution")
     if config.safety.comm_error_safe_mode_threshold <= 0:
         raise ValueError("comm_error_safe_mode_threshold must be > 0")

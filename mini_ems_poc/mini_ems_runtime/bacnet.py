@@ -4,11 +4,12 @@ import struct
 import time
 from typing import Optional
 
-from .channels import BACNET_BV, PointConfig
+from .channels import BACNET_AV, BACNET_BV, PointConfig
 from .config import NetworkConfig
 from .logging_utils import log_event
 
 PROP_PRESENT_VALUE = 85
+WRITE_PRIORITY = 14
 
 
 class BacnetError(Exception):
@@ -73,17 +74,24 @@ class BacnetAdapter:
             raise BacnetPermissionError("Write access denied for channel {0}".format(point.channel_id))
         if point.object_type != BACNET_BV:
             raise BacnetPermissionError("Write target is not a Binary Value: {0}".format(point.channel_id))
+        self._write_with_ack(point.channel_id, value, _build_write_packet_bool(point.instance, value))
 
+    def write_float(self, point: PointConfig, value: float) -> None:
+        if not point.can_write():
+            raise BacnetPermissionError("Write access denied for channel {0}".format(point.channel_id))
+        if point.object_type != BACNET_AV:
+            raise BacnetPermissionError("Write target is not an Analog Value: {0}".format(point.channel_id))
+        self._write_with_ack(point.channel_id, value, _build_write_packet_float(point.instance, value))
+
+    def _write_with_ack(self, channel_id: str, desired_value: object, payload: bytes) -> None:
         last_error = None
-        raw_value = 1.0 if value else 0.0
         for attempt in range(1, self.network.retries + 2):
             try:
-                payload = _build_write_packet_float(point.object_type, point.instance, raw_value)
                 self.sock.sendto(payload, (self.network.controller_ip, self.network.controller_port))
                 response = self._receive_expected()
                 if not _is_simple_ack(response):
                     raise BacnetProtocolError(
-                        "No BACnet SimpleACK returned for channel {0}".format(point.channel_id)
+                        "No BACnet SimpleACK returned for channel {0}".format(channel_id)
                     )
                 return
             except (OSError, BacnetError) as error:
@@ -92,13 +100,13 @@ class BacnetAdapter:
                     self.logger,
                     logging.WARNING,
                     "bacnet.write_retry",
-                    channel_id=point.channel_id,
+                    channel_id=channel_id,
                     attempt=attempt,
-                    desired_value=value,
+                    desired_value=desired_value,
                     error=str(error),
                 )
         raise BacnetCommunicationError(
-            "Failed to write {0}: {1}".format(point.channel_id, last_error)
+            "Failed to write {0}: {1}".format(channel_id, last_error)
         )
 
     def _open_socket(self) -> socket.socket:
@@ -162,14 +170,27 @@ def _build_read_packet(object_type: int, instance: int) -> bytes:
     return bvlc + npdu + bytes(apdu)
 
 
-def _build_write_packet_float(object_type: int, instance: int, value: float) -> bytes:
+def _build_write_packet_float(instance: int, value: float) -> bytes:
     apdu = bytearray([0x00, 0x04, 0x02, 0x0F])
     apdu.append(0x0C)
-    apdu.extend(struct.pack(">I", (object_type << 22) | instance))
+    apdu.extend(struct.pack(">I", (BACNET_AV << 22) | instance))
     apdu.extend([0x19, PROP_PRESENT_VALUE])
     apdu.extend([0x3E, 0x44])
     apdu.extend(struct.pack(">f", value))
-    apdu.extend([0x3F, 0x49, 14])
+    apdu.extend([0x3F, 0x49, WRITE_PRIORITY])
+    npdu = bytes([0x01, 0x04])
+    bvlc = bytes([0x81, 0x0A]) + struct.pack(">H", 4 + len(npdu) + len(apdu))
+    return bvlc + npdu + bytes(apdu)
+
+
+def _build_write_packet_bool(instance: int, value: bool) -> bytes:
+    apdu = bytearray([0x00, 0x04, 0x02, 0x0F])
+    apdu.append(0x0C)
+    apdu.extend(struct.pack(">I", (BACNET_BV << 22) | instance))
+    apdu.extend([0x19, PROP_PRESENT_VALUE])
+    apdu.append(0x3E)
+    apdu.extend([0x91, 0x01 if value else 0x00])
+    apdu.extend([0x3F, 0x49, WRITE_PRIORITY])
     npdu = bytes([0x01, 0x04])
     bvlc = bytes([0x81, 0x0A]) + struct.pack(">H", 4 + len(npdu) + len(apdu))
     return bvlc + npdu + bytes(apdu)
@@ -180,7 +201,7 @@ def _parse_float_response(data: bytes) -> Optional[float]:
         return None
     for index in range(len(data) - 6):
         if data[index] == 0x3E and data[index + 1] == 0x44 and data[index + 6] == 0x3F:
-            return round(struct.unpack(">f", data[index + 2:index + 6])[0], 2)
+            return round(struct.unpack(">f", data[index + 2:index + 6])[0], 4)
     return None
 
 

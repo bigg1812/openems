@@ -1,17 +1,14 @@
 import logging
-import time
-from typing import Dict, List, Optional
+from typing import Dict
 
-from .bacnet import BacnetAdapter, BacnetCommunicationError, BacnetError
-from .channels import (
-    GRID_ACTIVE_POWER_CHANNEL,
-    GRID_LOCKOUT_CHANNEL,
-    SPOTMARKET_LOCKOUT_CHANNEL,
-    ChannelRegistry,
-)
+from .bacnet import BacnetAdapter, BacnetError
+from .channels import BACNET_BV, CURRENT_PRICE_CHANNEL, SPOTMARKET_LOCKOUT_CHANNEL, ChannelRegistry
 from .config import MiniEmsConfig
-from .controllers import GridLockoutController, SpotMarketLockoutController
 from .logging_utils import log_event, utcnow_iso
+from .operator_status import build_operator_message
+from .price_cache import PublishedPriceSnapshot, SpotmarketPriceCacheService
+from .price_provider_smard import PriceProviderError
+from .spotmarket_plan import SpotmarketManualOverrideStore, SpotmarketPlanWriter
 from .state_store import StateStore, write_json_atomic
 
 
@@ -23,15 +20,19 @@ class CycleRunner:
         adapter: BacnetAdapter,
         state_store: StateStore,
         logger: logging.Logger,
+        price_service: SpotmarketPriceCacheService,
+        spotmarket_plan_writer: SpotmarketPlanWriter,
+        spotmarket_override_store: SpotmarketManualOverrideStore,
     ):
         self.config = config
         self.registry = registry
         self.adapter = adapter
         self.state_store = state_store
         self.logger = logger
+        self.price_service = price_service
+        self.spotmarket_plan_writer = spotmarket_plan_writer
+        self.spotmarket_override_store = spotmarket_override_store
         self.state = state_store.load()
-        self.grid_controller = GridLockoutController(config.controllers.grid_lockout)
-        self.spotmarket_controller = SpotMarketLockoutController(config.controllers.spotmarket_lockout)
         if not self.state.health.safe_mode_active:
             self.state.health.safe_mode_active = True
             self.state.health.safe_mode_reason = "startup_validation"
@@ -51,75 +52,69 @@ class CycleRunner:
             safe_mode_reason=self.state.health.safe_mode_reason,
         )
 
-        readings, read_errors = self._read_inputs(cycle_id)
-        if read_errors:
+        try:
+            price_snapshot = self.price_service.refresh()
+        except PriceProviderError as error:
             self.state.health.consecutive_comm_errors += 1
-        else:
-            self.state.health.consecutive_comm_errors = 0
-
-        grid_outcome = self.grid_controller.evaluate(
-            readings.get(GRID_ACTIVE_POWER_CHANNEL),
-            self.state.grid_lockout,
-        )
-        prices = [readings.get(channel_id) for channel_id in self.registry.price_channel_ids()]
-        spot_outcome = self.spotmarket_controller.evaluate(prices, self.state.spotmarket_lockout)
-
-        controller_outcomes = {
-            "grid_lockout": grid_outcome.to_dict(),
-            "spotmarket_lockout": spot_outcome.to_dict(),
-        }
-
-        unhealthy_reasons = list(read_errors)
-        if (
-            read_errors
-            and self.state.health.consecutive_comm_errors >= self.config.safety.comm_error_safe_mode_threshold
-        ):
-            unhealthy_reasons.append(
-                "comm_error_threshold_reached:{0}".format(self.state.health.consecutive_comm_errors)
-            )
-        for outcome in (grid_outcome, spot_outcome):
-            if not outcome.valid or outcome.safe_mode_required:
-                unhealthy_reasons.append(outcome.reason)
-
-        if unhealthy_reasons:
             snapshot = self._handle_unhealthy_cycle(
                 cycle_id=cycle_id,
                 timestamp=timestamp,
-                reason="; ".join(unhealthy_reasons),
-                controller_outcomes=controller_outcomes,
-                read_errors=read_errors,
+                reason="price_provider: {0}".format(error),
+                price_snapshot=None,
+                desired_outputs={},
+                write_results={},
             )
             self._persist(snapshot)
             return snapshot
 
+        spotmarket_plan = self.spotmarket_plan_writer.write_plan(
+            generated_at=price_snapshot.last_update_at,
+            today_date_iso=price_snapshot.today_date_iso,
+            today_slots=price_snapshot.today_slots,
+            tomorrow_date_iso=price_snapshot.tomorrow_date_iso,
+            tomorrow_slots=price_snapshot.tomorrow_slots,
+            current_slot_index=price_snapshot.current_slot_index,
+        )
+        manual_override = self.spotmarket_override_store.load_for_date(price_snapshot.today_date_iso)
+        spotmarket_active_now = manual_override.active_now(price_snapshot.current_slot_index) if manual_override.enabled else bool(spotmarket_plan["active_today_now"])
+        spotmarket_next_window = (
+            manual_override.next_window(price_snapshot.current_slot_index).to_dict()
+            if manual_override.enabled and manual_override.next_window(price_snapshot.current_slot_index) is not None
+            else spotmarket_plan["next_today_window"]
+        )
+        spotmarket_source = "manual_override" if manual_override.enabled else "computed_plan"
+
         desired_outputs = {
-            GRID_LOCKOUT_CHANNEL: bool(grid_outcome.desired_value),
-            SPOTMARKET_LOCKOUT_CHANNEL: bool(spot_outcome.desired_value),
+            CURRENT_PRICE_CHANNEL: float(price_snapshot.current_price_ct_kwh),
+            SPOTMARKET_LOCKOUT_CHANNEL: bool(spotmarket_active_now),
         }
 
         try:
             write_results = self._apply_outputs(desired_outputs, cycle_id, timestamp)
         except BacnetError as error:
             self.state.health.consecutive_comm_errors += 1
-            reason = "write_failure: {0}".format(error)
-            if self.state.health.consecutive_comm_errors >= self.config.safety.comm_error_safe_mode_threshold:
-                reason = "{0}; comm_error_threshold_reached:{1}".format(
-                    reason,
-                    self.state.health.consecutive_comm_errors,
-                )
             snapshot = self._handle_unhealthy_cycle(
                 cycle_id=cycle_id,
                 timestamp=timestamp,
-                reason=reason,
-                controller_outcomes=controller_outcomes,
-                read_errors=read_errors,
+                reason="write_failure: {0}".format(error),
+                price_snapshot=price_snapshot,
+                desired_outputs=desired_outputs,
+                write_results={
+                    CURRENT_PRICE_CHANNEL: {
+                        "changed": True,
+                        "confirmed_value": None,
+                        "error": str(error),
+                        "desired_value": desired_outputs[CURRENT_PRICE_CHANNEL],
+                    }
+                },
             )
             self._persist(snapshot)
             return snapshot
 
+        self.state.health.consecutive_comm_errors = 0
         self.state.health.safe_mode_active = False
         self.state.health.safe_mode_reason = None
-        self.state.health.safe_outputs_confirmed = False
+        self.state.health.safe_outputs_confirmed = True
         self.state.health.last_healthy_cycle_id = cycle_id
         self.state.health.last_healthy_at = timestamp
 
@@ -127,14 +122,40 @@ class CycleRunner:
             "timestamp": timestamp,
             "cycle_id": cycle_id,
             "status": "healthy",
-            "safe_mode_active": self.state.health.safe_mode_active,
-            "safe_mode_reason": self.state.health.safe_mode_reason,
+            "safe_mode_active": False,
+            "safe_mode_reason": None,
             "consecutive_comm_errors": self.state.health.consecutive_comm_errors,
-            "read_errors": read_errors,
-            "controller_outcomes": controller_outcomes,
             "desired_outputs": desired_outputs,
             "write_results": write_results,
             "outputs": self._outputs_snapshot(),
+            "price_cache_path": price_snapshot.cache_path,
+            "price_cache_last_update_at": price_snapshot.last_update_at,
+            "spotmarket_plan_path": str(self.spotmarket_plan_writer.path),
+            "spotmarket_override_path": str(self.spotmarket_override_store.path),
+            "spotmarket_active_now": spotmarket_active_now,
+            "spotmarket_source": spotmarket_source,
+            "spotmarket_today_window_count": spotmarket_plan["today"]["window_count"],
+            "spotmarket_tomorrow_window_count": spotmarket_plan["tomorrow"]["window_count"],
+            "spotmarket_next_window": spotmarket_next_window,
+            "spotmarket_override": manual_override.to_dict(),
+            "spotmarket_summary": spotmarket_plan["operator_summary"],
+            "price_source_status": price_snapshot.price_source_status,
+            "today_date": price_snapshot.today_date_iso,
+            "today_available_slot_count": price_snapshot.today_available_slot_count,
+            "tomorrow_date": price_snapshot.tomorrow_date_iso,
+            "tomorrow_prices_available": price_snapshot.tomorrow_prices_available,
+            "tomorrow_available_slot_count": price_snapshot.tomorrow_available_slot_count,
+            "current_slot_index": price_snapshot.current_slot_index,
+            "current_slot_label": price_snapshot.current_slot_label,
+            "current_price_ct_kwh": price_snapshot.current_price_ct_kwh,
+            "operator_message": build_operator_message(
+                price_snapshot.current_price_ct_kwh,
+                price_snapshot.current_slot_label,
+                price_snapshot.today_date_iso,
+                price_snapshot.tomorrow_prices_available,
+                False,
+                None,
+            ),
         }
         log_event(
             self.logger,
@@ -143,35 +164,21 @@ class CycleRunner:
             cycle_id=cycle_id,
             desired_outputs=desired_outputs,
             write_results=write_results,
+            today_date=price_snapshot.today_date_iso,
+            today_available_slot_count=price_snapshot.today_available_slot_count,
+            tomorrow_prices_available=price_snapshot.tomorrow_prices_available,
+            tomorrow_available_slot_count=price_snapshot.tomorrow_available_slot_count,
+            spotmarket_active_now=spotmarket_active_now,
+            spotmarket_source=spotmarket_source,
+            spotmarket_today_window_count=spotmarket_plan["today"]["window_count"],
+            spotmarket_tomorrow_window_count=spotmarket_plan["tomorrow"]["window_count"],
+            price_source_status=price_snapshot.price_source_status,
+            current_slot_label=price_snapshot.current_slot_label,
         )
         self._persist(snapshot)
         return snapshot
 
-    def _read_inputs(self, cycle_id: str) -> (Dict[str, Optional[float]], List[str]):
-        readings: Dict[str, Optional[float]] = {}
-        errors: List[str] = []
-
-        for channel_id in [GRID_ACTIVE_POWER_CHANNEL] + self.registry.price_channel_ids():
-            point = self.registry.get(channel_id)
-            try:
-                readings[channel_id] = self.adapter.read_float(point)
-            except BacnetCommunicationError as error:
-                readings[channel_id] = None
-                message = "{0}: {1}".format(channel_id, error)
-                errors.append(message)
-                log_event(
-                    self.logger,
-                    logging.ERROR,
-                    "cycle.read_failed",
-                    cycle_id=cycle_id,
-                    channel_id=channel_id,
-                    error=str(error),
-                )
-            if channel_id != self.registry.price_channel_ids()[-1] and self.config.timing.inter_read_delay_seconds > 0:
-                time.sleep(self.config.timing.inter_read_delay_seconds)
-        return readings, errors
-
-    def _apply_outputs(self, desired_outputs: Dict[str, bool], cycle_id: str, timestamp: str) -> Dict[str, object]:
+    def _apply_outputs(self, desired_outputs: Dict[str, object], cycle_id: str, timestamp: str) -> Dict[str, object]:
         results: Dict[str, object] = {}
         for channel_id, desired_value in desired_outputs.items():
             output_state = self.state.outputs[channel_id]
@@ -185,7 +192,10 @@ class CycleRunner:
                 continue
 
             point = self.registry.get(channel_id)
-            self.adapter.write_bool(point, desired_value)
+            if point.object_type == BACNET_BV:
+                self.adapter.write_bool(point, bool(desired_value))
+            else:
+                self.adapter.write_float(point, float(desired_value))
             output_state.value = desired_value
             output_state.is_confirmed = True
             output_state.last_confirmed_at = timestamp
@@ -210,28 +220,57 @@ class CycleRunner:
         cycle_id: str,
         timestamp: str,
         reason: str,
-        controller_outcomes: Dict[str, object],
-        read_errors: List[str],
+        price_snapshot: PublishedPriceSnapshot | None,
+        desired_outputs: Dict[str, object],
+        write_results: Dict[str, object],
     ) -> Dict[str, object]:
         self.state.health.safe_mode_active = True
         self.state.health.safe_mode_reason = reason
+        self.state.health.safe_outputs_confirmed = False
 
-        safe_write_results = self._enforce_safe_outputs(cycle_id, timestamp)
+        current_price = price_snapshot.current_price_ct_kwh if price_snapshot is not None else 0.0
+        current_slot_label = price_snapshot.current_slot_label if price_snapshot is not None else "--:--"
+        today_date = price_snapshot.today_date_iso if price_snapshot is not None else "unknown"
+        tomorrow_prices_available = price_snapshot.tomorrow_prices_available if price_snapshot is not None else False
+
         snapshot = {
             "timestamp": timestamp,
             "cycle_id": cycle_id,
             "status": "safe_mode",
-            "safe_mode_active": self.state.health.safe_mode_active,
-            "safe_mode_reason": self.state.health.safe_mode_reason,
+            "safe_mode_active": True,
+            "safe_mode_reason": reason,
             "consecutive_comm_errors": self.state.health.consecutive_comm_errors,
-            "read_errors": read_errors,
-            "controller_outcomes": controller_outcomes,
-            "desired_outputs": {
-                GRID_LOCKOUT_CHANNEL: self.config.safety.fail_safe_output,
-                SPOTMARKET_LOCKOUT_CHANNEL: self.config.safety.fail_safe_output,
-            },
-            "write_results": safe_write_results,
+            "desired_outputs": desired_outputs,
+            "write_results": write_results,
             "outputs": self._outputs_snapshot(),
+            "price_cache_path": price_snapshot.cache_path if price_snapshot is not None else None,
+            "price_cache_last_update_at": price_snapshot.last_update_at if price_snapshot is not None else None,
+            "spotmarket_plan_path": str(self.spotmarket_plan_writer.path),
+            "spotmarket_override_path": str(self.spotmarket_override_store.path),
+            "price_source_status": price_snapshot.price_source_status if price_snapshot is not None else {},
+            "today_date": today_date,
+            "today_available_slot_count": price_snapshot.today_available_slot_count if price_snapshot is not None else 0,
+            "tomorrow_date": price_snapshot.tomorrow_date_iso if price_snapshot is not None else None,
+            "tomorrow_prices_available": tomorrow_prices_available,
+            "tomorrow_available_slot_count": price_snapshot.tomorrow_available_slot_count if price_snapshot is not None else 0,
+            "current_slot_index": price_snapshot.current_slot_index if price_snapshot is not None else None,
+            "current_slot_label": current_slot_label,
+            "current_price_ct_kwh": current_price,
+            "spotmarket_active_now": None,
+            "spotmarket_source": None,
+            "spotmarket_today_window_count": None,
+            "spotmarket_tomorrow_window_count": None,
+            "spotmarket_next_window": None,
+            "spotmarket_override": None,
+            "spotmarket_summary": None,
+            "operator_message": build_operator_message(
+                current_price,
+                current_slot_label,
+                today_date,
+                tomorrow_prices_available,
+                True,
+                reason,
+            ),
         }
         log_event(
             self.logger,
@@ -239,56 +278,8 @@ class CycleRunner:
             "cycle.safe_mode",
             cycle_id=cycle_id,
             reason=reason,
-            safe_write_results=safe_write_results,
         )
         return snapshot
-
-    def _enforce_safe_outputs(self, cycle_id: str, timestamp: str) -> Dict[str, object]:
-        safe_value = bool(self.config.safety.fail_safe_output)
-        results: Dict[str, object] = {}
-        all_confirmed = True
-
-        for channel_id in self.registry.output_channel_ids():
-            output_state = self.state.outputs[channel_id]
-            needs_write = (not output_state.is_confirmed) or output_state.value != safe_value
-            if not needs_write:
-                results[channel_id] = {
-                    "changed": False,
-                    "confirmed_value": output_state.value,
-                    "last_confirmed_at": output_state.last_confirmed_at,
-                }
-                continue
-            try:
-                self.adapter.write_bool(self.registry.get(channel_id), safe_value)
-                output_state.value = safe_value
-                output_state.is_confirmed = True
-                output_state.last_confirmed_at = timestamp
-                output_state.last_error = None
-                results[channel_id] = {
-                    "changed": True,
-                    "confirmed_value": safe_value,
-                    "last_confirmed_at": timestamp,
-                }
-            except BacnetError as error:
-                all_confirmed = False
-                output_state.last_error = str(error)
-                results[channel_id] = {
-                    "changed": True,
-                    "error": str(error),
-                }
-                log_event(
-                    self.logger,
-                    logging.ERROR,
-                    "cycle.safe_output_failed",
-                    cycle_id=cycle_id,
-                    channel_id=channel_id,
-                    error=str(error),
-                )
-        self.state.health.safe_outputs_confirmed = all_confirmed and all(
-            output.value == safe_value and output.is_confirmed
-            for output in self.state.outputs.values()
-        )
-        return results
 
     def _outputs_snapshot(self) -> Dict[str, object]:
         return {

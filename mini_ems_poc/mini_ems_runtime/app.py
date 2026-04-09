@@ -8,6 +8,9 @@ from .channels import ChannelRegistry
 from .config import load_config
 from .cycle import CycleRunner
 from .logging_utils import log_event, setup_logging
+from .price_cache import SpotmarketPriceCacheService
+from .price_provider_smard import SmardPriceProvider
+from .spotmarket_plan import SpotmarketManualOverrideStore, SpotmarketPlanWriter
 from .state_store import StateStore
 
 
@@ -30,6 +33,18 @@ def main() -> int:
         adapter=adapter,
         state_store=state_store,
         logger=logger,
+        price_service=SpotmarketPriceCacheService(
+            config.price_cache_path,
+            SmardPriceProvider(config.price_source),
+        ),
+        spotmarket_plan_writer=SpotmarketPlanWriter(
+            config.spotmarket_plan_path,
+            negative_threshold_ct_kwh=0.0,
+            min_consecutive_quarters=config.controllers.spotmarket_lockout.negative_quarters_min_consecutive,
+        ),
+        spotmarket_override_store=SpotmarketManualOverrideStore(
+            config.spotmarket_override_path,
+        ),
     )
 
     log_event(

@@ -1,21 +1,29 @@
 {
   "network": {
-    "controller_ip": "192.168.1.100",
+    "controller_ip": "192.168.244.30",
     "controller_port": 47808,
-    "local_ip": "192.168.1.50",
+    "local_ip": "192.168.244.10",
     "local_port": 47809,
-    "response_timeout_seconds": 2.0,
+    "response_timeout_seconds": 5.0,
     "retries": 1
   },
   "points": {
     "grid_active_power_kw": 300,
-    "spot_price_start_hour_instance": 1001,
+    "current_price_av": 1000,
     "grid_lockout_bv": 400,
     "spotmarket_lockout_bv": 401
   },
   "timing": {
     "cycle_seconds": 60,
     "inter_read_delay_seconds": 0.05
+  },
+  "price_source": {
+  "provider": "smard",
+  "region": "DE-LU",
+  "filter": 4169,
+  "resolution": "quarterhour",
+  "timeout_seconds": 30,
+  "price_factor": 0.1
   },
   "controllers": {
     "grid_lockout": {
@@ -24,8 +32,8 @@
       "below_threshold_cycles_required": 3
     },
     "spotmarket_lockout": {
-      "negative_hours_min_consecutive": 4,
-      "min_valid_hours": 24,
+      "negative_quarters_min_consecutive": 8,
+      "min_valid_quarters": 96,
       "invalid_price_sentinel": null
     }
   },
@@ -36,8 +44,11 @@
   "logging": {
     "directory": "logs",
     "log_file": "mini_ems.log",
-    "state_file": "state.json",
-    "health_file": "health.json",
+    "state_file": "runtime/state.json",
+    "health_file": "runtime/health.json",
+    "price_cache_file": "data/spotmarket/spotmarket_price_cache.json",
+    "spotmarket_plan_file": "data/spotmarket/spotmarket_tomorrow_windows.json",
+    "spotmarket_override_file": "data/spotmarket/spotmarket_manual_override.json",
     "level": "INFO",
     "stdout": true
   }

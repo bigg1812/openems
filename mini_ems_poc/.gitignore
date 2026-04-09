@@ -1,5 +1,5 @@
 __pycache__/
 logs/
 *.pyc
-health.json
-state.json
+runtime/*.json
+data/spotmarket/*.json

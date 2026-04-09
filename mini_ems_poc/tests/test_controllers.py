@@ -59,33 +59,33 @@ class SpotMarketLockoutControllerTest(unittest.TestCase):
     def setUp(self) -> None:
         self.controller = SpotMarketLockoutController(
             SpotMarketLockoutConfig(
-                negative_hours_min_consecutive=4,
-                min_valid_hours=24,
+                negative_quarters_min_consecutive=8,
+                min_valid_quarters=96,
                 invalid_price_sentinel=None,
             )
         )
 
     def test_negative_prices_activate_lockout(self) -> None:
-        prices = [12.0, 11.0, 10.0, -0.5, -1.2, -2.1, -0.4] + [5.0] * 17
+        prices = [12.0] * 20 + [-0.5] * 8 + [5.0] * (96 - 28)
         state = SpotMarketLockoutState()
 
         outcome = self.controller.evaluate(prices, state)
 
         self.assertTrue(outcome.desired_value)
         self.assertEqual(state.mode, "lockout_active")
-        self.assertEqual(state.longest_negative_block, 4)
+        self.assertEqual(state.longest_negative_block_quarters, 8)
 
     def test_small_negative_prices_are_still_negative(self) -> None:
-        prices = [-0.2, -0.2, -0.2, -0.2] + [3.0] * 20
+        prices = [-0.2] * 8 + [3.0] * (96 - 8)
         state = SpotMarketLockoutState()
 
         outcome = self.controller.evaluate(prices, state)
 
         self.assertTrue(outcome.desired_value)
-        self.assertIn(0, outcome.metrics["negative_hours"])
+        self.assertIn(0, outcome.metrics["negative_quarters"])
 
     def test_incomplete_price_series_triggers_safe_mode(self) -> None:
-        prices = [1.0] * 22 + [None, None]
+        prices = [1.0] * 94 + [None, None]
         state = SpotMarketLockoutState()
 
         outcome = self.controller.evaluate(prices, state)
