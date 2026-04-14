@@ -1,7 +1,9 @@
+import json
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
+from urllib import error, request
 
 from .config import PriceSourceConfig
 
@@ -306,15 +308,20 @@ class SmardPriceProvider:
 
     def _get_json(self, url: str) -> Dict[str, object]:
         try:
-            import requests
-        except ModuleNotFoundError as error:
-            raise PriceProviderError("requests package is not installed") from error
+            http_request = request.Request(url, headers={"User-Agent": "MiniEmsPoC/1.0"})
+            with request.urlopen(http_request, timeout=self.config.timeout_seconds) as response:
+                raw_payload = response.read()
+                charset = response.headers.get_content_charset() or "utf-8"
+        except error.HTTPError as exc:
+            raise PriceProviderError("SMARD request failed with HTTP {0}".format(exc.code)) from exc
+        except (error.URLError, TimeoutError, OSError) as exc:
+            raise PriceProviderError(str(exc)) from exc
+
         try:
-            response = requests.get(url, timeout=self.config.timeout_seconds)
-            response.raise_for_status()
-        except requests.RequestException as error:
-            raise PriceProviderError(str(error)) from error
-        payload = response.json()
+            payload = json.loads(raw_payload.decode(charset))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise PriceProviderError("SMARD JSON payload has unexpected structure") from exc
+
         if not isinstance(payload, dict):
             raise PriceProviderError("SMARD JSON payload has unexpected structure")
         return payload

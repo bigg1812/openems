@@ -13,17 +13,30 @@
     "grid_lockout_bv": 400,
     "spotmarket_lockout_bv": 401
   },
+  "additional_inputs": [
+    {
+      "channel_id": "site.outdoor_temperature_c",
+      "object_type": "ai",
+      "instance": 1801,
+      "controller_ip": "192.168.244.40",
+      "controller_port": 47808,
+      "description": "Outdoor air temperature in degC",
+      "plausible_min": -50.0,
+      "plausible_max": 60.0,
+      "include_in_health": true
+    }
+  ],
   "timing": {
     "cycle_seconds": 60,
     "inter_read_delay_seconds": 0.05
   },
   "price_source": {
-  "provider": "smard",
-  "region": "DE-LU",
-  "filter": 4169,
-  "resolution": "quarterhour",
-  "timeout_seconds": 30,
-  "price_factor": 0.1
+    "provider": "smard",
+    "region": "DE-LU",
+    "filter": 4169,
+    "resolution": "quarterhour",
+    "timeout_seconds": 30,
+    "price_factor": 0.1
   },
   "controllers": {
     "grid_lockout": {
@@ -40,6 +53,29 @@
   "safety": {
     "fail_safe_output": false,
     "comm_error_safe_mode_threshold": 2
+  },
+  "outputs": {
+    "current_price": {
+      "confirmation_mode": "ack_or_readback",
+      "criticality": "noncritical"
+    },
+    "grid_lockout": {
+      "confirmation_mode": "ack_only",
+      "criticality": "critical"
+    },
+    "spotmarket_lockout": {
+      "confirmation_mode": "ack_only",
+      "criticality": "critical"
+    }
+  },
+  "database": {
+    "sqlite_file": "data/runtime/mini_ems.sqlite"
+  },
+  "api": {
+    "enabled": true,
+    "host": "192.168.244.10",
+    "port": 8090,
+    "history_default_limit": 96
   },
   "logging": {
     "directory": "logs",

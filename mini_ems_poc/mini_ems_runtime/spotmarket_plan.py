@@ -1,4 +1,5 @@
 import json
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
@@ -98,7 +99,19 @@ class SpotmarketPlanWriter:
     def __init__(self, path: Path, negative_threshold_ct_kwh: float, min_consecutive_quarters: int):
         self.path = Path(path)
         self.negative_threshold_ct_kwh = float(negative_threshold_ct_kwh)
-        self.min_consecutive_quarters = int(min_consecutive_quarters)
+        self._lock = threading.RLock()
+        self.min_consecutive_quarters = self._validate_min_consecutive_quarters(min_consecutive_quarters)
+
+    def set_min_consecutive_quarters(self, value: int) -> None:
+        with self._lock:
+            self.min_consecutive_quarters = self._validate_min_consecutive_quarters(value)
+
+    def settings_payload(self) -> Dict[str, object]:
+        with self._lock:
+            return {
+                "min_consecutive_quarters": self.min_consecutive_quarters,
+                "min_consecutive_hours": self.min_consecutive_quarters / 4.0,
+            }
 
     def write_plan(
         self,
@@ -109,31 +122,32 @@ class SpotmarketPlanWriter:
         tomorrow_slots: Sequence[Optional[float]],
         current_slot_index: int,
     ) -> Dict[str, object]:
-        today_windows = self._find_windows(today_slots)
-        tomorrow_windows = self._find_windows(tomorrow_slots)
-        active_today = self.is_slot_active(current_slot_index, today_windows)
-        next_today_window = self._next_window(current_slot_index, today_windows)
+        with self._lock:
+            today_windows = self._find_windows(today_slots)
+            tomorrow_windows = self._find_windows(tomorrow_slots)
+            active_today = self.is_slot_active(current_slot_index, today_windows)
+            next_today_window = self._next_window(current_slot_index, today_windows)
 
-        payload = {
-            "generated_at": generated_at,
-            "plan_type": "spotmarket_windows",
-            "source_resolution": "quarterhour",
-            "negative_threshold_ct_kwh": self.negative_threshold_ct_kwh,
-            "min_consecutive_quarters": self.min_consecutive_quarters,
-            "active_today_now": active_today,
-            "next_today_window": next_today_window.to_dict() if next_today_window is not None else None,
-            "today": self._day_payload(today_date_iso, today_slots, today_windows),
-            "tomorrow": self._day_payload(tomorrow_date_iso, tomorrow_slots, tomorrow_windows),
-            "operator_summary": self._build_operator_summary(
-                today_date_iso,
-                today_windows,
-                tomorrow_date_iso,
-                tomorrow_windows,
-                active_today,
-            ),
-        }
-        write_json_atomic(self.path, payload)
-        return payload
+            payload = {
+                "generated_at": generated_at,
+                "plan_type": "spotmarket_windows",
+                "source_resolution": "quarterhour",
+                "negative_threshold_ct_kwh": self.negative_threshold_ct_kwh,
+                "min_consecutive_quarters": self.min_consecutive_quarters,
+                "active_today_now": active_today,
+                "next_today_window": next_today_window.to_dict() if next_today_window is not None else None,
+                "today": self._day_payload(today_date_iso, today_slots, today_windows),
+                "tomorrow": self._day_payload(tomorrow_date_iso, tomorrow_slots, tomorrow_windows),
+                "operator_summary": self._build_operator_summary(
+                    today_date_iso,
+                    today_windows,
+                    tomorrow_date_iso,
+                    tomorrow_windows,
+                    active_today,
+                ),
+            }
+            write_json_atomic(self.path, payload)
+            return payload
 
     def is_slot_active(self, slot_index: int, windows: Sequence[SpotmarketWindow]) -> bool:
         for window in windows:
@@ -230,6 +244,13 @@ class SpotmarketPlanWriter:
             date_iso,
             ", ".join("{0}-{1}".format(window.start_label, window.end_label_exclusive) for window in windows),
         )
+
+    @staticmethod
+    def _validate_min_consecutive_quarters(value: int) -> int:
+        parsed = int(value)
+        if parsed <= 0:
+            raise ValueError("min_consecutive_quarters must be > 0")
+        return parsed
 
 
 def _slot_label(slot_index: int) -> str:

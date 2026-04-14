@@ -1,5 +1,7 @@
 __pycache__/
 logs/
+.venv/
 *.pyc
 runtime/*.json
 data/spotmarket/*.json
+data/runtime/*.sqlite

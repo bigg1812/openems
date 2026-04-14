@@ -1,0 +1,1579 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini EMS Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* === TOKENS === */
+    :root {
+      --bg-primary: #0a0a0a;
+      --bg-secondary: #111111;
+      --bg-tertiary: #1a1a1a;
+      --border: #1f1f1f;
+      --border-strong: #2a2a2a;
+      --text-primary: #f5f5f5;
+      --text-secondary: #888888;
+      --text-muted: #444444;
+      --accent-green: #4ade80;
+      --accent-green-bg: #0a2518;
+      --accent-blue: #3b82f6;
+      --terminal-bg: #0a0a0a;
+      --terminal-text: #888888;
+      --button-filled-bg: #f5f5f5;
+      --button-filled-text: #0a0a0a;
+      --chart-fill-opacity: 0.12;
+      --surface-blur: rgba(10, 10, 10, 0.78);
+      --font-sans: "Inter", "Segoe UI", sans-serif;
+      --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    html[data-theme="light"] {
+      --bg-primary: #ffffff;
+      --bg-secondary: #fafafa;
+      --bg-tertiary: #f5f5f5;
+      --border: #f0f0f0;
+      --border-strong: #e5e5e5;
+      --text-primary: #0a0a0a;
+      --text-secondary: #666666;
+      --text-muted: #bbbbbb;
+      --accent-green: #16a34a;
+      --accent-green-bg: #f0fdf4;
+      --accent-blue: #2563eb;
+      --terminal-bg: #0a0a0a;
+      --terminal-text: #888888;
+      --button-filled-bg: #0a0a0a;
+      --button-filled-text: #ffffff;
+      --chart-fill-opacity: 0.06;
+      --surface-blur: rgba(255, 255, 255, 0.78);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-weight: 400;
+      transition: background 0.2s, color 0.2s, border 0.2s;
+    }
+    body, button, select { font: inherit; }
+    button, select, .section-panel, .top-nav { transition: background 0.2s, color 0.2s, border 0.2s; }
+    a { color: inherit; text-decoration: none; }
+
+    /* === SHELL === */
+    .top-nav {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 24px;
+      min-height: 64px;
+      padding: 0 32px;
+      background: var(--surface-blur);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+    .wordmark {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .nav-links { display: flex; justify-content: center; align-items: center; gap: 14px; }
+    .nav-link { color: var(--text-muted); font-size: 12px; font-weight: 500; transition: color 0.2s; }
+    .nav-link.active { color: var(--text-primary); }
+    .nav-separator { color: var(--text-muted); font-size: 12px; }
+    .nav-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
+    .health-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 86px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: lowercase;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      animation: pulse 1.8s ease-in-out infinite;
+    }
+    .status-dot.degraded, .status-dot.safe_mode, .status-dot.error { background: var(--accent-blue); }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+    .icon-button, .pill-button, .secondary-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      border: 1px solid var(--border-strong);
+      border-radius: 20px;
+      cursor: pointer;
+    }
+    .icon-button { width: 36px; padding: 0; background: var(--bg-primary); color: var(--text-primary); }
+    .pill-button {
+      gap: 8px;
+      padding: 0 16px;
+      background: var(--button-filled-bg);
+      color: var(--button-filled-text);
+      border-color: var(--button-filled-bg);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .secondary-button {
+      gap: 8px;
+      padding: 0 14px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .button-icon, .theme-icon { width: 14px; height: 14px; display: block; }
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 1px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .page-shell { width: min(1440px, 100%); margin: 0 auto; padding: 32px; }
+    main, .stack { display: grid; gap: 20px; }
+    section { scroll-margin-top: 92px; }
+    .section-panel { background: var(--bg-primary); border: 1px solid var(--border); }
+    .section-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .section-title, .panel-title {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .section-note, .muted { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+    .label {
+      color: var(--text-secondary);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    /* === LIVE === */
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border: 1px solid var(--border-strong);
+      background: var(--bg-primary);
+    }
+    .kpi { min-height: 154px; padding: 24px; border-right: 1px solid var(--border); }
+    .kpi:last-child { border-right: 0; }
+    .kpi-value {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-height: 56px;
+      margin-top: 18px;
+      color: var(--text-primary);
+      font-size: 36px;
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+    .kpi-unit { color: var(--text-muted); font-size: 13px; font-weight: 400; letter-spacing: 0; }
+    .kpi-meta { display: block; margin-top: 12px; color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+    .state-value { display: inline-flex; align-items: center; gap: 10px; }
+    .tag-off, .tag-on, .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 22px;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      padding: 0 8px;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .tag-off { color: var(--text-muted); background: var(--bg-tertiary); }
+    .tag-on, .badge.healthy { color: var(--accent-green); background: var(--accent-green-bg); border-color: var(--accent-green-bg); }
+    .message-bar {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 16px;
+      align-items: center;
+      margin-top: 20px;
+      padding: 16px 18px;
+      background: var(--bg-secondary);
+      border-left: 2px solid var(--accent-blue);
+    }
+    .message-code { color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+    .message-bar p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+    /* === HISTORY === */
+    .chart-panel, .config-panel, .report-panel, .cycles-panel, .terminal-panel { padding: 24px; }
+    .chart-frame { height: 360px; min-height: 360px; position: relative; }
+    .chart-empty {
+      display: grid;
+      place-items: center;
+      height: 100%;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .chart-stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border-top: 1px solid var(--border);
+      border-left: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .chart-stat {
+      padding: 16px;
+      border-right: 1px solid var(--border);
+      background: var(--bg-primary);
+    }
+    .chart-stat strong { display: block; margin-top: 8px; font-size: 22px; font-weight: 300; letter-spacing: -0.02em; }
+    .config-panel { background: var(--bg-secondary); }
+    .info-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+      padding: 14px 16px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+    .settings-row {
+      display: grid;
+      grid-template-columns: auto minmax(180px, 240px) auto 1fr;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 22px;
+    }
+    .settings-row select {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      height: 38px;
+      min-width: 180px;
+      padding: 0 14px;
+      border: 1px solid var(--border-strong);
+      border-radius: 20px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      cursor: pointer;
+      outline: 0;
+    }
+    .settings-row select option {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+    }
+    .windows-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .window-column { border: 1px solid var(--border); background: var(--bg-primary); }
+    .window-column h3 {
+      margin: 0;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .window-list { display: grid; }
+    .window-card { padding: 16px; border-bottom: 1px solid var(--border); }
+    .window-card:last-child { border-bottom: 0; }
+    .window-card strong { display: block; font-size: 15px; font-weight: 500; }
+    .window-card span { display: block; margin-top: 7px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+    .window-empty {
+      min-height: 122px;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      color: var(--text-muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    /* === WEATHER + REPORTS === */
+    .weather-grid, .report-studio-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+      gap: 16px;
+    }
+    .weather-panel, .report-studio-panel { padding: 24px; }
+    .weather-now {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 22px;
+      align-items: center;
+      min-height: 220px;
+    }
+    .weather-mark {
+      display: grid;
+      place-items: center;
+      width: 96px;
+      height: 96px;
+      border: 1px solid var(--border-strong);
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+      color: var(--text-primary);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+      overflow: hidden;
+    }
+    .weather-mark svg {
+      width: 62px;
+      height: 62px;
+      display: block;
+      overflow: visible;
+    }
+    .weather-mark[data-weather="sun"] { color: #f5d76e; }
+    .weather-mark[data-weather="sky"] { color: #d1d9e6; }
+    .weather-mark[data-weather="cloud"] { color: #cfd6e2; }
+    .weather-mark[data-weather="fog"] { color: #b9c2cf; }
+    .weather-mark[data-weather="rain"] { color: #8ecbff; }
+    .weather-mark[data-weather="snow"] { color: #eef6ff; }
+    .weather-mark[data-weather="storm"] { color: #f4d08a; }
+    .weather-mark[data-weather="met"] { color: #cfd6e2; }
+    .weather-mark .icon-fill { fill: currentColor; }
+    .weather-mark .icon-stroke { stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+    .weather-mark .icon-transparent { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+    .weather-mark .icon-medium { opacity: 0.55; }
+    .weather-mark .icon-soft { opacity: 0.28; }
+    .weather-mark .icon-rain-drop {
+      fill: currentColor;
+      opacity: 0.95;
+    }
+    .weather-temp, .report-total {
+      margin: 8px 0 0;
+      font-size: 54px;
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+    .weather-detail-grid, .report-action-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-top: 1px solid var(--border);
+      border-left: 1px solid var(--border);
+    }
+    .weather-detail, .report-action {
+      min-height: 92px;
+      padding: 16px;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-primary);
+    }
+    .weather-detail strong, .report-action strong { display: block; margin-top: 10px; font-size: 18px; font-weight: 400; }
+    .forecast-strip, .report-window-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .forecast-cell, .report-window {
+      min-height: 104px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+    }
+    .forecast-cell strong, .report-window strong { display: block; margin-top: 10px; font-size: 18px; font-weight: 300; }
+    .report-window.ready { border-color: var(--border-strong); background: var(--bg-primary); }
+    .report-copy {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    /* === HEALTH === */
+    .report-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border-top: 1px solid var(--border);
+      border-left: 1px solid var(--border);
+    }
+    .report-item {
+      min-height: 104px;
+      padding: 18px;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-primary);
+    }
+    .report-item strong { display: block; margin-top: 12px; font-size: 22px; font-weight: 300; letter-spacing: -0.02em; }
+    .report-item strong.healthy { color: var(--accent-green); }
+    .table-wrap { overflow: auto; border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; min-width: 760px; }
+    th, td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    th { color: var(--text-muted); font-size: 10px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; }
+    tbody tr:nth-child(even) { background: var(--bg-tertiary); }
+    tbody tr:last-child td { border-bottom: 0; }
+    .cycle-id { color: var(--text-primary); font-weight: 500; }
+    .time-cell { color: var(--text-muted); }
+    .badge::before {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      content: "";
+    }
+    .badge.neutral { color: var(--text-secondary); background: var(--bg-secondary); }
+    .terminal-output {
+      min-height: 180px;
+      margin: 0;
+      padding: 18px;
+      overflow: auto;
+      background: var(--terminal-bg);
+      color: var(--terminal-text);
+      border: 1px solid var(--border-strong);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.65;
+      white-space: pre-wrap;
+    }
+    .terminal-output::after {
+      display: inline-block;
+      width: 8px;
+      height: 14px;
+      margin-left: 4px;
+      background: var(--terminal-text);
+      vertical-align: -2px;
+      animation: blink 1s steps(2, start) infinite;
+      content: "";
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* === RESPONSIVE === */
+    @media (max-width: 1040px) {
+      .top-nav { grid-template-columns: 1fr; gap: 14px; padding: 16px 24px; }
+      .nav-links, .nav-actions { justify-content: flex-start; }
+      .kpi-row, .chart-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .kpi:nth-child(2) { border-right: 0; }
+      .kpi:nth-child(1), .kpi:nth-child(2) { border-bottom: 1px solid var(--border); }
+      .settings-row, .windows-grid, .report-grid, .weather-grid, .report-studio-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 680px) {
+      .page-shell { padding: 20px; }
+      .top-nav { padding: 14px 20px; }
+      .nav-links { gap: 18px; }
+      .nav-actions { flex-wrap: wrap; }
+      .kpi-row, .chart-stats { grid-template-columns: 1fr; }
+      .kpi { border-right: 0; border-bottom: 1px solid var(--border); }
+      .kpi:last-child { border-bottom: 0; }
+      .kpi-value { font-size: 32px; }
+      .chart-panel, .config-panel, .report-panel, .cycles-panel, .terminal-panel { padding: 18px; }
+      .chart-frame { height: 300px; min-height: 300px; }
+      .message-bar { grid-template-columns: 1fr; }
+      .weather-now, .weather-detail-grid, .report-action-grid, .forecast-strip, .report-window-strip { grid-template-columns: 1fr; }
+      .weather-temp, .report-total { font-size: 42px; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="top-nav" aria-label="Hauptnavigation">
+    <a class="wordmark" href="#live">Mini EMS</a>
+    <div class="nav-links" aria-label="Bereiche">
+      <a class="nav-link active" href="#live" data-section-link="live">Live</a>
+      <span class="nav-separator" aria-hidden="true">&middot;</span>
+      <a class="nav-link" href="#history" data-section-link="history">History</a>
+      <span class="nav-separator" aria-hidden="true">&middot;</span>
+      <a class="nav-link" href="#weather" data-section-link="weather">Wetter</a>
+      <span class="nav-separator" aria-hidden="true">&middot;</span>
+      <a class="nav-link" href="#reports" data-section-link="reports">Reports</a>
+      <span class="nav-separator" aria-hidden="true">&middot;</span>
+      <a class="nav-link" href="#health" data-section-link="health">Health</a>
+    </div>
+    <div class="nav-actions">
+      <span class="health-chip" aria-live="polite"><span id="status-dot" class="status-dot"></span><span id="status-label">healthy</span></span>
+      <button id="theme-toggle" class="icon-button" type="button" aria-label="Darstellung wechseln"></button>
+      <button id="refresh-button" class="pill-button" type="button"><span id="refresh-icon" class="button-icon" aria-hidden="true"></span>Aktualisieren</button>
+    </div>
+  </nav>
+
+  <main class="page-shell">
+    <section id="live" aria-labelledby="live-title">
+      <div class="section-header">
+        <div><h1 id="live-title" class="section-title">Live</h1><p class="section-note">Preisübergabe, Netzleistung und Sperrzustand</p></div>
+        <span id="last-updated" class="section-note">-</span>
+      </div>
+      <div class="kpi-row" aria-label="Live Kennzahlen">
+        <article class="kpi"><span class="label">Aktueller Preis</span><div id="current-price" class="kpi-value">-</div><span id="current-slot" class="kpi-meta">-</span></article>
+        <article class="kpi"><span class="label">Netzleistung AV300</span><div id="grid-power" class="kpi-value">-</div><span id="grid-read-status" class="kpi-meta">-</span></article>
+        <article class="kpi"><span class="label">BV401 Spotmarkt</span><div id="spotmarket-lockout" class="kpi-value">-</div><span id="spotmarket-source" class="kpi-meta">-</span></article>
+        <article class="kpi"><span class="label">BV400 Grid Lockout</span><div id="grid-lockout" class="kpi-value">-</div><span id="grid-lockout-state" class="kpi-meta">-</span></article>
+      </div>
+      <div class="message-bar" role="status"><span class="message-code">MSG</span><p id="operator-message">-</p></div>
+    </section>
+
+    <section id="history" class="stack" aria-labelledby="history-title">
+      <div class="section-header">
+        <div><h2 id="history-title" class="section-title">History</h2><p class="section-note">Spotmarktpreis 48h und Schaltfenster</p></div>
+        <span id="price-history-meta" class="section-note">-</span>
+      </div>
+      <article class="section-panel chart-panel" aria-labelledby="price-chart-title">
+        <div class="section-header"><h3 id="price-chart-title" class="panel-title">Spotmarktpreis 48h</h3><span class="section-note">ct/kWh</span></div>
+        <div class="chart-frame"><canvas id="price-chart" aria-label="Spotmarktpreis 48 Stunden" role="img"></canvas><div id="price-chart-empty" class="chart-empty" hidden>Keine 48h-Preisdaten vorhanden.</div></div>
+        <div class="chart-stats" aria-label="Spotmarkt Statistik">
+          <article class="chart-stat"><span class="label">Min</span><strong id="stat-price-min">-</strong></article>
+          <article class="chart-stat"><span class="label">Max</span><strong id="stat-price-max">-</strong></article>
+          <article class="chart-stat"><span class="label">Jetzt</span><strong id="stat-price-now">-</strong></article>
+          <article class="chart-stat"><span class="label">BV401</span><strong id="stat-bv401">-</strong></article>
+        </div>
+      </article>
+      <article class="section-panel config-panel" aria-labelledby="windows-title">
+        <div class="section-header"><h3 id="windows-title" class="panel-title">Spotmarkt Fenster</h3><span id="spotmarket-summary" class="section-note">-</span></div>
+        <div class="info-bar"><span id="lockout-info">Lockout Status wird geladen.</span><span id="spotmarket-settings-state">-</span></div>
+        <form id="spotmarket-settings-form" class="settings-row">
+          <label class="label" for="negative-hours-select">Mindestdauer negativer Preis</label>
+          <select id="negative-hours-select" name="negative-hours">
+            <option value="0.25">15 Minuten</option><option value="0.5">30 Minuten</option><option value="1">1 Stunde</option><option value="1.5">1,5 Stunden</option>
+            <option value="2">2 Stunden</option><option value="3">3 Stunden</option><option value="4">4 Stunden</option><option value="6">6 Stunden</option>
+          </select>
+          <button id="spotmarket-settings-save" class="secondary-button" type="submit">Speichern</button><span class="muted">wirksam ab nächstem EMS-Zyklus</span>
+        </form>
+        <div class="windows-grid">
+          <div class="window-column"><h3>Heute</h3><div id="windows-today" class="window-list"></div></div>
+          <div class="window-column"><h3>Morgen</h3><div id="windows-tomorrow" class="window-list"></div></div>
+        </div>
+      </article>
+    </section>
+
+    <section id="weather" class="stack" aria-labelledby="weather-title">
+      <div class="section-header">
+        <div><h2 id="weather-title" class="section-title">Wetter</h2><p class="section-note">Forecast als EMS-Kontext statt starrer Gebäudeautomation</p></div>
+        <span id="weather-updated" class="section-note">-</span>
+      </div>
+      <div class="weather-grid">
+        <article class="section-panel weather-panel" aria-labelledby="weather-now-title">
+          <div class="section-header"><h3 id="weather-now-title" class="panel-title">Stuttgart</h3><span id="weather-source" class="section-note">-</span></div>
+          <div class="weather-now">
+            <div id="weather-mark" class="weather-mark" aria-hidden="true"></div>
+            <div>
+              <span id="weather-label" class="label">-</span>
+              <p id="weather-temp" class="weather-temp">-</p>
+              <p id="weather-context" class="report-copy">Wetterdaten werden geladen.</p>
+            </div>
+          </div>
+          <div id="weather-details" class="weather-detail-grid" aria-label="Wetter Details"></div>
+        </article>
+        <article class="section-panel weather-panel" aria-labelledby="forecast-title">
+          <div class="section-header"><h3 id="forecast-title" class="panel-title">Nächste Stunden</h3><span class="section-note">Temperatur / Regen</span></div>
+          <div id="forecast-strip" class="forecast-strip"></div>
+        </article>
+      </div>
+    </section>
+
+    <section id="reports" class="stack" aria-labelledby="reports-title">
+      <div class="section-header">
+        <div><h2 id="reports-title" class="section-title">Reports</h2><p class="section-note">Bilanzen, Diagramme und Preise in einfachen Zeitfenstern</p></div>
+        <span id="report-studio-date" class="section-note">-</span>
+      </div>
+      <div class="report-studio-grid">
+        <article class="section-panel report-studio-panel" aria-labelledby="report-studio-title">
+          <div class="section-header"><h3 id="report-studio-title" class="panel-title">Report Studio</h3><span class="section-note">Vorbereitet</span></div>
+          <p class="report-copy">Ein Report soll sich anfühlen wie ein gutes Smartphone-Menü: Zeitraum wählen, Kennzahl antippen, Export fertig.</p>
+          <div id="report-window-strip" class="report-window-strip" style="margin-top: 18px;"></div>
+        </article>
+        <article class="section-panel report-studio-panel" aria-labelledby="report-actions-title">
+          <div class="section-header"><h3 id="report-actions-title" class="panel-title">Exports</h3><span class="section-note">heute nutzbar</span></div>
+          <p id="report-total" class="report-total">-</p>
+          <div id="report-actions" class="report-action-grid" aria-label="Report Exports"></div>
+        </article>
+      </div>
+    </section>
+
+    <section id="health" class="stack" aria-labelledby="health-title">
+      <div class="section-header">
+        <div><h2 id="health-title" class="section-title">Health</h2><p class="section-note">Tagesreport, Runtime-Log und AV300 Diagnose</p></div>
+        <span id="report-date" class="section-note">-</span>
+      </div>
+      <article class="section-panel report-panel" aria-labelledby="report-title"><div class="section-header"><h3 id="report-title" class="panel-title">Tagesreport</h3><span class="section-note">3 x 2</span></div><div id="report-summary" class="report-grid"></div></article>
+      <article class="section-panel cycles-panel" aria-labelledby="cycles-title">
+        <div class="section-header"><h3 id="cycles-title" class="panel-title">Letzte Zyklen</h3><span class="section-note">SQLite Runtime-Log</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Zyklus</th><th>Status</th><th>Slot</th><th>Preis</th><th>AV300</th><th>Zeit</th></tr></thead><tbody id="cycles-body"></tbody></table></div>
+      </article>
+      <article class="section-panel terminal-panel" aria-labelledby="diagnostic-title">
+        <div class="section-header"><h3 id="diagnostic-title" class="panel-title">AV300 Diagnose</h3><button id="diagnostic-button" class="secondary-button" type="button">Auslesen</button></div>
+        <pre id="diagnostic-output" class="terminal-output">Noch keine Diagnose ausgeführt.</pre>
+      </article>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script>
+    const REFRESH_INTERVAL_MS = 15000;
+    const MINIMUM_LOADING_MS = 1500;
+    const PRICE_SLOT_MINUTES = 15;
+    const STORAGE_THEME_KEY = "mini-ems-theme";
+    const TIME_FORMATTER = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
+    const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    let priceChart = null;
+    let latestTimeline = null;
+
+    const currentMarkerPlugin = {
+      id: "currentMarker",
+      afterDatasetsDraw(chart, args, options) {
+        if (!options?.marker || !Number.isFinite(options.marker.x) || !Number.isFinite(options.marker.y)) {
+          return;
+        }
+        const { ctx, chartArea, scales } = chart;
+        const x = scales.x.getPixelForValue(options.marker.x);
+        const y = scales.y.getPixelForValue(options.marker.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y) || x < chartArea.left || x > chartArea.right) {
+          return;
+        }
+        const title = options.marker.title || "";
+        const value = options.marker.value || "";
+        const boxWidth = Math.max(96, Math.max(title.length, value.length) * 7 + 28);
+        const boxHeight = 44;
+        const boxX = Math.min(Math.max(x - boxWidth / 2, chartArea.left), chartArea.right - boxWidth);
+        const boxY = Math.max(chartArea.top + 6, y - 58);
+        ctx.save();
+        ctx.setLineDash([5, 5]);
+        ctx.strokeStyle = options.lineColor;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, chartArea.top);
+        ctx.lineTo(x, chartArea.bottom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = options.pointFill;
+        ctx.strokeStyle = options.pointStroke;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = options.tooltipBg;
+        ctx.strokeStyle = options.tooltipBorder;
+        ctx.lineWidth = 1;
+        roundRect(ctx, boxX, boxY, boxWidth, boxHeight, 8);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = options.textPrimary;
+        ctx.font = "500 11px Inter, sans-serif";
+        ctx.fillText(title, boxX + 12, boxY + 17);
+        ctx.fillStyle = options.textSecondary;
+        ctx.font = "400 11px Inter, sans-serif";
+        ctx.fillText(value, boxX + 12, boxY + 34);
+        ctx.restore();
+      },
+    };
+    if (window.Chart) {
+      Chart.register(currentMarkerPlugin);
+    }
+
+    function roundRect(ctx, x, y, width, height, radius) {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + width - radius, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+      ctx.lineTo(x + width, y + height - radius);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      ctx.lineTo(x + radius, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+    }
+
+    async function fetchJson(path) {
+      const response = await fetch(path, { cache: "no-store" });
+      if (!response.ok) throw new Error(`${path} returned ${response.status}`);
+      return response.json();
+    }
+
+    async function fetchOptionalJson(path, fallback) {
+      try {
+        return await fetchJson(path);
+      } catch (error) {
+        return { ...fallback, error: error.message };
+      }
+    }
+
+    async function postJson(path, payload) {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        cache: "no-store",
+      });
+      const responsePayload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(responsePayload.message || `${path} returned ${response.status}`);
+      return responsePayload;
+    }
+
+    async function refreshDashboard() {
+      const [statusPayload, reportPayload] = await Promise.all([
+        fetchJson("/api/status"),
+        fetchJson("/api/report/daily"),
+      ]);
+      const [weatherPayload, reportStudioPayload] = await Promise.all([
+        fetchWeatherPayload(),
+        fetchOptionalJson("/api/report/studio", buildReportStudioFallback(reportPayload)),
+      ]);
+      const referenceNow = getReferenceNow(statusPayload);
+      const priceHistory = await fetchPriceHistory(referenceNow, statusPayload);
+      renderStatus(statusPayload);
+      renderWindows(statusPayload.spotmarket_plan || {});
+      renderSpotmarketSettings(statusPayload.spotmarket_settings || {});
+      renderRecentCycles(statusPayload.recent_cycles || []);
+      renderPriceHistory(statusPayload, priceHistory.rows || [], referenceNow);
+      renderReport(reportPayload);
+      renderWeather(weatherPayload);
+      renderReportStudio(reportStudioPayload);
+    }
+
+    async function fetchWeatherPayload() {
+      const localPayload = await fetchOptionalJson("/api/weather", { status: "unavailable" });
+      if (localPayload.status === "ok") return localPayload;
+      try {
+        const external = await fetchJson("https://api.open-meteo.com/v1/forecast?latitude=48.7758&longitude=9.1829&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,cloud_cover&forecast_days=1&timezone=Europe%2FBerlin");
+        return normalizeWeatherPayload(external, "Open-Meteo direkt");
+      } catch (error) {
+        return { ...localPayload, error: `lokale Route noch nicht aktiv; Browser-Fallback blockiert (${error.message})` };
+      }
+    }
+
+    function buildReportStudioFallback(report) {
+      return {
+        date: report?.date || "",
+        selected_window: "day",
+        available_windows: [
+          { id: "day", label: "Tag", ready: true },
+          { id: "week", label: "Woche", ready: false },
+          { id: "month", label: "Monat", ready: false },
+          { id: "custom", label: "Frei", ready: false },
+        ],
+        exports: [
+          { label: "Tagesreport CSV", href: `/api/report/daily.csv?date=${encodeURIComponent(report?.date || "")}` },
+          { label: "Tagesreport JSON", href: `/api/report/daily?date=${encodeURIComponent(report?.date || "")}` },
+        ],
+        metrics: [
+          { id: "grid", label: "Netz Bilanz", value: report?.grid_active_power_kw?.average, unit: "kW" },
+          { id: "price", label: "Preis Niveau", value: report?.price_ct_kwh?.average, unit: "ct/kWh" },
+          { id: "events", label: "BACnet Events", value: report?.bacnet_event_count, unit: "" },
+          { id: "windows", label: "Preisfenster", value: (report?.spotmarket_windows || []).length, unit: "" },
+        ],
+      };
+    }
+
+    async function fetchPriceHistory(referenceNow, statusPayload) {
+      const end = new Date(referenceNow.getTime() + 5 * 60 * 1000);
+      const chartRange = getPriceChartRange(referenceNow, statusPayload);
+      const start = new Date(chartRange.startTime);
+      const query = new URLSearchParams({
+        channel_id: "tariff.current_price_ct_kwh",
+        granularity: "raw",
+        start: start.toISOString(),
+        end: end.toISOString(),
+        limit: "1800",
+      });
+      return fetchJson(`/api/history?${query.toString()}`);
+    }
+
+    function renderStatus(payload) {
+      const health = payload.health || {};
+      const state = payload.state || {};
+      const status = health.status || "-";
+      setText("status-label", String(status).replace(/_/g, " "));
+      document.getElementById("status-dot").className = `status-dot ${escapeClass(status)}`;
+      setValueUnit("current-price", health.current_price_ct_kwh, "ct/kWh");
+      setText("current-slot", `Slot ${health.current_slot_label || "-"}`);
+      setValueUnit("grid-power", health.grid_active_power_kw, "kW");
+      setText("grid-read-status", health.grid_read_status || "-");
+      setStateValue("spotmarket-lockout", health.spotmarket_active_now);
+      setText("spotmarket-source", health.spotmarket_source || "-");
+      setStateValue("grid-lockout", health.grid_lockout_active);
+      setText("grid-lockout-state", health.grid_lockout_state || state.grid_lockout?.mode || "-");
+      setText("operator-message", health.operator_message || "-");
+      setText("spotmarket-summary", health.spotmarket_summary || "Keine Spotmarket-Daten");
+      setText("last-updated", health.timestamp ? `Stand ${formatTimestamp(health.timestamp)}` : "-");
+      setText("lockout-info", `BV401 ${formatBool(health.spotmarket_active_now)} / BV400 ${formatBool(health.grid_lockout_active)}`);
+    }
+
+    function renderWindows(plan) {
+      renderWindowList("windows-today", plan.today?.windows || []);
+      renderWindowList("windows-tomorrow", plan.tomorrow?.windows || []);
+    }
+
+    function renderWindowList(targetId, windows) {
+      const container = document.getElementById(targetId);
+      if (!windows.length) {
+        container.innerHTML = '<div class="window-empty">Keine negativen Zeitfenster.</div>';
+        return;
+      }
+      container.innerHTML = windows.map((window) => `
+        <article class="window-card">
+          <strong>${escapeHtml(window.start_label)} - ${escapeHtml(window.end_label_exclusive)}</strong>
+          <span>${escapeHtml(window.length_quarters)} Viertelstunden</span>
+          <span>Min ${escapeHtml(formatNumber(window.min_price_ct_kwh, "ct/kWh"))} / Max ${escapeHtml(formatNumber(window.max_price_ct_kwh, "ct/kWh"))}</span>
+        </article>
+      `).join("");
+    }
+    function renderSpotmarketSettings(settings) {
+      const select = document.getElementById("negative-hours-select");
+      const state = document.getElementById("spotmarket-settings-state");
+      const hours = toFiniteNumber(settings.min_consecutive_hours);
+      if (Number.isFinite(hours)) {
+        setSelectValue(select, hours);
+        state.textContent = `aktiv ab ${formatHours(hours)} (${settings.min_consecutive_quarters || "-"} Slots)`;
+      } else {
+        state.textContent = "noch nicht geladen";
+      }
+    }
+
+    function renderRecentCycles(rows) {
+      const body = document.getElementById("cycles-body");
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="6" class="time-cell">Keine Zyklen vorhanden.</td></tr>';
+        return;
+      }
+      body.innerHTML = rows.map((row) => {
+        const status = row.status || "-";
+        const statusClass = status === "healthy" ? "healthy" : "neutral";
+        return `
+          <tr>
+            <td class="cycle-id">${escapeHtml(row.cycle_id || "-")}</td>
+            <td><span class="badge ${statusClass}">${escapeHtml(status)}</span></td>
+            <td>${escapeHtml(row.current_slot_label || "-")}</td>
+            <td>${escapeHtml(formatNumber(row.current_price_ct_kwh, "ct/kWh"))}</td>
+            <td>${escapeHtml(formatNumber(row.grid_active_power_kw, "kW"))}</td>
+            <td class="time-cell">${escapeHtml(formatTimestamp(row.timestamp))}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function renderPriceHistory(statusPayload, priceRows, referenceNow) {
+      latestTimeline = buildPriceTimeline(statusPayload, priceRows, referenceNow);
+      const timeline = latestTimeline;
+      const hasData = timeline.series.some((point) => Number.isFinite(point.value));
+      const canvas = document.getElementById("price-chart");
+      const empty = document.getElementById("price-chart-empty");
+      setText("price-history-meta", hasData ? `${timeline.series.length} Preiswerte` : "Keine Preisdaten");
+      setText("stat-price-min", formatNumber(timeline.min, "ct/kWh"));
+      setText("stat-price-max", formatNumber(timeline.max, "ct/kWh"));
+      setText("stat-price-now", formatNumber(timeline.currentValue, "ct/kWh"));
+      setText("stat-bv401", timeline.windowSummary);
+      canvas.hidden = !hasData;
+      empty.hidden = hasData;
+      if (!hasData) {
+        destroyPriceChart();
+        return;
+      }
+      renderPriceChart(timeline);
+    }
+
+    function buildPriceTimeline(statusPayload, priceRows, referenceNow) {
+      const priceCache = statusPayload.price_cache || {};
+      const health = statusPayload.health || {};
+      const plan = statusPayload.spotmarket_plan || {};
+      const referenceTime = referenceNow.getTime();
+      const { startTime, endTime } = getPriceChartRange(referenceNow, statusPayload);
+      const historySeries = [...priceRows]
+        .reverse()
+        .map((row) => ({ time: parseTimestamp(row.timestamp), value: pickHistoryValue(row) }))
+        .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value) && point.time >= startTime && point.time <= referenceTime);
+      const futureBySlot = new Map();
+      for (const day of [priceCache.today, priceCache.tomorrow]) {
+        if (!day || typeof day.date !== "string" || !Array.isArray(day.slots)) continue;
+        day.slots.forEach((value, slotIndex) => {
+          const time = buildSlotTime(day.date, slotIndex);
+          const numericValue = toFiniteNumber(value);
+          if (time >= startTime && time < endTime && Number.isFinite(numericValue)) {
+            futureBySlot.set(time, { time, value: numericValue });
+          }
+        });
+      }
+      const series = fillChartEdges(mergeTimelineSeries(historySeries, [...futureBySlot.values()], startTime, endTime), startTime, endTime);
+      const windows = buildWindowBands(plan).filter((window) => window.end > startTime && window.start < endTime);
+      const currentValue = toFiniteNumber(health.current_price_ct_kwh);
+      return {
+        startTime,
+        endTime,
+        series,
+        min: minValue(series),
+        max: maxValue(series),
+        currentValue,
+        marker: { x: referenceTime, y: currentValue, title: `Jetzt ${TIME_FORMATTER.format(referenceNow)}`, value: formatNumber(currentValue, "ct/kWh") },
+        windowSummary: windows.length ? windows.map((window) => window.rangeLabel).join(", ") : "Kein Fenster",
+      };
+    }
+
+    function renderPriceChart(timeline) {
+      if (!window.Chart) {
+        document.getElementById("price-chart").hidden = true;
+        const empty = document.getElementById("price-chart-empty");
+        empty.hidden = false;
+        empty.textContent = "Chart.js konnte nicht geladen werden.";
+        return;
+      }
+      const colors = getThemeColors();
+      destroyPriceChart();
+      priceChart = new Chart(document.getElementById("price-chart"), {
+        type: "line",
+        data: {
+          datasets: [{
+            data: timeline.series.map((point) => ({ x: point.time, y: point.value })),
+            borderColor: withAlpha(colors.textPrimary, 0.8),
+            backgroundColor: withAlpha(colors.textPrimary, colors.chartFillOpacity),
+            borderWidth: 1.5,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            fill: true,
+            stepped: "after",
+            tension: 0,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          parsing: false,
+          interaction: { intersect: false, mode: "nearest" },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              enabled: true,
+              displayColors: false,
+              backgroundColor: colors.bgPrimary,
+              borderColor: colors.borderStrong,
+              borderWidth: 1,
+              titleColor: colors.textPrimary,
+              bodyColor: colors.textSecondary,
+              padding: 10,
+              callbacks: {
+                title(items) {
+                  const item = items[0];
+                  return item ? DATE_TIME_FORMATTER.format(new Date(item.parsed.x)) : "";
+                },
+                label(item) {
+                  return formatNumber(item.parsed.y, "ct/kWh");
+                },
+              },
+            },
+            currentMarker: {
+              marker: timeline.marker,
+              lineColor: withAlpha(colors.textPrimary, 0.42),
+              pointFill: colors.bgPrimary,
+              pointStroke: colors.textPrimary,
+              tooltipBg: colors.bgPrimary,
+              tooltipBorder: colors.borderStrong,
+              textPrimary: colors.textPrimary,
+              textSecondary: colors.textSecondary,
+            },
+          },
+          scales: {
+            x: {
+              type: "linear",
+              min: timeline.startTime,
+              max: timeline.endTime,
+              grid: { color: colors.border, drawTicks: false },
+              border: { color: colors.borderStrong },
+              ticks: {
+                color: colors.textMuted,
+                maxTicksLimit: 7,
+                callback(value) { return DATE_TIME_FORMATTER.format(new Date(Number(value))); },
+              },
+            },
+            y: {
+              grid: { color: colors.border, drawTicks: false },
+              border: { color: colors.borderStrong },
+              ticks: { color: colors.textMuted, callback(value) { return formatAxisValue(value); } },
+            },
+          },
+        },
+      });
+    }
+
+    function destroyPriceChart() {
+      if (priceChart) {
+        priceChart.destroy();
+        priceChart = null;
+      }
+    }
+    function renderReport(report) {
+      setText("report-date", report.date || "-");
+      const statusCounts = report.status_counts || {};
+      const statusValue = statusCounts.safe_mode ? "safe mode" : statusCounts.degraded ? "degraded" : "healthy";
+      document.getElementById("report-summary").innerHTML = [
+        reportCard("Zyklen", report.cycle_count),
+        reportCard("BACnet Events", report.bacnet_event_count),
+        reportCard("Fenster", (report.spotmarket_windows || []).length),
+        reportCard("Grid Mittelwert", formatNumber(report.grid_active_power_kw?.average, "kW")),
+        reportCard("Preis Mittelwert", formatNumber(report.price_ct_kwh?.average, "ct/kWh")),
+        reportCard("Status", statusValue, statusValue === "healthy"),
+      ].join("");
+    }
+
+    function renderWeather(payload) {
+      if (!payload || payload.status !== "ok") {
+        setText("weather-context", `Wetter nicht verfügbar: ${payload?.error || "keine Daten"}`);
+        return;
+      }
+      const current = payload.current || {};
+      const temp = toFiniteNumber(current.temperature_c);
+      const apparent = toFiniteNumber(current.apparent_temperature_c);
+      setText("weather-source", `${payload.source || "Wetter"} / ${payload.site || "-"}`);
+      setText("weather-updated", payload.fetched_at ? `Stand ${formatTimestamp(payload.fetched_at)}` : "-");
+      setText("weather-label", current.weather_label || "-");
+      const weatherKind = weatherMark(current.weather_code);
+      const weatherMarkElement = document.getElementById("weather-mark");
+      weatherMarkElement.dataset.weather = weatherKind;
+      weatherMarkElement.innerHTML = weatherIcon(weatherKind);
+      setText("weather-temp", Number.isFinite(temp) ? `${temp.toFixed(1)} C` : "-");
+      setText("weather-context", `Fühlt sich an wie ${Number.isFinite(apparent) ? apparent.toFixed(1) + " C" : "-"}; das EMS kann daraus Last, PV und Komfort-Kontext ableiten.`);
+      document.getElementById("weather-details").innerHTML = [
+        detailCell("Luftfeuchte", formatNumber(current.humidity_percent, "%", 0)),
+        detailCell("Wind", formatNumber(current.wind_speed_kmh, "km/h", 1)),
+        detailCell("Regen", formatNumber(current.precipitation_mm, "mm", 1)),
+        detailCell("Signal", payload.stale ? "Cache" : "Live API"),
+      ].join("");
+      const hours = (payload.next_hours || []).slice(0, 4);
+      document.getElementById("forecast-strip").innerHTML = hours.length ? hours.map((hour) => `
+        <article class="forecast-cell">
+          <span class="label">${escapeHtml(formatForecastTime(hour.time))}</span>
+          <strong>${escapeHtml(formatNumber(hour.temperature_c, "C", 1))}</strong>
+          <span class="muted">${escapeHtml(formatNumber(hour.precipitation_probability_percent, "%", 0))} Regen</span>
+        </article>
+      `).join("") : '<div class="window-empty">Keine Forecast-Stunden vorhanden.</div>';
+    }
+
+    function normalizeWeatherPayload(raw, source) {
+      const current = raw?.current || {};
+      const hourly = raw?.hourly || {};
+      const times = Array.isArray(hourly.time) ? hourly.time : [];
+      const temperatures = Array.isArray(hourly.temperature_2m) ? hourly.temperature_2m : [];
+      const precipitation = Array.isArray(hourly.precipitation_probability) ? hourly.precipitation_probability : [];
+      const clouds = Array.isArray(hourly.cloud_cover) ? hourly.cloud_cover : [];
+      return {
+        status: "ok",
+        site: "Stuttgart",
+        source,
+        fetched_at: new Date().toISOString(),
+        current: {
+          time: current.time,
+          temperature_c: current.temperature_2m,
+          apparent_temperature_c: current.apparent_temperature,
+          humidity_percent: current.relative_humidity_2m,
+          precipitation_mm: current.precipitation,
+          wind_speed_kmh: current.wind_speed_10m,
+          weather_code: current.weather_code,
+          weather_label: weatherLabel(current.weather_code),
+        },
+        next_hours: times.slice(0, 8).map((time, index) => ({
+          time,
+          temperature_c: temperatures[index],
+          precipitation_probability_percent: precipitation[index],
+          cloud_cover_percent: clouds[index],
+        })),
+      };
+    }
+
+    function renderReportStudio(payload) {
+      if (!payload || payload.status === "unavailable") {
+        setText("report-studio-date", "-");
+        setText("report-total", "-");
+        document.getElementById("report-window-strip").innerHTML = '<div class="window-empty">Report Studio wartet auf die lokale API.</div>';
+        document.getElementById("report-actions").innerHTML = `<article class="report-action"><span class="label">Status</span><strong>${escapeHtml(payload?.error || "nicht verfügbar")}</strong></article>`;
+        return;
+      }
+      setText("report-studio-date", payload.date || "-");
+      const metrics = payload.metrics || [];
+      const grid = metrics.find((metric) => metric.id === "grid");
+      setText("report-total", grid ? formatNumber(grid.value, grid.unit, 3) : "-");
+      document.getElementById("report-window-strip").innerHTML = (payload.available_windows || []).map((window) => `
+        <article class="report-window ${window.ready ? "ready" : ""}">
+          <span class="label">${escapeHtml(window.ready ? "bereit" : "nächster Schritt")}</span>
+          <strong>${escapeHtml(window.label)}</strong>
+        </article>
+      `).join("");
+      document.getElementById("report-actions").innerHTML = (payload.exports || []).map((item) => `
+        <a class="report-action" href="${escapeHtml(item.href)}">
+          <span class="label">Export</span>
+          <strong>${escapeHtml(item.label)}</strong>
+        </a>
+      `).join("");
+    }
+
+    function reportCard(label, value, healthy = false) {
+      const className = healthy ? ' class="healthy"' : "";
+      return `<article class="report-item"><span class="label">${escapeHtml(label)}</span><strong${className}>${escapeHtml(value ?? "-")}</strong></article>`;
+    }
+
+    function detailCell(label, value) {
+      return `<article class="weather-detail"><span class="label">${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></article>`;
+    }
+
+    function weatherMark(code) {
+      const numeric = Number(code);
+      if ([0, 1].includes(numeric)) return "sun";
+      if ([2].includes(numeric)) return "sky";
+      if ([3].includes(numeric)) return "cloud";
+      if ([45, 48].includes(numeric)) return "fog";
+      if (numeric >= 71 && numeric <= 75) return "snow";
+      if (numeric >= 95) return "storm";
+      if ((numeric >= 51 && numeric <= 65) || (numeric >= 80 && numeric <= 82)) return "rain";
+      return "met";
+    }
+
+    function weatherIcon(kind) {
+      switch (kind) {
+        case "sun":
+          return `
+            <svg viewBox="0 0 64 64" role="img" focusable="false" aria-hidden="true">
+              <circle class="icon-fill" cx="32" cy="32" r="11" />
+              <g class="icon-transparent" stroke-width="3.5">
+                <path d="M32 7v8" />
+                <path d="M32 49v8" />
+                <path d="M7 32h8" />
+                <path d="M49 32h8" />
+                <path d="M14 14l6 6" />
+                <path d="M44 44l6 6" />
+                <path d="M50 14l-6 6" />
+                <path d="M20 44l-6 6" />
+              </g>
+            </svg>
+          `;
+        case "sky":
+          return `
+            <svg viewBox="0 0 64 64" role="img" focusable="false" aria-hidden="true">
+              <circle class="icon-fill icon-medium" cx="22" cy="22" r="8" />
+              <path class="icon-fill" d="M20 46h24c6.1 0 11-4.2 11-9.4 0-4.7-3.9-8.6-9.1-9.3C44.2 20.2 39 16 32.9 16c-7.3 0-13.3 5.3-14 12.1C13.4 28.6 10 32 10 36.2 10 41.3 14.8 46 20 46Z" />
+            </svg>
+          `;
+        case "cloud":
+          return `
+            <svg viewBox="0 0 64 64" role="img" focusable="false" aria-hidden="true">
+              <path class="icon-fill" d="M19.2 44h24.7c6.1 0 11.1-4.3 11.1-9.6 0-4.8-4-8.7-9.2-9.4C44.6 20.1 39.3 16 33 16c-7.3 0-13.3 5.2-14 12-5.3.5-8.8 4-8.8 8.2 0 4.8 4.6 7.8 9 7.8Z" />
+            </svg>
+          `;
+        case "rain":
+          return `
+            <svg viewBox="0 0 64 64" role="img" focusable="false" aria-hidden="true">
+              <path class="icon-fill icon-medium" d="M19.2 44h24.7c6.1 0 11.1-4.3 11.1-9.6 0-4.8-4-8.7-9.2-9.4C44.6 20.1 39.3 16 33 16c-7.3 0-13.3 5.2-14 12-5.3.5-8.8 4-8.8 8.2 0 4.8 4.6 7.8 9 7.8Z" />
+              <path class="icon-rain-drop" d="M22 48c1.6 2.5 1.6 4.6 0 6.6-1.5 2-3 2.8-4.5 2.8s-2.8-1.2-2.8-2.7c0-1.8 1.1-3.2 2.7-4.9C18.5 48.7 19.9 47 21 44.5c.5 1.7.8 2.9 1 3.5Z" />
+              <path class="icon-rain-drop" d="M34 48c1.6 2.5 1.6 4.6 0 6.6-1.5 2-3 2.8-4.5 2.8s-2.8-1.2-2.8-2.7c0-1.8 1.1-3.2 2.7-4.9C30.5 48.7 31.9 47 33 44.5c.5 1.7.8 2.9 1 3.5Z" />
+              <path class="icon-rain-drop" d="M46 48c1.6 2.5 1.6 4.6 0 6.6-1.5 2-3 2.8-4.5 2.8s-2.8-1.2-2.8-2.7c0-1.8 1.1-3.2 2.7-4.9C42.5 48.7 43.9 47 45 44.5c.5 1.7.8 2.9 1 3.5Z" />
+            </svg>
+          `;
+        case "snow":
+          return `
+            <svg viewBox="0 0 64 64" role="img" focusable="false" aria-hidden="true">
+              <path class="icon-fill icon-medium" d="M19.2 40h24.7c6.1 0 11.1-4.3 11.1-9.6 0-4.8-4-8.7-9.2-9.4C44.6 16.1 39.3 12 33 12c-7.3 0-13.3 5.2-14 12-5.3.5-8.8 4-8.8 8.2 0 4.8 4.6 7.8 9 7.8Z" />
+              <g class="icon-transparent" stroke-width="2.4">
+                <path d="M22 46v10" />
+                <path d="M17 51h10" />
+                <path d="M18.5 47.5l7 7" />
+                <path d="M25.5 47.5l-7 7" />
+                <path d="M35 46v10" />
+                <path d="M30 51h10" />
+                <path d="M31.5 47.5l7 7" />
+                <path d="M38.5 47.5l-7 7" />
+              </g>
+            </svg>
+          `;
+        case "storm":
+          return `
+            <svg viewBox="0 0 64 64" role="img" focusable="false" aria-hidden="true">
+              <path class="icon-fill icon-medium" d="M19.2 40h24.7c6.1 0 11.1-4.3 11.1-9.6 0-4.8-4-8.7-9.2-9.4C44.6 16.1 39.3 12 33 12c-7.3 0-13.3 5.2-14 12-5.3.5-8.8 4-8.8 8.2 0 4.8 4.6 7.8 9 7.8Z" />
+              <path class="icon-fill" d="M32 42h6l-8 12h5l-8 10 4-13h-5l6-9z" />
+            </svg>
+          `;
+        case "fog":
+          return `
+            <svg viewBox="0 0 64 64" role="img" focusable="false" aria-hidden="true">
+              <path class="icon-fill icon-medium" d="M20 28c0-7.2 5.8-13 13-13 6.3 0 11.5 4.4 12.7 10.3C51 26.7 54 30.7 54 35c0 5.7-4.6 10-10.8 10H19.4C14.2 45 10 41.7 10 37.3c0-4.1 3.3-7.5 8-8.4.9-.1 1.5-.4 2-.9Z" />
+              <g class="icon-transparent icon-soft" stroke-width="3.2">
+                <path d="M14 50h36" />
+                <path d="M18 56h28" />
+              </g>
+            </svg>
+          `;
+        default:
+          return `
+            <svg viewBox="0 0 64 64" role="img" focusable="false" aria-hidden="true">
+              <path class="icon-fill" d="M19.2 44h24.7c6.1 0 11.1-4.3 11.1-9.6 0-4.8-4-8.7-9.2-9.4C44.6 20.1 39.3 16 33 16c-7.3 0-13.3 5.2-14 12-5.3.5-8.8 4-8.8 8.2 0 4.8 4.6 7.8 9 7.8Z" />
+            </svg>
+          `;
+      }
+    }
+
+    function weatherLabel(code) {
+      const labels = {
+        0: "klar",
+        1: "überwiegend klar",
+        2: "teilweise bewölkt",
+        3: "bewölkt",
+        45: "Nebel",
+        48: "Reifnebel",
+        51: "leichter Niesel",
+        53: "Niesel",
+        55: "starker Niesel",
+        61: "leichter Regen",
+        63: "Regen",
+        65: "starker Regen",
+        71: "leichter Schnee",
+        73: "Schnee",
+        75: "starker Schnee",
+        80: "leichter Schauer",
+        81: "Schauer",
+        82: "starker Schauer",
+        95: "Gewitter",
+      };
+      const numeric = Number(code);
+      return Number.isFinite(numeric) ? labels[numeric] || "wetterdaten" : "wetterdaten";
+    }
+
+    function formatForecastTime(value) {
+      const date = new Date(value);
+      return Number.isFinite(date.getTime()) ? TIME_FORMATTER.format(date) : "-";
+    }
+
+    async function runDiagnostic() {
+      const output = document.getElementById("diagnostic-output");
+      output.textContent = "Diagnose läuft...";
+      try {
+        const payload = await fetchJson("/api/diagnostics/read?channel_id=grid.active_power_kw&samples=3");
+        output.textContent = JSON.stringify(payload, null, 2);
+      } catch (error) {
+        output.textContent = `Diagnose fehlgeschlagen: ${error.message}`;
+      }
+    }
+
+    async function saveSpotmarketSettings(event) {
+      event.preventDefault();
+      const select = document.getElementById("negative-hours-select");
+      const state = document.getElementById("spotmarket-settings-state");
+      const button = document.getElementById("spotmarket-settings-save");
+      const hours = Number(select.value);
+      if (!Number.isFinite(hours) || hours <= 0) {
+        state.textContent = "ungueltige Dauer";
+        return;
+      }
+      button.disabled = true;
+      state.textContent = "speichere...";
+      try {
+        const settings = await postJson("/api/config/spotmarket-lockout", { min_consecutive_hours: hours });
+        renderSpotmarketSettings(settings);
+        await refreshDashboard();
+        state.textContent = `gespeichert: ${formatHours(settings.min_consecutive_hours)}`;
+      } catch (error) {
+        state.textContent = `Fehler: ${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function mergeTimelineSeries(historySeries, forecastSeries, startTime, endTime) {
+      const byTime = new Map();
+      for (const point of historySeries) byTime.set(point.time, point);
+      for (const point of forecastSeries) byTime.set(point.time, point);
+      return [...byTime.values()].filter((point) => point.time >= startTime && point.time <= endTime).sort((left, right) => left.time - right.time);
+    }
+
+    function fillChartEdges(series, startTime, endTime) {
+      if (!series.length) return series;
+      const first = series[0];
+      const withStart = first.time > startTime && Number.isFinite(first.value)
+        ? [{ time: startTime, value: first.value }, ...series]
+        : series;
+      return extendSteppedSeries(withStart, endTime);
+    }
+
+    function extendSteppedSeries(series, endTime) {
+      if (!series.length) return series;
+      const last = series[series.length - 1];
+      if (!Number.isFinite(last.value) || last.time >= endTime) return series;
+      return [...series, { time: endTime, value: last.value }];
+    }
+
+    function buildWindowBands(plan) {
+      const bands = [];
+      for (const dayKey of ["today", "tomorrow"]) {
+        const day = plan[dayKey];
+        if (!day || typeof day.date !== "string" || !Array.isArray(day.windows)) continue;
+        for (const window of day.windows) {
+          const startSlot = Number(window.start_slot);
+          const endSlot = Number(window.end_slot_exclusive);
+          if (!Number.isFinite(startSlot) || !Number.isFinite(endSlot)) continue;
+          bands.push({
+            start: buildSlotTime(day.date, startSlot),
+            end: buildSlotTime(day.date, endSlot),
+            rangeLabel: `${window.start_label}-${window.end_label_exclusive}`,
+          });
+        }
+      }
+      return bands;
+    }
+
+    function minValue(series) {
+      const values = series.map((point) => point.value).filter((value) => Number.isFinite(value));
+      return values.length ? Math.min(...values) : null;
+    }
+
+    function maxValue(series) {
+      const values = series.map((point) => point.value).filter((value) => Number.isFinite(value));
+      return values.length ? Math.max(...values) : null;
+    }
+
+    function setValueUnit(id, value, unit) {
+      const element = document.getElementById(id);
+      const numericValue = toFiniteNumber(value);
+      if (!Number.isFinite(numericValue)) {
+        element.textContent = "-";
+        return;
+      }
+      element.innerHTML = `${escapeHtml(numericValue.toFixed(3))}<span class="kpi-unit">${escapeHtml(unit)}</span>`;
+    }
+
+    function setStateValue(id, value) {
+      const element = document.getElementById(id);
+      if (value === true || value === 1) {
+        element.innerHTML = '<span class="state-value">AN <span class="tag-on">aktiv</span></span>';
+        return;
+      }
+      if (value === false || value === 0) {
+        element.innerHTML = '<span class="state-value">AUS <span class="tag-off">off</span></span>';
+        return;
+      }
+      element.textContent = "-";
+    }
+
+    function setText(id, value) {
+      const element = document.getElementById(id);
+      if (element) element.textContent = value ?? "-";
+    }
+
+    function formatBool(value) {
+      if (value === true || value === 1) return "AN";
+      if (value === false || value === 0) return "AUS";
+      return "-";
+    }
+
+    function formatNumber(value, unit, digits = 3) {
+      const numericValue = toFiniteNumber(value);
+      if (!Number.isFinite(numericValue)) return "-";
+      return `${numericValue.toFixed(digits)} ${unit}`;
+    }
+
+    function formatAxisValue(value) {
+      const numericValue = toFiniteNumber(value);
+      if (!Number.isFinite(numericValue)) return "-";
+      const absolute = Math.abs(numericValue);
+      const digits = absolute >= 10 ? 0 : absolute >= 1 ? 1 : 2;
+      return numericValue.toFixed(digits);
+    }
+
+    function formatTimestamp(value) {
+      if (!value) return "-";
+      const date = new Date(value);
+      if (Number.isFinite(date.getTime())) return DATE_TIME_FORMATTER.format(date);
+      return String(value).replace("T", " ").replace("Z", " UTC");
+    }
+
+    function parseTimestamp(value) {
+      return value ? new Date(value).getTime() : Number.NaN;
+    }
+
+    function buildSlotTime(dateIso, slotIndex) {
+      const date = new Date(`${dateIso}T00:00:00`);
+      date.setMinutes(date.getMinutes() + (slotIndex * PRICE_SLOT_MINUTES));
+      return date.getTime();
+    }
+
+    function getPriceChartRange(referenceDate, statusPayload) {
+      const todayStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate()).getTime();
+      if (!hasTomorrowPrices(statusPayload)) {
+        return {
+          startTime: todayStart - (24 * 60 * 60 * 1000),
+          endTime: todayStart + (24 * 60 * 60 * 1000),
+        };
+      }
+      return {
+        startTime: todayStart,
+        endTime: todayStart + (48 * 60 * 60 * 1000),
+      };
+    }
+
+    function hasTomorrowPrices(statusPayload) {
+      const tomorrow = statusPayload?.price_cache?.tomorrow;
+      const availableSlotCount = Number(tomorrow?.available_slot_count ?? 0);
+      const foundSlotCount = Number(statusPayload?.price_cache?.price_source_status?.tomorrow_slots_found ?? 0);
+      return availableSlotCount > 0 && foundSlotCount > 0;
+    }
+
+    function getReferenceNow(payload) {
+      for (const candidate of [payload?.price_cache?.last_update_at, payload?.health?.timestamp]) {
+        const parsed = new Date(candidate);
+        if (Number.isFinite(parsed.getTime())) return parsed;
+      }
+      return new Date();
+    }
+
+    function pickHistoryValue(row) {
+      for (const key of ["average_value", "last_value", "value"]) {
+        const parsed = toFiniteNumber(row[key]);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      return Number.NaN;
+    }
+
+    function toFiniteNumber(value) {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    }
+
+    function setSelectValue(select, value) {
+      const normalized = String(Number(value));
+      const existing = [...select.options].find((option) => Number(option.value) === Number(value));
+      if (!existing) {
+        const option = document.createElement("option");
+        option.value = normalized;
+        option.textContent = formatHours(value);
+        select.appendChild(option);
+      }
+      select.value = existing ? existing.value : normalized;
+    }
+
+    function formatHours(value) {
+      const hours = Number(value);
+      if (!Number.isFinite(hours)) return "-";
+      if (hours === 1) return "1 Stunde";
+      return `${hours.toLocaleString("de-DE", { maximumFractionDigits: 2 })} Stunden`;
+    }
+
+    function getThemeColors() {
+      const styles = getComputedStyle(document.documentElement);
+      return {
+        bgPrimary: readCssVar(styles, "--bg-primary"),
+        border: readCssVar(styles, "--border"),
+        borderStrong: readCssVar(styles, "--border-strong"),
+        textPrimary: readCssVar(styles, "--text-primary"),
+        textSecondary: readCssVar(styles, "--text-secondary"),
+        textMuted: readCssVar(styles, "--text-muted"),
+        chartFillOpacity: Number(readCssVar(styles, "--chart-fill-opacity")),
+      };
+    }
+
+    function readCssVar(styles, name) {
+      return styles.getPropertyValue(name).trim();
+    }
+
+    function withAlpha(hex, alpha) {
+      const normalized = hex.replace("#", "");
+      const bigint = parseInt(normalized, 16);
+      const red = (bigint >> 16) & 255;
+      const green = (bigint >> 8) & 255;
+      const blue = bigint & 255;
+      return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    function escapeClass(value) {
+      return String(value || "").replace(/[^a-z0-9_-]/gi, "");
+    }
+    function refreshIconSvg() {
+      return '<svg viewBox="0 0 24 24" fill="none"><path d="M20 6v5h-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4 18v-5h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path><path d="M18.2 9A7 7 0 0 0 6.4 6.6L4 9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path><path d="M5.8 15A7 7 0 0 0 17.6 17.4L20 15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+    }
+
+    function setTheme(theme) {
+      document.documentElement.dataset.theme = theme;
+      localStorage.setItem(STORAGE_THEME_KEY, theme);
+      renderThemeIcon();
+      if (latestTimeline && latestTimeline.series.some((point) => Number.isFinite(point.value))) {
+        renderPriceChart(latestTimeline);
+      }
+    }
+
+    function renderThemeIcon() {
+      const button = document.getElementById("theme-toggle");
+      const isDark = document.documentElement.dataset.theme === "dark";
+      button.innerHTML = isDark
+        ? '<svg class="theme-icon" viewBox="0 0 24 24" fill="none"><path d="M21 13.2A7.7 7.7 0 0 1 10.8 3 8.6 8.6 0 1 0 21 13.2Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg>'
+        : '<svg class="theme-icon" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.7"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path></svg>';
+    }
+
+    function initTheme() {
+      const storedTheme = localStorage.getItem(STORAGE_THEME_KEY);
+      document.documentElement.dataset.theme = storedTheme === "light" ? "light" : "dark";
+      renderThemeIcon();
+    }
+
+    function initNavObserver() {
+      const links = [...document.querySelectorAll("[data-section-link]")];
+      const sections = links.map((link) => document.getElementById(link.dataset.sectionLink)).filter(Boolean);
+      const observer = new IntersectionObserver((entries) => {
+        const visible = entries.filter((entry) => entry.isIntersecting).sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
+        if (!visible) return;
+        links.forEach((link) => link.classList.toggle("active", link.dataset.sectionLink === visible.target.id));
+      }, { rootMargin: "-20% 0px -55% 0px", threshold: [0.1, 0.3, 0.6] });
+      sections.forEach((section) => observer.observe(section));
+    }
+
+    async function handleRefreshClick() {
+      const icon = document.getElementById("refresh-icon");
+      const button = document.getElementById("refresh-button");
+      button.disabled = true;
+      icon.innerHTML = '<span class="spinner"></span>';
+      const startedAt = Date.now();
+      try {
+        await refreshDashboard();
+      } catch (error) {
+        setText("operator-message", `Dashboard-Fehler: ${error.message}`);
+      } finally {
+        const remaining = Math.max(0, MINIMUM_LOADING_MS - (Date.now() - startedAt));
+        window.setTimeout(() => {
+          icon.innerHTML = refreshIconSvg();
+          button.disabled = false;
+        }, remaining);
+      }
+    }
+
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+      setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+    });
+    document.getElementById("refresh-button").addEventListener("click", handleRefreshClick);
+    document.getElementById("diagnostic-button").addEventListener("click", runDiagnostic);
+    document.getElementById("spotmarket-settings-form").addEventListener("submit", saveSpotmarketSettings);
+    document.getElementById("refresh-icon").innerHTML = refreshIconSvg();
+
+    initTheme();
+    initNavObserver();
+    refreshDashboard().catch((error) => setText("operator-message", `Dashboard-Fehler: ${error.message}`));
+    setInterval(() => {
+      refreshDashboard().catch((error) => setText("operator-message", `Dashboard-Fehler: ${error.message}`));
+    }, REFRESH_INTERVAL_MS);
+  </script>
+</body>
+</html>

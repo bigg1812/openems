@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -20,6 +20,19 @@ class PointsConfig:
     current_price_av: int
     grid_lockout_bv: int
     spotmarket_lockout_bv: int
+
+
+@dataclass(frozen=True)
+class AdditionalInputConfig:
+    channel_id: str
+    object_type: int
+    instance: int
+    description: str
+    controller_ip: Optional[str] = None
+    controller_port: Optional[int] = None
+    plausible_min: Optional[float] = None
+    plausible_max: Optional[float] = None
+    include_in_health: bool = False
 
 
 @dataclass(frozen=True)
@@ -65,6 +78,43 @@ class SafetyConfig:
 
 
 @dataclass(frozen=True)
+class OutputPolicyConfig:
+    confirmation_mode: str
+    criticality: str
+
+
+@dataclass(frozen=True)
+class OutputPoliciesConfig:
+    current_price: OutputPolicyConfig
+    grid_lockout: OutputPolicyConfig
+    spotmarket_lockout: OutputPolicyConfig
+
+    def for_channel(self, channel_id: str) -> OutputPolicyConfig:
+        mapping = {
+            "tariff.current_price_ct_kwh": self.current_price,
+            "ems.lockout_grid": self.grid_lockout,
+            "ems.lockout_spotmarket": self.spotmarket_lockout,
+        }
+        policy = mapping.get(channel_id)
+        if policy is None:
+            raise KeyError("Missing output policy for channel: {0}".format(channel_id))
+        return policy
+
+
+@dataclass(frozen=True)
+class DatabaseConfig:
+    sqlite_file: str
+
+
+@dataclass(frozen=True)
+class ApiConfig:
+    enabled: bool
+    host: str
+    port: int
+    history_default_limit: int
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     directory: str
     log_file: str
@@ -87,6 +137,28 @@ class MiniEmsConfig:
     controllers: ControllersConfig
     safety: SafetyConfig
     logging: LoggingConfig
+    additional_inputs: Dict[str, AdditionalInputConfig] = field(default_factory=dict)
+    output_policies: OutputPoliciesConfig = field(default_factory=lambda: OutputPoliciesConfig(
+        current_price=OutputPolicyConfig(
+            confirmation_mode="ack_or_readback",
+            criticality="noncritical",
+        ),
+        grid_lockout=OutputPolicyConfig(
+            confirmation_mode="ack_only",
+            criticality="critical",
+        ),
+        spotmarket_lockout=OutputPolicyConfig(
+            confirmation_mode="ack_only",
+            criticality="critical",
+        ),
+    ))
+    database: DatabaseConfig = field(default_factory=lambda: DatabaseConfig(sqlite_file="data/runtime/mini_ems.sqlite"))
+    api: ApiConfig = field(default_factory=lambda: ApiConfig(
+        enabled=True,
+        host="127.0.0.1",
+        port=8090,
+        history_default_limit=96,
+    ))
 
     def resolve_path(self, value: str) -> Path:
         path = Path(value)
@@ -122,18 +194,26 @@ class MiniEmsConfig:
     def spotmarket_override_path(self) -> Path:
         return self.resolve_path(self.logging.spotmarket_override_file)
 
+    @property
+    def database_path(self) -> Path:
+        return self.resolve_path(self.database.sqlite_file)
+
 
 def load_config(path: Path) -> MiniEmsConfig:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
 
     network = _require_dict(raw, "network")
     points = _require_dict(raw, "points")
+    additional_inputs_raw = raw.get("additional_inputs")
     timing = _require_dict(raw, "timing")
     price_source = _require_dict(raw, "price_source")
     controllers = _require_dict(raw, "controllers")
     grid_lockout = _require_dict(controllers, "grid_lockout")
     spotmarket_lockout = _require_dict(controllers, "spotmarket_lockout")
     safety = _require_dict(raw, "safety")
+    outputs = _optional_dict(raw.get("outputs"))
+    database = _optional_dict(raw.get("database"))
+    api = _optional_dict(raw.get("api"))
     logging = _require_dict(raw, "logging")
 
     config = MiniEmsConfig(
@@ -151,6 +231,10 @@ def load_config(path: Path) -> MiniEmsConfig:
             current_price_av=int(points["current_price_av"]),
             grid_lockout_bv=int(points["grid_lockout_bv"]),
             spotmarket_lockout_bv=int(points["spotmarket_lockout_bv"]),
+        ),
+        additional_inputs=_load_additional_inputs(
+            additional_inputs_raw,
+            default_controller_port=int(network["controller_port"]),
         ),
         timing=TimingConfig(
             cycle_seconds=int(timing["cycle_seconds"]),
@@ -190,6 +274,32 @@ def load_config(path: Path) -> MiniEmsConfig:
             fail_safe_output=bool(safety["fail_safe_output"]),
             comm_error_safe_mode_threshold=int(safety["comm_error_safe_mode_threshold"]),
         ),
+        output_policies=OutputPoliciesConfig(
+            current_price=_load_output_policy(
+                outputs.get("current_price"),
+                default_confirmation_mode="ack_or_readback",
+                default_criticality="noncritical",
+            ),
+            grid_lockout=_load_output_policy(
+                outputs.get("grid_lockout"),
+                default_confirmation_mode="ack_only",
+                default_criticality="critical",
+            ),
+            spotmarket_lockout=_load_output_policy(
+                outputs.get("spotmarket_lockout"),
+                default_confirmation_mode="ack_only",
+                default_criticality="critical",
+            ),
+        ),
+        database=DatabaseConfig(
+            sqlite_file=str(database.get("sqlite_file", "data/runtime/mini_ems.sqlite")),
+        ),
+        api=ApiConfig(
+            enabled=bool(api.get("enabled", True)),
+            host=str(api.get("host", "127.0.0.1")),
+            port=int(api.get("port", 8090)),
+            history_default_limit=int(api.get("history_default_limit", 96)),
+        ),
         logging=LoggingConfig(
             directory=str(logging["directory"]),
             log_file=str(logging["log_file"]),
@@ -213,10 +323,83 @@ def _require_dict(raw: Dict[str, Any], key: str) -> Dict[str, Any]:
     return value
 
 
+def _optional_dict(value: object) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _load_output_policy(
+    raw: object,
+    default_confirmation_mode: str,
+    default_criticality: str,
+) -> OutputPolicyConfig:
+    raw = raw if isinstance(raw, dict) else {}
+    return OutputPolicyConfig(
+        confirmation_mode=str(raw.get("confirmation_mode", default_confirmation_mode)).lower(),
+        criticality=str(raw.get("criticality", default_criticality)).lower(),
+    )
+
+
+def _load_additional_inputs(
+    raw: object,
+    *,
+    default_controller_port: int,
+) -> Dict[str, AdditionalInputConfig]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, list):
+        raise ValueError("additional_inputs must be a list")
+
+    additional_inputs: Dict[str, AdditionalInputConfig] = {}
+    for entry in raw:
+        if not isinstance(entry, dict):
+            raise ValueError("each additional_inputs entry must be an object")
+        channel_id = str(entry["channel_id"])
+        additional_inputs[channel_id] = AdditionalInputConfig(
+            channel_id=channel_id,
+            object_type=_parse_object_type(entry["object_type"]),
+            instance=int(entry["instance"]),
+            description=str(entry.get("description", channel_id)),
+            controller_ip=_optional_text(entry.get("controller_ip")),
+            controller_port=int(entry.get("controller_port", default_controller_port)),
+            plausible_min=_optional_float(entry.get("plausible_min")),
+            plausible_max=_optional_float(entry.get("plausible_max")),
+            include_in_health=bool(entry.get("include_in_health", False)),
+        )
+    return additional_inputs
+
+
+def _parse_object_type(value: object) -> int:
+    if isinstance(value, int):
+        return value
+    normalized = str(value).strip().lower()
+    mapping = {
+        "ai": 0,
+        "analog_input": 0,
+        "analog-input": 0,
+        "av": 2,
+        "analog_value": 2,
+        "analog-value": 2,
+        "bv": 5,
+        "binary_value": 5,
+        "binary-value": 5,
+    }
+    if normalized not in mapping:
+        raise ValueError("Unsupported BACnet object_type: {0}".format(value))
+    return mapping[normalized]
+
+
 def _optional_float(value: Any) -> Optional[float]:
     if value is None:
         return None
     return float(value)
+
+
+def _optional_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    return str(value)
 
 
 def _validate_config(config: MiniEmsConfig) -> None:
@@ -257,3 +440,52 @@ def _validate_config(config: MiniEmsConfig) -> None:
         raise ValueError("min_valid_quarters must be <= 24 for hourly resolution")
     if config.safety.comm_error_safe_mode_threshold <= 0:
         raise ValueError("comm_error_safe_mode_threshold must be > 0")
+    allowed_confirmation_modes = {"ack_only", "ack_or_readback"}
+    allowed_criticalities = {"critical", "noncritical"}
+    for channel_id in (
+        "tariff.current_price_ct_kwh",
+        "ems.lockout_grid",
+        "ems.lockout_spotmarket",
+    ):
+        policy = config.output_policies.for_channel(channel_id)
+        if policy.confirmation_mode not in allowed_confirmation_modes:
+            raise ValueError(
+                "confirmation_mode for {0} must be one of {1}".format(
+                    channel_id,
+                    sorted(allowed_confirmation_modes),
+                )
+            )
+        if policy.criticality not in allowed_criticalities:
+            raise ValueError(
+                "criticality for {0} must be one of {1}".format(
+                    channel_id,
+                    sorted(allowed_criticalities),
+                )
+            )
+    if config.api.port <= 0 or config.api.port > 65535:
+        raise ValueError("api.port must be between 1 and 65535")
+    if config.api.history_default_limit <= 0:
+        raise ValueError("api.history_default_limit must be > 0")
+    core_channels = {
+        "grid.active_power_kw",
+        "tariff.current_price_ct_kwh",
+        "ems.lockout_grid",
+        "ems.lockout_spotmarket",
+    }
+    for channel_id, input_config in config.additional_inputs.items():
+        if channel_id in core_channels:
+            raise ValueError("additional_inputs channel_id duplicates a core channel: {0}".format(channel_id))
+        if input_config.controller_port is None:
+            continue
+        if input_config.controller_port <= 0 or input_config.controller_port > 65535:
+            raise ValueError(
+                "additional_inputs controller_port must be between 1 and 65535 for {0}".format(channel_id)
+            )
+        if (
+            input_config.plausible_min is not None
+            and input_config.plausible_max is not None
+            and input_config.plausible_min > input_config.plausible_max
+        ):
+            raise ValueError(
+                "additional_inputs plausible_min must be <= plausible_max for {0}".format(channel_id)
+            )

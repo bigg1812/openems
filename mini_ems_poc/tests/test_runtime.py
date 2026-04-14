@@ -5,6 +5,7 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from mini_ems_poc.mini_ems_runtime.bacnet import (
     BacnetAdapter,
@@ -17,7 +18,10 @@ from mini_ems_poc.mini_ems_runtime.channels import (
     GRID_LOCKOUT_CHANNEL,
 )
 from mini_ems_poc.mini_ems_runtime.config import (
+    AdditionalInputConfig,
+    ApiConfig,
     ControllersConfig,
+    DatabaseConfig,
     GridLockoutConfig,
     LoggingConfig,
     MiniEmsConfig,
@@ -29,8 +33,11 @@ from mini_ems_poc.mini_ems_runtime.config import (
     TimingConfig,
 )
 from mini_ems_poc.mini_ems_runtime.cycle import CycleRunner
+from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
 from mini_ems_poc.mini_ems_runtime.price_cache import CachedDay, PriceCacheFile, PublishedPriceSnapshot, SpotmarketPriceCacheService
-from mini_ems_poc.mini_ems_runtime.price_provider_smard import PriceProviderError, RecentSlotMapScanResult, berlin_now
+from mini_ems_poc.mini_ems_runtime.price_provider_smard import PriceProviderError, RecentSlotMapScanResult, SmardPriceProvider, berlin_now
+from mini_ems_poc.mini_ems_runtime.read_diagnostics import ChannelReadDiagnosticsService
+from mini_ems_poc.mini_ems_runtime.runtime_db import RuntimeDatabase
 from mini_ems_poc.mini_ems_runtime.spotmarket_plan import SpotmarketManualOverrideStore, SpotmarketPlanWriter
 from mini_ems_poc.mini_ems_runtime.state_store import StateStore
 
@@ -80,18 +87,58 @@ class FakePriceService:
         return self.snapshots.pop(0)
 
 
+class FakeHTTPHeaders:
+    def __init__(self, charset="utf-8"):
+        self._charset = charset
+
+    def get_content_charset(self):
+        return self._charset
+
+
+class FakeHTTPResponse:
+    def __init__(self, payload, charset="utf-8"):
+        self._payload = json.dumps(payload).encode(charset)
+        self.headers = FakeHTTPHeaders(charset)
+
+    def read(self):
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
 def make_read_response(value: float):
-    payload = b"\x00\x3E\x44" + struct.pack(">f", value) + b"\x3F\x00"
-    return payload, ("192.168.1.100", 47808)
+    return make_read_response_for_point(value, invoke_id=1, instance=300)
 
 
-def make_ack_response():
-    payload = bytes([0, 0, 0, 0, 0, 0, 0x20, 0x00, 0x0F])
+def make_read_response_for_point(
+    value: float,
+    *,
+    invoke_id: int,
+    instance: int,
+    object_type: int = 2,
+    sender_ip: str = "192.168.1.100",
+    sender_port: int = 47808,
+):
+    object_id = struct.pack(">I", (object_type << 22) | instance)
+    apdu = bytes([0x30, invoke_id, 0x0C, 0x0C]) + object_id + bytes([0x19, 0x55, 0x3E, 0x44]) + struct.pack(">f", value) + bytes([0x3F])
+    npdu = bytes([0x01, 0x04])
+    payload = bytes([0x81, 0x0A]) + struct.pack(">H", 4 + len(npdu) + len(apdu)) + npdu + apdu
+    return payload, (sender_ip, sender_port)
+
+
+def make_ack_response(*, invoke_id: int, service_choice: int = 0x0F):
+    npdu = bytes([0x01, 0x04])
+    apdu = bytes([0x20, invoke_id, service_choice])
+    payload = bytes([0x81, 0x0A]) + struct.pack(">H", 4 + len(npdu) + len(apdu)) + npdu + apdu
     return payload, ("192.168.1.100", 47808)
 
 
 def make_wrong_sender_response(value: float):
-    payload = b"\x00\x3E\x44" + struct.pack(">f", value) + b"\x3F\x00"
+    payload, _sender = make_read_response_for_point(value, invoke_id=1, instance=300)
     return payload, ("10.0.0.5", 47808)
 
 
@@ -121,7 +168,7 @@ class BacnetAdapterTest(unittest.TestCase):
         fake_socket = FakeSocket(
             [
                 make_wrong_sender_response(7.5),
-                make_read_response(4.25),
+                make_read_response_for_point(4.25, invoke_id=1, instance=300),
             ]
         )
         adapter = BacnetAdapter(self.network, self.logger, sock=fake_socket)
@@ -144,6 +191,89 @@ class BacnetAdapterTest(unittest.TestCase):
 
         with self.assertRaises(BacnetCommunicationError):
             adapter.write_bool(self.registry.get(GRID_LOCKOUT_CHANNEL), True)
+
+    def test_read_ignores_stale_simple_ack_before_value_response(self) -> None:
+        fake_socket = FakeSocket(
+            [
+                make_ack_response(invoke_id=99),
+                make_read_response_for_point(3.5, invoke_id=1, instance=300),
+            ]
+        )
+        adapter = BacnetAdapter(self.network, self.logger, sock=fake_socket)
+
+        value = adapter.read_float(self.registry.get(GRID_ACTIVE_POWER_CHANNEL))
+
+        self.assertEqual(value, 3.5)
+
+    def test_read_ignores_response_for_wrong_object_instance(self) -> None:
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(0.0, invoke_id=1, instance=300),
+                make_read_response_for_point(13.58, invoke_id=1, instance=1000),
+            ]
+        )
+        adapter = BacnetAdapter(self.network, self.logger, sock=fake_socket)
+
+        value = adapter.read_float(self.registry.get(CURRENT_PRICE_CHANNEL))
+
+        self.assertEqual(value, 13.58)
+
+    def test_read_accepts_point_specific_controller_sender(self) -> None:
+        registry = ChannelRegistry.from_points_config(
+            PointsConfig(
+                grid_active_power_kw=300,
+                current_price_av=1000,
+                grid_lockout_bv=400,
+                spotmarket_lockout_bv=401,
+            ),
+            additional_inputs={
+                "site.outdoor_temperature_c": AdditionalInputConfig(
+                    channel_id="site.outdoor_temperature_c",
+                    object_type=0,
+                    instance=1801,
+                    description="Outdoor temperature",
+                    controller_ip="192.168.1.200",
+                    controller_port=47808,
+                )
+            },
+        )
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(
+                    22.5,
+                    invoke_id=1,
+                    instance=1801,
+                    object_type=0,
+                    sender_ip="192.168.1.200",
+                ),
+            ]
+        )
+        adapter = BacnetAdapter(self.network, self.logger, sock=fake_socket)
+
+        value = adapter.read_float(registry.get("site.outdoor_temperature_c"))
+
+        self.assertEqual(value, 22.5)
+        self.assertEqual(fake_socket.sent_packets[0][1], ("192.168.1.200", 47808))
+
+
+class SmardPriceProviderTest(unittest.TestCase):
+    def test_get_json_uses_stdlib_http(self) -> None:
+        provider = SmardPriceProvider(
+            PriceSourceConfig(
+                provider="smard",
+                region="DE-LU",
+                filter=4169,
+                resolution="quarterhour",
+                timeout_seconds=1.0,
+                price_factor=0.1,
+            )
+        )
+
+        with patch("urllib.request.urlopen", return_value=FakeHTTPResponse({"timestamps": [1, 2, 3]})) as urlopen:
+            payload = provider._get_json("https://example.test")
+
+        self.assertEqual(payload["timestamps"], [1, 2, 3])
+        urlopen.assert_called_once()
 
 
 class CycleRunnerTest(unittest.TestCase):
@@ -210,10 +340,17 @@ class CycleRunnerTest(unittest.TestCase):
                 stdout=False,
             ),
         )
-        self.registry = ChannelRegistry.from_points_config(self.config.points)
+        self.registry = ChannelRegistry.from_points_config(self.config.points, self.config.additional_inputs)
 
     def test_successful_cycle_writes_current_price(self) -> None:
-        fake_socket = FakeSocket([make_ack_response(), make_ack_response()])
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(7.2, invoke_id=1, instance=300),
+                make_ack_response(invoke_id=2),
+                make_ack_response(invoke_id=3),
+                make_ack_response(invoke_id=4),
+            ]
+        )
         runner = self._build_runner(fake_socket)
 
         snapshot = runner.run_cycle()
@@ -222,15 +359,63 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertTrue(snapshot["tomorrow_prices_available"])
         self.assertEqual(runner.state.outputs[CURRENT_PRICE_CHANNEL].value, -0.25)
         self.assertFalse(runner.state.outputs["ems.lockout_spotmarket"].value)
+        self.assertEqual(snapshot["grid_active_power_kw"], 7.2)
+        self.assertFalse(runner.state.outputs[GRID_LOCKOUT_CHANNEL].value)
 
     def test_write_failure_triggers_safe_mode(self) -> None:
-        fake_socket = FakeSocket([socket.timeout()])
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(7.2, invoke_id=1, instance=300),
+                socket.timeout(),
+            ]
+        )
         runner = self._build_runner(fake_socket)
 
         snapshot = runner.run_cycle()
 
         self.assertEqual(snapshot["status"], "safe_mode")
         self.assertIn("write_failure", snapshot["safe_mode_reason"])
+        self.assertIn("ems.lockout_grid", snapshot["desired_outputs"])
+
+    def test_spotmarket_bv_is_written_even_if_price_write_fails(self) -> None:
+        override_path = self.config.spotmarket_override_path
+        override_path.parent.mkdir(parents=True, exist_ok=True)
+        override_path.write_text(
+            json.dumps(
+                {
+                    "enabled": True,
+                    "date": "2026-04-01",
+                    "windows": [
+                        {
+                            "start_label": "11:30",
+                            "end_label_exclusive": "11:45",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(7.2, invoke_id=1, instance=300),
+                make_ack_response(invoke_id=2),
+                make_ack_response(invoke_id=3),
+                socket.timeout(),
+                make_read_response_for_point(999.0, invoke_id=5, instance=1000),
+            ]
+        )
+        runner = self._build_runner(fake_socket)
+
+        snapshot = runner.run_cycle()
+
+        self.assertEqual(snapshot["status"], "degraded")
+        self.assertTrue(runner.state.outputs["ems.lockout_spotmarket"].value)
+        self.assertTrue(snapshot["desired_outputs"]["ems.lockout_spotmarket"])
+        self.assertEqual(
+            snapshot["write_results"]["ems.lockout_spotmarket"]["confirmed_value"],
+            True,
+        )
+        self.assertIn("Failed to confirm tariff.current_price_ct_kwh", snapshot["degraded_reason"])
 
     def test_price_service_failure_triggers_safe_mode(self) -> None:
         fake_socket = FakeSocket([])
@@ -311,7 +496,14 @@ class CycleRunnerTest(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        fake_socket = FakeSocket([make_ack_response(), make_ack_response()])
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(7.2, invoke_id=1, instance=300),
+                make_ack_response(invoke_id=2),
+                make_ack_response(invoke_id=3),
+                make_ack_response(invoke_id=4),
+            ]
+        )
         runner = self._build_runner(fake_socket)
 
         snapshot = runner.run_cycle()
@@ -320,12 +512,268 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertTrue(snapshot["spotmarket_active_now"])
         self.assertTrue(runner.state.outputs["ems.lockout_spotmarket"].value)
 
+    def test_current_price_readback_confirmation_keeps_cycle_healthy(self) -> None:
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(7.2, invoke_id=1, instance=300),
+                make_ack_response(invoke_id=2),
+                make_ack_response(invoke_id=3),
+                socket.timeout(),
+                make_read_response_for_point(-0.25, invoke_id=5, instance=1000),
+            ]
+        )
+        runner = self._build_runner(fake_socket)
+
+        snapshot = runner.run_cycle()
+
+        self.assertEqual(snapshot["status"], "healthy")
+        self.assertEqual(
+            snapshot["write_results"][CURRENT_PRICE_CHANNEL]["confirmation_source"],
+            "readback",
+        )
+        self.assertEqual(
+            snapshot["watchdog"]["last_price_handoff_value_ct_kwh"],
+            -0.25,
+        )
+
+    def test_current_price_confirmation_failure_marks_cycle_degraded(self) -> None:
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(7.2, invoke_id=1, instance=300),
+                make_ack_response(invoke_id=2),
+                make_ack_response(invoke_id=3),
+                socket.timeout(),
+                make_read_response_for_point(4.0, invoke_id=5, instance=1000),
+            ]
+        )
+        runner = self._build_runner(fake_socket)
+
+        snapshot = runner.run_cycle()
+
+        self.assertEqual(snapshot["status"], "degraded")
+        self.assertFalse(snapshot["safe_mode_active"])
+        self.assertIn("readback mismatch", snapshot["degraded_reason"])
+
+    def test_grid_lockout_reactivates_after_stable_av300_reads(self) -> None:
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(4.9, invoke_id=1, instance=300),
+                make_ack_response(invoke_id=2),
+                make_ack_response(invoke_id=3),
+                make_ack_response(invoke_id=4),
+                make_read_response_for_point(4.8, invoke_id=5, instance=300),
+                make_read_response_for_point(4.7, invoke_id=6, instance=300),
+                make_ack_response(invoke_id=7),
+            ]
+        )
+        runner = self._build_runner(
+            fake_socket,
+            price_service=FakePriceService(
+                [
+                    self._price_snapshot(),
+                    self._price_snapshot(),
+                    self._price_snapshot(),
+                ]
+            ),
+        )
+
+        runner.run_cycle()
+        runner.run_cycle()
+        snapshot = runner.run_cycle()
+
+        self.assertEqual(snapshot["status"], "healthy")
+        self.assertTrue(snapshot["desired_outputs"][GRID_LOCKOUT_CHANNEL])
+        self.assertTrue(runner.state.outputs[GRID_LOCKOUT_CHANNEL].value)
+        self.assertEqual(snapshot["controller_outcomes"]["grid_lockout"]["state_name"], "lockout_active")
+
+    def test_runtime_database_contains_cycle_history(self) -> None:
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(7.2, invoke_id=1, instance=300),
+                make_ack_response(invoke_id=2),
+                make_ack_response(invoke_id=3),
+                make_ack_response(invoke_id=4),
+            ]
+        )
+        runner = self._build_runner(fake_socket)
+
+        snapshot = runner.run_cycle()
+        db = RuntimeDatabase(self.config.database_path)
+        report = db.get_daily_report(snapshot["today_date"])
+
+        self.assertGreaterEqual(report["cycle_count"], 1)
+        self.assertIn("healthy", report["status_counts"])
+        self.assertGreaterEqual(report["price_ct_kwh"]["slot_count"], 1)
+
+    def test_health_file_is_compact_operator_snapshot(self) -> None:
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(7.2, invoke_id=1, instance=300),
+                make_ack_response(invoke_id=2),
+                make_ack_response(invoke_id=3),
+                make_ack_response(invoke_id=4),
+            ]
+        )
+        runner = self._build_runner(fake_socket)
+
+        runner.run_cycle()
+        health = json.loads(self.config.health_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(health["status"], "healthy")
+        self.assertEqual(health["current_price_ct_kwh"], -0.25)
+        self.assertEqual(health["grid_read_status"], "ok")
+        self.assertNotIn("input_reads", health)
+        self.assertNotIn("controller_outcomes", health)
+        self.assertNotIn("outputs", health)
+        self.assertIn("write_status", health)
+        self.assertTrue(health["write_status"]["current_price"]["confirmed"])
+
+    def test_api_status_payload_exposes_price_cache_for_dashboard(self) -> None:
+        self.config.health_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config.state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config.price_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config.spotmarket_plan_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self.config.health_path.write_text(json.dumps({"status": "healthy"}), encoding="utf-8")
+        self.config.state_path.write_text(json.dumps({"safe_mode_active": False}), encoding="utf-8")
+        self.config.price_cache_path.write_text(
+            json.dumps(
+                {
+                    "last_update_at": "2026-04-01T11:30:00+02:00",
+                    "today": {
+                        "date": "2026-04-01",
+                        "slots": [1.0] * 96,
+                    },
+                    "tomorrow": {
+                        "date": "2026-04-02",
+                        "slots": [2.0] * 96,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.config.spotmarket_plan_path.write_text(
+            json.dumps({"min_consecutive_quarters": 8, "today": {"date": "2026-04-01", "windows": []}}),
+            encoding="utf-8",
+        )
+
+        api_server = MiniEmsApiServer(
+            api_config=self.config.api,
+            runtime_db=RuntimeDatabase(self.config.database_path),
+            health_path=self.config.health_path,
+            state_path=self.config.state_path,
+            price_cache_path=self.config.price_cache_path,
+            spotmarket_plan_path=self.config.spotmarket_plan_path,
+            dashboard_dir=self.base_dir / "dashboard",
+            logger=self.logger,
+            read_diagnostics=None,
+        )
+
+        payload = api_server._get_status_payload()
+
+        self.assertEqual(payload["health"]["status"], "healthy")
+        self.assertEqual(payload["price_cache"]["today"]["date"], "2026-04-01")
+        self.assertEqual(len(payload["price_cache"]["tomorrow"]["slots"]), 96)
+        self.assertEqual(payload["spotmarket_settings"]["min_consecutive_quarters"], 8)
+
+    def test_api_updates_spotmarket_duration_and_persists_config(self) -> None:
+        config_path = self.base_dir / "config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "controllers": {
+                        "spotmarket_lockout": {
+                            "negative_quarters_min_consecutive": 8,
+                            "min_valid_quarters": 96,
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        writer = SpotmarketPlanWriter(
+            self.config.spotmarket_plan_path,
+            negative_threshold_ct_kwh=0.0,
+            min_consecutive_quarters=8,
+        )
+        api_server = MiniEmsApiServer(
+            api_config=self.config.api,
+            runtime_db=RuntimeDatabase(self.config.database_path),
+            health_path=self.config.health_path,
+            state_path=self.config.state_path,
+            price_cache_path=self.config.price_cache_path,
+            spotmarket_plan_path=self.config.spotmarket_plan_path,
+            dashboard_dir=self.base_dir / "dashboard",
+            logger=self.logger,
+            read_diagnostics=None,
+            config_path=config_path,
+            spotmarket_plan_writer=writer,
+            price_source_resolution="quarterhour",
+        )
+
+        payload = api_server.update_spotmarket_lockout_settings({"min_consecutive_hours": 2.5})
+        persisted = json.loads(config_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["min_consecutive_quarters"], 10)
+        self.assertEqual(writer.min_consecutive_quarters, 10)
+        self.assertEqual(
+            persisted["controllers"]["spotmarket_lockout"]["negative_quarters_min_consecutive"],
+            10,
+        )
+
+    def test_additional_input_from_second_controller_is_logged_and_exposed(self) -> None:
+        self.config.additional_inputs["site.outdoor_temperature_c"] = AdditionalInputConfig(
+            channel_id="site.outdoor_temperature_c",
+            object_type=0,
+            instance=1801,
+            description="Outdoor temperature",
+            controller_ip="192.168.1.200",
+            controller_port=47808,
+            plausible_min=-50.0,
+            plausible_max=60.0,
+            include_in_health=True,
+        )
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(7.2, invoke_id=1, instance=300),
+                make_read_response_for_point(
+                    14.5,
+                    invoke_id=2,
+                    instance=1801,
+                    object_type=0,
+                    sender_ip="192.168.1.200",
+                ),
+                make_ack_response(invoke_id=3),
+                make_ack_response(invoke_id=4),
+                make_ack_response(invoke_id=5),
+            ]
+        )
+        runner = self._build_runner(fake_socket)
+
+        snapshot = runner.run_cycle()
+        health = json.loads(self.config.health_path.read_text(encoding="utf-8"))
+        db = RuntimeDatabase(self.config.database_path)
+        history = db.get_channel_history("site.outdoor_temperature_c", limit=1)
+        rollup_history = db.get_channel_history("site.outdoor_temperature_c", limit=1, granularity="5m")
+
+        self.assertEqual(snapshot["status"], "healthy")
+        self.assertEqual(snapshot["input_reads"]["site.outdoor_temperature_c"]["value"], 14.5)
+        self.assertEqual(health["additional_inputs"]["site.outdoor_temperature_c"]["value"], 14.5)
+        self.assertEqual(health["additional_inputs"]["site.outdoor_temperature_c"]["status"], "ok")
+        self.assertEqual(history[0]["channel_id"], "site.outdoor_temperature_c")
+        self.assertEqual(history[0]["value"], 14.5)
+        self.assertEqual(rollup_history[0]["channel_id"], "site.outdoor_temperature_c")
+        self.assertEqual(rollup_history[0]["sample_count"], 1)
+        self.assertEqual(rollup_history[0]["average_value"], 14.5)
+        self.assertEqual(rollup_history[0]["last_value"], 14.5)
+
     def _build_runner(self, fake_socket: FakeSocket, price_service=None) -> CycleRunner:
+        registry = ChannelRegistry.from_points_config(self.config.points, self.config.additional_inputs)
         adapter = BacnetAdapter(self.config.network, self.logger, sock=fake_socket)
-        state_store = StateStore(self.config.state_path, self.registry.output_channel_ids())
+        state_store = StateStore(self.config.state_path, registry.output_channel_ids())
         return CycleRunner(
             config=self.config,
-            registry=self.registry,
+            registry=registry,
             adapter=adapter,
             state_store=state_store,
             logger=self.logger,
@@ -338,6 +786,12 @@ class CycleRunnerTest(unittest.TestCase):
             spotmarket_override_store=SpotmarketManualOverrideStore(
                 self.config.spotmarket_override_path,
             ),
+            read_diagnostics=ChannelReadDiagnosticsService(
+                registry=registry,
+                adapter=adapter,
+                logger=self.logger,
+            ),
+            runtime_db=RuntimeDatabase(self.config.database_path),
         )
 
     def _price_snapshot(self):

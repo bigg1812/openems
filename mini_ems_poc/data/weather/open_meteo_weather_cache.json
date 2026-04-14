@@ -1,0 +1,66 @@
+{
+  "status": "ok",
+  "site": "Stuttgart",
+  "source": "Open-Meteo",
+  "current": {
+    "time": "2026-04-14T08:45",
+    "temperature_c": 8.2,
+    "apparent_temperature_c": 6.1,
+    "humidity_percent": 88,
+    "precipitation_mm": 0.0,
+    "wind_speed_kmh": 7.6,
+    "weather_code": 3,
+    "weather_label": "bew\u00f6lkt"
+  },
+  "next_hours": [
+    {
+      "time": "2026-04-14T00:00",
+      "temperature_c": 8.8,
+      "precipitation_probability_percent": 85,
+      "cloud_cover_percent": 100
+    },
+    {
+      "time": "2026-04-14T01:00",
+      "temperature_c": 8.8,
+      "precipitation_probability_percent": 95,
+      "cloud_cover_percent": 100
+    },
+    {
+      "time": "2026-04-14T02:00",
+      "temperature_c": 8.8,
+      "precipitation_probability_percent": 100,
+      "cloud_cover_percent": 100
+    },
+    {
+      "time": "2026-04-14T03:00",
+      "temperature_c": 8.6,
+      "precipitation_probability_percent": 93,
+      "cloud_cover_percent": 100
+    },
+    {
+      "time": "2026-04-14T04:00",
+      "temperature_c": 8.5,
+      "precipitation_probability_percent": 85,
+      "cloud_cover_percent": 100
+    },
+    {
+      "time": "2026-04-14T05:00",
+      "temperature_c": 8.4,
+      "precipitation_probability_percent": 55,
+      "cloud_cover_percent": 100
+    },
+    {
+      "time": "2026-04-14T06:00",
+      "temperature_c": 8.2,
+      "precipitation_probability_percent": 38,
+      "cloud_cover_percent": 100
+    },
+    {
+      "time": "2026-04-14T07:00",
+      "temperature_c": 8.1,
+      "precipitation_probability_percent": 53,
+      "cloud_cover_percent": 100
+    }
+  ],
+  "fetched_at": "2026-04-14T06:51:53.243047Z"
+}

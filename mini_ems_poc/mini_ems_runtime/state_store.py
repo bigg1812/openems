@@ -13,6 +13,8 @@ class OutputState:
     is_confirmed: bool = False
     last_confirmed_at: Optional[str] = None
     last_error: Optional[str] = None
+    last_confirmation_mode: Optional[str] = None
+    last_readback_value: Optional[float] = None
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -20,6 +22,8 @@ class OutputState:
             "is_confirmed": self.is_confirmed,
             "last_confirmed_at": self.last_confirmed_at,
             "last_error": self.last_error,
+            "last_confirmation_mode": self.last_confirmation_mode,
+            "last_readback_value": self.last_readback_value,
         }
 
     @classmethod
@@ -30,6 +34,8 @@ class OutputState:
             is_confirmed=bool(raw.get("is_confirmed", False)),
             last_confirmed_at=_optional_string(raw.get("last_confirmed_at")),
             last_error=_optional_string(raw.get("last_error")),
+            last_confirmation_mode=_optional_string(raw.get("last_confirmation_mode")),
+            last_readback_value=_optional_float(raw.get("last_readback_value")),
         )
 
 
@@ -39,10 +45,18 @@ class HealthState:
     safe_mode_reason: Optional[str] = None
     safe_outputs_confirmed: bool = False
     consecutive_comm_errors: int = 0
+    last_successful_cycle_id: Optional[str] = None
+    last_successful_at: Optional[str] = None
     last_healthy_cycle_id: Optional[str] = None
     last_healthy_at: Optional[str] = None
+    last_degraded_cycle_id: Optional[str] = None
+    last_degraded_at: Optional[str] = None
+    last_degraded_reason: Optional[str] = None
     last_cycle_id: Optional[str] = None
     last_cycle_at: Optional[str] = None
+    last_price_handoff_at: Optional[str] = None
+    last_price_handoff_slot_label: Optional[str] = None
+    last_price_handoff_value_ct_kwh: Optional[float] = None
     cycle_counter: int = 0
 
     def to_dict(self) -> Dict[str, object]:
@@ -51,10 +65,18 @@ class HealthState:
             "safe_mode_reason": self.safe_mode_reason,
             "safe_outputs_confirmed": self.safe_outputs_confirmed,
             "consecutive_comm_errors": self.consecutive_comm_errors,
+            "last_successful_cycle_id": self.last_successful_cycle_id,
+            "last_successful_at": self.last_successful_at,
             "last_healthy_cycle_id": self.last_healthy_cycle_id,
             "last_healthy_at": self.last_healthy_at,
+            "last_degraded_cycle_id": self.last_degraded_cycle_id,
+            "last_degraded_at": self.last_degraded_at,
+            "last_degraded_reason": self.last_degraded_reason,
             "last_cycle_id": self.last_cycle_id,
             "last_cycle_at": self.last_cycle_at,
+            "last_price_handoff_at": self.last_price_handoff_at,
+            "last_price_handoff_slot_label": self.last_price_handoff_slot_label,
+            "last_price_handoff_value_ct_kwh": self.last_price_handoff_value_ct_kwh,
             "cycle_counter": self.cycle_counter,
         }
 
@@ -66,17 +88,25 @@ class HealthState:
             safe_mode_reason=_optional_string(raw.get("safe_mode_reason")),
             safe_outputs_confirmed=bool(raw.get("safe_outputs_confirmed", False)),
             consecutive_comm_errors=int(raw.get("consecutive_comm_errors", 0)),
+            last_successful_cycle_id=_optional_string(raw.get("last_successful_cycle_id")),
+            last_successful_at=_optional_string(raw.get("last_successful_at")),
             last_healthy_cycle_id=_optional_string(raw.get("last_healthy_cycle_id")),
             last_healthy_at=_optional_string(raw.get("last_healthy_at")),
+            last_degraded_cycle_id=_optional_string(raw.get("last_degraded_cycle_id")),
+            last_degraded_at=_optional_string(raw.get("last_degraded_at")),
+            last_degraded_reason=_optional_string(raw.get("last_degraded_reason")),
             last_cycle_id=_optional_string(raw.get("last_cycle_id")),
             last_cycle_at=_optional_string(raw.get("last_cycle_at")),
+            last_price_handoff_at=_optional_string(raw.get("last_price_handoff_at")),
+            last_price_handoff_slot_label=_optional_string(raw.get("last_price_handoff_slot_label")),
+            last_price_handoff_value_ct_kwh=_optional_float(raw.get("last_price_handoff_value_ct_kwh")),
             cycle_counter=int(raw.get("cycle_counter", 0)),
         )
 
 
 @dataclass
 class RuntimeState:
-    version: int = 1
+    version: int = 2
     grid_lockout: GridLockoutState = field(default_factory=GridLockoutState)
     spotmarket_lockout: SpotMarketLockoutState = field(default_factory=SpotMarketLockoutState)
     outputs: Dict[str, OutputState] = field(default_factory=dict)
@@ -103,8 +133,13 @@ class RuntimeState:
             raw_outputs = {}
         for channel_id in output_channel_ids:
             outputs[channel_id] = OutputState.from_dict(raw_outputs.get(channel_id))
+        raw_version = raw.get("version", 2)
+        try:
+            version = int(raw_version)
+        except (TypeError, ValueError):
+            version = 2
         return cls(
-            version=int(raw.get("version", 1)),
+            version=max(2, version),
             grid_lockout=GridLockoutState.from_dict(raw.get("grid_lockout")),
             spotmarket_lockout=SpotMarketLockoutState.from_dict(raw.get("spotmarket_lockout")),
             outputs=outputs,
@@ -144,3 +179,9 @@ def _optional_string(value: object) -> Optional[str]:
     if value is None:
         return None
     return str(value)
+
+
+def _optional_float(value: object) -> Optional[float]:
+    if value is None:
+        return None
+    return float(value)
