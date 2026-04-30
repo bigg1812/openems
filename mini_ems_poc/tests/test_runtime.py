@@ -34,6 +34,7 @@ from mini_ems_poc.mini_ems_runtime.config import (
 )
 from mini_ems_poc.mini_ems_runtime.cycle import CycleRunner
 from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
+from mini_ems_poc.mini_ems_runtime.objectlist_import import import_objectlist_snapshot
 from mini_ems_poc.mini_ems_runtime.price_cache import CachedDay, PriceCacheFile, PublishedPriceSnapshot, SpotmarketPriceCacheService
 from mini_ems_poc.mini_ems_runtime.price_provider_smard import PriceProviderError, RecentSlotMapScanResult, SmardPriceProvider, berlin_now
 from mini_ems_poc.mini_ems_runtime.read_diagnostics import ChannelReadDiagnosticsService
@@ -362,6 +363,31 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertEqual(snapshot["grid_active_power_kw"], 7.2)
         self.assertFalse(runner.state.outputs[GRID_LOCKOUT_CHANNEL].value)
 
+    def test_current_price_is_rewritten_for_each_new_slot_even_if_value_matches(self) -> None:
+        first_snapshot = self._price_snapshot()
+        second_snapshot = self._price_snapshot(current_slot_index=47, current_slot_label="11:45")
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(7.2, invoke_id=1, instance=300),
+                make_ack_response(invoke_id=2),
+                make_ack_response(invoke_id=3),
+                make_ack_response(invoke_id=4),
+                make_read_response_for_point(7.3, invoke_id=5, instance=300),
+                make_ack_response(invoke_id=6),
+            ]
+        )
+        runner = self._build_runner(
+            fake_socket,
+            price_service=FakePriceService([first_snapshot, second_snapshot]),
+        )
+
+        runner.run_cycle()
+        snapshot = runner.run_cycle()
+
+        self.assertTrue(snapshot["write_results"][CURRENT_PRICE_CHANNEL]["changed"])
+        self.assertEqual(snapshot["watchdog"]["last_price_handoff_key"], "2026-04-01/11:45")
+        self.assertEqual(runner.state.health.last_price_handoff_value_ct_kwh, -0.25)
+
     def test_write_failure_triggers_safe_mode(self) -> None:
         fake_socket = FakeSocket(
             [
@@ -428,6 +454,40 @@ class CycleRunnerTest(unittest.TestCase):
 
         self.assertEqual(snapshot["status"], "safe_mode")
         self.assertIn("api down", snapshot["safe_mode_reason"])
+
+    def test_price_cache_falls_back_to_cached_current_slot_when_smard_is_unavailable(self) -> None:
+        today = berlin_now().date()
+        tomorrow = today.fromordinal(today.toordinal() + 1)
+
+        class ProviderStub:
+            def __init__(self):
+                self.config = type("Config", (), {"resolution": "quarterhour", "provider": "smard"})()
+
+            def current_slot_index(self, _now_local):
+                return 12
+
+            def slot_label(self, slot_index):
+                hour = slot_index // 4
+                minute = (slot_index % 4) * 15
+                return f"{hour:02d}:{minute:02d}"
+
+            def scan_recent_slot_maps(self, _target_dates):
+                raise PriceProviderError("vpn offline")
+
+        cache_path = self.base_dir / "spotmarket_price_cache.json"
+        cache = PriceCacheFile(
+            last_update_at="2026-04-01T14:05:31+02:00",
+            today=CachedDay(date_iso=today.isoformat(), slots=[10.0] * 96),
+            tomorrow=CachedDay(date_iso=tomorrow.isoformat(), slots=[11.0] * 96),
+        )
+        cache_path.write_text(json.dumps(cache.to_dict(), indent=2), encoding="utf-8")
+
+        service = SpotmarketPriceCacheService(cache_path, ProviderStub())
+        snapshot = service.refresh()
+
+        self.assertEqual(snapshot.current_price_ct_kwh, 10.0)
+        self.assertTrue(snapshot.price_source_status["stale"])
+        self.assertEqual(snapshot.price_source_status["fallback"], "cache")
 
     def test_cache_file_name_is_operator_readable(self) -> None:
         self.assertEqual(self.config.price_cache_path.name, "spotmarket_price_cache.json")
@@ -604,6 +664,89 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertGreaterEqual(report["cycle_count"], 1)
         self.assertIn("healthy", report["status_counts"])
         self.assertGreaterEqual(report["price_ct_kwh"]["slot_count"], 1)
+
+    def test_output_channels_are_available_as_rollups_for_reports(self) -> None:
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(7.2, invoke_id=1, instance=300),
+                make_ack_response(invoke_id=2),
+                make_ack_response(invoke_id=3),
+                make_ack_response(invoke_id=4),
+            ]
+        )
+        runner = self._build_runner(fake_socket)
+
+        runner.run_cycle()
+        db = RuntimeDatabase(self.config.database_path)
+        history = db.get_channel_history(CURRENT_PRICE_CHANNEL, limit=1, granularity="5m")
+
+        self.assertEqual(history[0]["channel_id"], CURRENT_PRICE_CHANNEL)
+        self.assertEqual(history[0]["sample_count"], 1)
+        self.assertEqual(history[0]["last_value"], -0.25)
+
+    def test_objectlist_import_records_selected_report_points(self) -> None:
+        csv_path = self.base_dir / "objectlist.csv"
+        csv_path.write_text(
+            "\n".join(
+                [
+                    '"Object Reference",Alarm,Manual,Commissioned,Name,Value,Status,Description',
+                    '//Engie_Stuttgart_EM/3000.AI1101,,,1,NLS02_PUF_01_T_oben_IW,"79.2 C",,"Puffer 1 Temperatur oben"',
+                    '//Engie_Stuttgart_EM/3000.AV300,,,1,EMS_Netzleistung,"12.5 kW",out-of-service,""',
+                ]
+            ),
+            encoding="utf-8",
+        )
+        db = RuntimeDatabase(self.config.database_path)
+
+        count = import_objectlist_snapshot(
+            db,
+            csv_path,
+            timestamp="2026-04-01T10:00:00Z",
+            cycle_id="objectlist-test",
+        )
+        history = db.get_channel_history("site.buffer_1_top_temperature_c", limit=1)
+        grid_history = db.get_channel_history("grid.active_power_kw", limit=1)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(history[0]["value"], 79.2)
+        self.assertEqual(grid_history, [])
+
+    def test_energy_counters_are_reported_as_period_delta(self) -> None:
+        db = RuntimeDatabase(self.config.database_path)
+        db.record_external_channel_samples(
+            [
+                {"channel_id": "site.chp_electric_energy_kwh", "value": 1000.0},
+                {"channel_id": "site.chp_thermal_energy_kwh", "value": 2000.0},
+                {"channel_id": "site.pellet_thermal_energy_kwh", "value": 3000.0},
+                {"channel_id": "site.gas_thermal_energy_kwh", "value": 4000.0},
+            ],
+            cycle_id="energy-start",
+            timestamp="2026-04-01T00:00:00Z",
+        )
+        db.record_external_channel_samples(
+            [
+                {"channel_id": "site.chp_electric_energy_kwh", "value": 1012.5},
+                {"channel_id": "site.chp_thermal_energy_kwh", "value": 2025.0},
+                {"channel_id": "site.pellet_thermal_energy_kwh", "value": 3030.0},
+                {"channel_id": "site.gas_thermal_energy_kwh", "value": 4040.0},
+            ],
+            cycle_id="energy-end",
+            timestamp="2026-04-01T12:00:00Z",
+        )
+
+        report = db.build_configurable_report(
+            {
+                "start": "2026-04-01T00:00:00Z",
+                "end": "2026-04-02T00:00:00Z",
+                "channels": ["site.chp_electric_energy_kwh", "site.gas_thermal_energy_kwh"],
+                "sections": [{"component": "summary"}],
+            }
+        )
+        cards = {card["channel_id"]: card for card in report["sections"][0]["cards"]}
+
+        self.assertEqual(cards["site.chp_electric_energy_kwh"]["display_label"], "Erzeugung im Zeitraum")
+        self.assertEqual(cards["site.chp_electric_energy_kwh"]["delta"], 12.5)
+        self.assertEqual(cards["site.gas_thermal_energy_kwh"]["delta"], 40.0)
 
     def test_health_file_is_compact_operator_snapshot(self) -> None:
         fake_socket = FakeSocket(
@@ -794,11 +937,11 @@ class CycleRunnerTest(unittest.TestCase):
             runtime_db=RuntimeDatabase(self.config.database_path),
         )
 
-    def _price_snapshot(self):
+    def _price_snapshot(self, current_slot_index=46, current_slot_label="11:30"):
         return PublishedPriceSnapshot(
             current_price_ct_kwh=-0.25,
-            current_slot_index=46,
-            current_slot_label="11:30",
+            current_slot_index=current_slot_index,
+            current_slot_label=current_slot_label,
             today_date_iso="2026-04-01",
             today_available_slot_count=96,
             today_slots=[1.0] * 96,

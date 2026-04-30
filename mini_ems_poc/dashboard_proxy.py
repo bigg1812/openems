@@ -6,8 +6,10 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
+
+from mini_ems_runtime.runtime_db import RuntimeDatabase
 
 
 class DashboardProxyServer:
@@ -20,6 +22,7 @@ class DashboardProxyServer:
         self.price_cache_path = self.project_dir / "data" / "spotmarket" / "spotmarket_price_cache.json"
         self.runtime_db_path = self.project_dir / "data" / "runtime" / "mini_ems.sqlite"
         self.weather_cache_path = self.project_dir / "data" / "weather" / "open_meteo_weather_cache.json"
+        self.report_template_path = self.project_dir / "mini_ems_runtime" / "templates" / "report.html.j2"
 
     def serve_forever(self) -> None:
         server = ThreadingHTTPServer((self.host, self.port), self._build_handler())
@@ -50,6 +53,12 @@ class DashboardProxyServer:
                 if parsed.path == "/api/report/studio":
                     self._send_report_studio()
                     return
+                if parsed.path == "/api/report/html":
+                    self._send_report_html(parsed)
+                    return
+                if parsed.path == "/api/report/pdf":
+                    self._send_report_html(parsed)
+                    return
                 if parsed.path == "/api/weather":
                     self._send_weather()
                     return
@@ -60,6 +69,9 @@ class DashboardProxyServer:
 
             def do_POST(self) -> None:
                 parsed = urlparse(self.path)
+                if parsed.path == "/api/report/preview":
+                    self._send_report_preview()
+                    return
                 if parsed.path.startswith("/api/"):
                     self._proxy_upstream()
                     return
@@ -107,6 +119,19 @@ class DashboardProxyServer:
                     headers["Content-Type"] = content_type
                 return Request(target, data=body, headers=headers, method=self.command)
 
+            def _read_json_body(self):
+                try:
+                    content_length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    content_length = 0
+                if content_length <= 0:
+                    return {}
+                try:
+                    payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    return {}
+                return payload if isinstance(payload, dict) else {}
+
             def _send_patched_status(self) -> None:
                 target = proxy.upstream_base + self.path
                 try:
@@ -133,29 +158,16 @@ class DashboardProxyServer:
 
             def _send_report_studio(self) -> None:
                 date_iso = proxy._default_report_date()
-                report = proxy._daily_report_summary(date_iso)
-                self._send_json(
-                    {
-                        "date": date_iso,
-                        "selected_window": "day",
-                        "available_windows": [
-                            {"id": "day", "label": "Tag", "ready": True},
-                            {"id": "week", "label": "Woche", "ready": False},
-                            {"id": "month", "label": "Monat", "ready": False},
-                            {"id": "custom", "label": "Frei", "ready": False},
-                        ],
-                        "exports": [
-                            {"label": "Tagesreport CSV", "href": f"/api/report/daily.csv?date={date_iso}"},
-                            {"label": "Tagesreport JSON", "href": f"/api/report/daily?date={date_iso}"},
-                        ],
-                        "metrics": [
-                            {"id": "grid", "label": "Netz Bilanz", "value": report.get("grid_average_kw"), "unit": "kW"},
-                            {"id": "price", "label": "Preis Niveau", "value": report.get("price_average_ct_kwh"), "unit": "ct/kWh"},
-                            {"id": "events", "label": "BACnet Events", "value": report.get("bacnet_event_count"), "unit": ""},
-                            {"id": "windows", "label": "Preisfenster", "value": report.get("window_count"), "unit": ""},
-                        ],
-                    }
-                )
+                self._send_json(proxy._runtime_db().get_report_studio_payload(date_iso))
+
+            def _send_report_html(self, parsed) -> None:
+                query = parse_qs(parsed.query)
+                config = _report_config_from_query(query)
+                html = proxy._runtime_db().render_report_html(config, proxy.report_template_path)
+                self._send_text(html, "text/html; charset=utf-8")
+
+            def _send_report_preview(self) -> None:
+                self._send_json(proxy._runtime_db().build_configurable_report(self._read_json_body()))
 
             def _send_weather(self) -> None:
                 cached = proxy._load_json(proxy.weather_cache_path)
@@ -197,6 +209,15 @@ class DashboardProxyServer:
                 self.end_headers()
                 self.wfile.write(raw)
 
+            def _send_text(self, payload: str, content_type: str, status: HTTPStatus = HTTPStatus.OK) -> None:
+                raw = payload.encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
             def _send_file(self, path: Path, content_type: str) -> None:
                 if not path.exists():
                     self._send_json({"error": "not_found", "path": str(path)}, status=HTTPStatus.NOT_FOUND)
@@ -228,19 +249,9 @@ class DashboardProxyServer:
 
     def _daily_report_summary(self, date_iso: str):
         if not self.runtime_db_path.exists():
-            return {"grid_average_kw": None, "price_average_ct_kwh": None, "bacnet_event_count": 0, "window_count": 0}
+            return {"price_average_ct_kwh": None, "bacnet_event_count": 0, "window_count": 0}
         with sqlite3.connect(str(self.runtime_db_path)) as connection:
             connection.row_factory = sqlite3.Row
-            grid = connection.execute(
-                """
-                SELECT AVG(value) AS average_value
-                FROM channel_samples
-                WHERE channel_id = 'grid.active_power_kw'
-                  AND direction = 'input'
-                  AND cycle_id IN (SELECT cycle_id FROM cycle_runs WHERE today_date = ?)
-                """,
-                (date_iso,),
-            ).fetchone()
             price = connection.execute(
                 "SELECT AVG(price_ct_kwh) AS average_price_ct_kwh FROM price_slots WHERE date_iso = ?",
                 (date_iso,),
@@ -254,11 +265,13 @@ class DashboardProxyServer:
                 (date_iso,),
             ).fetchone()[0]
         return {
-            "grid_average_kw": grid["average_value"] if grid else None,
             "price_average_ct_kwh": price["average_price_ct_kwh"] if price else None,
             "bacnet_event_count": events,
             "window_count": windows,
         }
+
+    def _runtime_db(self) -> RuntimeDatabase:
+        return RuntimeDatabase(self.runtime_db_path)
 
 
 def _normalize_weather_payload(raw):
@@ -345,6 +358,55 @@ def _write_json(path: Path, payload) -> None:
     temp_path = path.with_suffix(path.suffix + ".tmp")
     temp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
     temp_path.replace(path)
+
+
+def _report_config_from_query(query: dict[str, list[str]]) -> dict[str, object]:
+    return {
+        "title": _single_value(query, "title", "Mini EMS Report"),
+        "start": _optional_single_value(query, "start"),
+        "end": _optional_single_value(query, "end"),
+        "granularity": _single_value(query, "granularity", "5m"),
+        "channels": _multi_value(
+            query,
+            "channels",
+            [
+                "site.chp_electric_energy_kwh",
+                "site.chp_thermal_energy_kwh",
+                "site.pellet_thermal_energy_kwh",
+                "site.gas_thermal_energy_kwh",
+                "tariff.current_price_ct_kwh",
+                "site.outdoor_temperature_c",
+            ],
+        ),
+        "sections": [
+            {"component": component}
+            for component in _multi_value(query, "sections", ["summary", "line_chart", "table", "events"])
+        ],
+    }
+
+
+def _single_value(query: dict[str, list[str]], key: str, default: str) -> str:
+    values = query.get(key)
+    if not values:
+        return default
+    return values[0] or default
+
+
+def _optional_single_value(query: dict[str, list[str]], key: str) -> str | None:
+    values = query.get(key)
+    if not values:
+        return None
+    return values[0] or None
+
+
+def _multi_value(query: dict[str, list[str]], key: str, default: list[str]) -> list[str]:
+    values = query.get(key)
+    if not values:
+        return list(default)
+    result: list[str] = []
+    for value in values:
+        result.extend(part.strip() for part in str(value).split(",") if part.strip())
+    return result or list(default)
 
 
 def parse_args() -> argparse.Namespace:

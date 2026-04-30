@@ -26,6 +26,7 @@ class PointConfig:
     plausible_min: Optional[float] = None
     plausible_max: Optional[float] = None
     include_in_health: bool = False
+    read_interval_cycles: int = 1
 
     def can_read(self) -> bool:
         return self.access in ("read", "readwrite")
@@ -92,6 +93,7 @@ class ChannelRegistry:
                 plausible_min=input_config.plausible_min,
                 plausible_max=input_config.plausible_max,
                 include_in_health=input_config.include_in_health,
+                read_interval_cycles=input_config.read_interval_cycles,
             )
             additional_input_channel_ids.append(channel_id)
         return cls(registry, additional_input_channel_ids=additional_input_channel_ids)

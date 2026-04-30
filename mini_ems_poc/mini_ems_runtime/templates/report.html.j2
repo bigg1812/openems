@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>{{ report.title }}</title>
+  <style>
+    @page { size: A4; margin: 15mm; }
+    :root {
+      --ink: #16202a;
+      --muted: #647181;
+      --line: #d8e0e8;
+      --soft: #f4f7fa;
+      --panel: #ffffff;
+      --blue: #2563eb;
+      --green: #16875a;
+      --amber: #b7791f;
+      --dark: #0f1720;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #eef3f7;
+      color: var(--ink);
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .report-shell {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+      padding: 28px;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 24px;
+      align-items: end;
+      padding: 26px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #12202d, #1f3b4c);
+      color: #fff;
+    }
+    h1 { margin: 0; font-size: 30px; letter-spacing: 0; }
+    h2 { margin: 0 0 14px; font-size: 16px; letter-spacing: 0; }
+    .subtitle { margin: 8px 0 0; color: #c9d6e2; font-size: 13px; }
+    .generated { color: #c9d6e2; text-align: right; }
+    .pipeline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .pipeline span {
+      min-height: 26px;
+      padding: 5px 9px;
+      border: 1px solid rgba(255,255,255,0.22);
+      border-radius: 8px;
+      color: #e8f0f7;
+    }
+    section {
+      margin-top: 18px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      page-break-inside: avoid;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .card {
+      min-height: 128px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: linear-gradient(180deg, var(--soft), #fff);
+      page-break-inside: avoid;
+    }
+    .card.energy { border-color: #b9dfcf; background: linear-gradient(180deg, #eefaf5, #fff); }
+    .eyebrow {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .card-title { display: block; margin-top: 7px; font-size: 13px; font-weight: 600; }
+    .metric {
+      display: block;
+      margin-top: 10px;
+      color: var(--dark);
+      font-size: 24px;
+      font-weight: 650;
+      line-height: 1;
+    }
+    .metric small { color: var(--muted); font-size: 12px; font-weight: 500; }
+    .meta { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .chart-card {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      page-break-inside: avoid;
+    }
+    .chart-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+      color: var(--muted);
+    }
+    .chart {
+      width: 100%;
+      height: 150px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, #fbfdff, #f5f8fb);
+    }
+    .empty { padding: 18px; border: 1px dashed var(--line); color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid var(--line); padding: 8px 7px; text-align: left; font-size: 11px; }
+    th { color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+    td.value { font-weight: 600; text-align: right; white-space: nowrap; }
+    .print-note { margin-top: 18px; color: var(--muted); font-size: 11px; }
+    @media print {
+      body { background: #fff; }
+      .report-shell { width: 100%; padding: 0; }
+      .hero, section { box-shadow: none; }
+    }
+    @media (max-width: 900px) {
+      .report-shell { padding: 16px; }
+      .hero, .cards, .chart-grid { grid-template-columns: 1fr; }
+      .generated { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+  <main class="report-shell">
+    <header class="hero">
+      <div>
+        <span class="eyebrow">Mini EMS Report</span>
+        <h1>{{ report.title }}</h1>
+        <p class="subtitle">{{ report.subtitle }}</p>
+        <div class="pipeline">
+          {% for step in report.export_pipeline %}
+            <span>{{ step }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="generated">
+        <span class="eyebrow">Erstellt</span>
+        <strong>{{ report.generated_at }}</strong>
+      </div>
+    </header>
+
+    {% for section in report.sections %}
+      <section>
+        <h2>{{ section.title }}</h2>
+        {% if section.component == "summary" %}
+          <div class="cards">
+            {% for card in section.cards %}
+              <article class="card {{ 'energy' if card.kind == 'energy_counter' else '' }}">
+                <span class="eyebrow">{{ card.group }}</span>
+                <span class="card-title">{{ card.label }}</span>
+                <strong class="metric">
+                  {{ "%.2f"|format(card.display_value) if card.display_value is not none else "-" }}
+                  <small>{{ card.unit }}</small>
+                </strong>
+                <p class="meta">{{ card.display_label }} · {{ card.detail }}</p>
+                <p class="meta">{{ card.sample_count }} Samples</p>
+              </article>
+            {% endfor %}
+          </div>
+        {% elif section.component == "line_chart" %}
+          <div class="chart-grid">
+            {% for serie in section.series %}
+              {% set points = serie.points | selectattr("value", "ne", none) | list %}
+              <article class="chart-card">
+                <div class="chart-head">
+                  <strong>{{ serie.label }}</strong>
+                  <span>{{ serie.unit }}</span>
+                </div>
+                {% if points %}
+                  {% set values = points | map(attribute="value") | list %}
+                  {% set min_value = values | min %}
+                  {% set max_value = values | max %}
+                  {% set span = max_value - min_value if max_value != min_value else 1 %}
+                  <svg class="chart" viewBox="0 0 520 150" preserveAspectRatio="none" role="img" aria-label="{{ serie.label }}">
+                    <line x1="0" y1="132" x2="520" y2="132" stroke="#d8e0e8" />
+                    <polyline
+                      fill="none"
+                      stroke="{{ '#16875a' if serie.unit == 'kWh' else '#2563eb' }}"
+                      stroke-width="2.4"
+                      points="{% for point in points %}{{ (loop.index0 / ([points|length - 1, 1]|max) * 520)|round(1) }},{{ (132 - (((point.value - min_value) / span) * 112))|round(1) }} {% endfor %}" />
+                  </svg>
+                  <p class="meta">Min {{ "%.2f"|format(min_value) }} / Max {{ "%.2f"|format(max_value) }}</p>
+                {% else %}
+                  <div class="empty">Keine Daten im gewaehlten Zeitraum.</div>
+                {% endif %}
+              </article>
+            {% endfor %}
+          </div>
+        {% elif section.component == "table" %}
+          <table>
+            <thead><tr><th>Zeit</th><th>Kanal</th><th>Wert</th><th>Einheit</th></tr></thead>
+            <tbody>
+              {% for row in section.rows %}
+                <tr>
+                  <td>{{ row.timestamp }}</td>
+                  <td>{{ row.label or row.channel_id }}</td>
+                  <td class="value">{{ "%.2f"|format(row.value) if row.value is not none else "-" }}</td>
+                  <td>{{ row.unit }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <table>
+            <thead><tr><th>Zeit</th><th>Kanal</th><th>Status</th><th>Meldung</th></tr></thead>
+            <tbody>
+              {% for row in section.rows %}
+                <tr>
+                  <td>{{ row.timestamp }}</td>
+                  <td>{{ row.channel_id }}</td>
+                  <td>{{ row.severity }}</td>
+                  <td>{{ row.message or row.event_type }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      </section>
+    {% endfor %}
+    <p class="print-note">Hinweis: Wenn der direkte PDF-Renderer nicht installiert ist, kann diese Ansicht im Browser mit Drucken / Als PDF speichern exportiert werden.</p>
+  </main>
+</body>
+</html>

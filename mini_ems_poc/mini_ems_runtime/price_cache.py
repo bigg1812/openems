@@ -68,7 +68,19 @@ class SpotmarketPriceCacheService:
         today = now_local.date()
         tomorrow = today + timedelta(days=1)
         cache = self._load_cache()
-        scan_result = self.provider.scan_recent_slot_maps([today, tomorrow])
+        try:
+            scan_result = self.provider.scan_recent_slot_maps([today, tomorrow])
+        except PriceProviderError as error:
+            cached_snapshot = self._snapshot_from_cache(
+                cache,
+                now_local=now_local,
+                today=today,
+                tomorrow=tomorrow,
+                error=error,
+            )
+            if cached_snapshot is not None:
+                return cached_snapshot
+            raise
         today_slot_map = scan_result.slot_maps_by_date.get(today.isoformat(), {})
         tomorrow_slot_map = scan_result.slot_maps_by_date.get(tomorrow.isoformat(), {})
 
@@ -144,6 +156,62 @@ class SpotmarketPriceCacheService:
             cache_path=str(self.path),
             last_update_at=now_local.isoformat(),
             price_source_status=cache.price_source_status or {},
+        )
+
+    def _snapshot_from_cache(
+        self,
+        cache: "PriceCacheFile",
+        *,
+        now_local: datetime,
+        today: date,
+        tomorrow: date,
+        error: PriceProviderError,
+    ) -> Optional[PublishedPriceSnapshot]:
+        today_entry = cache.today
+        if today_entry is None or today_entry.date_iso != today.isoformat():
+            return None
+
+        slot_index = self.provider.current_slot_index(now_local)
+        if slot_index >= len(today_entry.slots):
+            return None
+
+        current_value = today_entry.slots[slot_index]
+        if current_value is None:
+            return None
+
+        tomorrow_entry = cache.tomorrow if cache.tomorrow is not None and cache.tomorrow.date_iso == tomorrow.isoformat() else None
+        tomorrow_slots = list(tomorrow_entry.slots) if tomorrow_entry is not None else []
+        tomorrow_available_slot_count = sum(1 for value in tomorrow_slots if value is not None)
+        today_available_slot_count = sum(1 for value in today_entry.slots if value is not None)
+        expected_slots = 24 if self.provider.config.resolution == "hour" else 96
+        source_status = {
+            "provider": self.provider.config.provider,
+            "resolution": self.provider.config.resolution,
+            "stale": True,
+            "fallback": "cache",
+            "error": str(error),
+            "today_date": today.isoformat(),
+            "today_slots_found": today_available_slot_count,
+            "today_complete": today_available_slot_count == expected_slots,
+            "tomorrow_date": tomorrow.isoformat(),
+            "tomorrow_slots_found": tomorrow_available_slot_count,
+            "tomorrow_complete": tomorrow_available_slot_count == expected_slots,
+            "last_successful_update_at": cache.last_update_at,
+        }
+        return PublishedPriceSnapshot(
+            current_price_ct_kwh=float(current_value),
+            current_slot_index=slot_index,
+            current_slot_label=self.provider.slot_label(slot_index),
+            today_date_iso=today_entry.date_iso,
+            today_available_slot_count=today_available_slot_count,
+            today_slots=list(today_entry.slots),
+            tomorrow_date_iso=tomorrow_entry.date_iso if tomorrow_entry is not None else tomorrow.isoformat(),
+            tomorrow_prices_available=tomorrow_available_slot_count > 0,
+            tomorrow_available_slot_count=tomorrow_available_slot_count,
+            tomorrow_slots=tomorrow_slots,
+            cache_path=str(self.path),
+            last_update_at=now_local.isoformat(),
+            price_source_status=source_status,
         )
 
     def _load_cache(self) -> "PriceCacheFile":

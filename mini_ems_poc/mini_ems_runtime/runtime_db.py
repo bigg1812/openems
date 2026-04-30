@@ -2,8 +2,9 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from html import escape
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 from typing import Dict, List, Optional, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -26,6 +27,34 @@ ROLLUP_TABLES = {
     "1h": "channel_rollups_1h",
     "1d": "channel_rollups_1d",
 }
+REPORT_CHANNELS = {
+    "tariff.current_price_ct_kwh": {"label": "Spotpreis", "unit": "ct/kWh", "group": "Markt", "kind": "average"},
+    "site.outdoor_temperature_c": {"label": "Aussentemperatur", "unit": "C", "group": "Wetter", "kind": "average"},
+    "site.buffer_1_top_temperature_c": {"label": "Puffer 1 oben", "unit": "C", "group": "Puffer", "kind": "average"},
+    "site.buffer_1_bottom_temperature_c": {"label": "Puffer 1 unten", "unit": "C", "group": "Puffer", "kind": "average"},
+    "site.buffer_2_top_temperature_c": {"label": "Puffer 2 oben", "unit": "C", "group": "Puffer", "kind": "average"},
+    "site.buffer_2_bottom_temperature_c": {"label": "Puffer 2 unten", "unit": "C", "group": "Puffer", "kind": "average"},
+    "site.heat_generation_flow_temperature_c": {"label": "Waermeerzeugung Vorlauf", "unit": "C", "group": "Waerme", "kind": "average"},
+    "site.heat_generation_return_temperature_c": {"label": "Waermeerzeugung Ruecklauf", "unit": "C", "group": "Waerme", "kind": "average"},
+    "site.boiler_1_flow_temperature_c": {"label": "Gaskessel Vorlauf", "unit": "C", "group": "Gaskessel", "kind": "average"},
+    "site.boiler_1_return_temperature_c": {"label": "Gaskessel Ruecklauf", "unit": "C", "group": "Gaskessel", "kind": "average"},
+    "site.boiler_2_flow_temperature_c": {"label": "Pelletkessel Vorlauf", "unit": "C", "group": "Pellet", "kind": "average"},
+    "site.boiler_2_return_temperature_c": {"label": "Pelletkessel Ruecklauf", "unit": "C", "group": "Pellet", "kind": "average"},
+    "site.chp_flow_temperature_c": {"label": "BHKW Vorlauf", "unit": "C", "group": "BHKW", "kind": "average"},
+    "site.chp_return_temperature_c": {"label": "BHKW Ruecklauf", "unit": "C", "group": "BHKW", "kind": "average"},
+    "site.chp_electric_energy_kwh": {"label": "BHKW elektrisch", "unit": "kWh", "group": "Energie", "kind": "energy_counter"},
+    "site.chp_thermal_energy_kwh": {"label": "BHKW thermisch", "unit": "kWh", "group": "Energie", "kind": "energy_counter"},
+    "site.pellet_thermal_energy_kwh": {"label": "Pellet thermisch", "unit": "kWh", "group": "Energie", "kind": "energy_counter"},
+    "site.gas_thermal_energy_kwh": {"label": "Gas thermisch", "unit": "kWh", "group": "Energie", "kind": "energy_counter"},
+    "ems.lockout_spotmarket": {"label": "Spotmarkt-Sperre", "unit": "", "group": "EMS", "kind": "state"},
+}
+REPORT_COMPONENTS = {
+    "summary": "Kennzahlen",
+    "line_chart": "Liniendiagramm",
+    "table": "Datentabelle",
+    "events": "BACnet Events",
+}
+REPORT_GRANULARITIES = ("raw", "5m", "1h", "1d")
 
 
 class RuntimeDatabase:
@@ -152,6 +181,12 @@ class RuntimeDatabase:
                             message=str(result.get("error")),
                             details=result,
                         )
+                    elif state.get("value") is not None:
+                        self._refresh_rollups_for_sample(
+                            connection,
+                            channel_id=channel_id,
+                            timestamp=timestamp,
+                        )
 
             if price_days:
                 for day_payload in price_days:
@@ -213,7 +248,50 @@ class RuntimeDatabase:
                 query += " ORDER BY bucket_start DESC LIMIT ?"
                 params.append(int(limit))
                 rows = connection.execute(query, params).fetchall()
+                if not rows:
+                    rows = self.get_channel_history(
+                        channel_id,
+                        limit=limit,
+                        granularity="raw",
+                        start=start,
+                        end=end,
+                    )
         return [dict(row) for row in rows]
+
+    def record_external_channel_samples(
+        self,
+        samples: Sequence[Dict[str, object]],
+        *,
+        cycle_id: str,
+        timestamp: str,
+        source: str = "external",
+    ) -> None:
+        with self._connection() as connection:
+            for sample in samples:
+                channel_id = _optional_text(sample.get("channel_id"))
+                if not channel_id:
+                    continue
+                self._insert_channel_sample(
+                    connection,
+                    cycle_id=cycle_id,
+                    timestamp=timestamp,
+                    channel_id=channel_id,
+                    direction="input",
+                    value=sample.get("value"),
+                    desired_value=None,
+                    is_confirmed=sample.get("is_confirmed", True),
+                    confirmation_mode="import",
+                    criticality="noncritical",
+                    source=source,
+                    error=sample.get("error"),
+                    readback_value=None,
+                )
+                if sample.get("error") is None and sample.get("value") is not None:
+                    self._refresh_rollups_for_sample(
+                        connection,
+                        channel_id=channel_id,
+                        timestamp=timestamp,
+                    )
 
     def get_recent_cycles(self, limit: int = 20) -> List[Dict[str, object]]:
         with self._connection() as connection:
@@ -338,17 +416,60 @@ class RuntimeDatabase:
                 {"label": "Tagesreport JSON", "href": "/api/report/daily?date={0}".format(date_iso)},
             ],
             "metrics": [
-                {"id": "grid", "label": "Netz Bilanz", "value": report["grid_active_power_kw"].get("average"), "unit": "kW"},
                 {"id": "price", "label": "Preis Niveau", "value": report["price_ct_kwh"].get("average"), "unit": "ct/kWh"},
+                {"id": "energy", "label": "Energiezaehler", "value": self._energy_counter_total("{0}T00:00:00Z".format(date_iso), "{0}T23:59:59Z".format(date_iso)), "unit": "kWh"},
                 {"id": "events", "label": "BACnet Events", "value": report.get("bacnet_event_count"), "unit": ""},
                 {"id": "windows", "label": "Preisfenster", "value": len(report.get("spotmarket_windows", [])), "unit": ""},
             ],
             "next_steps": [
-                "Zeitfenster als Query-Parameter stabilisieren",
-                "Energie aus Leistung integrieren",
-                "Vorlagen fuer Betreiber, Technik und Finance trennen",
+                "Energiezaehler BHKW, Pellet und Gas als Standard-Report pruefen",
+                "PDF-Layout mit Betreiberlogo und Monatsvergleich erweitern",
+                "Automatischen Wochenreport terminieren",
             ],
+            "config": _normalize_report_config({"start": "{0}T00:00:00Z".format(date_iso), "end": "{0}T23:59:59Z".format(date_iso)}),
         }
+
+    def build_configurable_report(self, config: Dict[str, object]) -> Dict[str, object]:
+        normalized = _normalize_report_config(config)
+        sections = []
+        for section_config in normalized["sections"]:
+            component = section_config["component"]
+            if component == "summary":
+                sections.append(self._build_report_summary_section(normalized, section_config))
+            elif component == "line_chart":
+                sections.append(self._build_report_chart_section(normalized, section_config))
+            elif component == "table":
+                sections.append(self._build_report_table_section(normalized, section_config))
+            elif component == "events":
+                sections.append(self._build_report_events_section(normalized, section_config))
+        return {
+            "config": normalized,
+            "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "title": normalized["title"],
+            "subtitle": "{0} bis {1}, Aufloesung {2}".format(
+                normalized["start"],
+                normalized["end"],
+                normalized["granularity"],
+            ),
+            "sections": sections,
+            "export_pipeline": ["Daten", "Python-Aufbereitung", "HTML-Template", "PDF-Export"],
+        }
+
+    def render_report_html(self, config: Dict[str, object], template_path: Optional[Path] = None) -> str:
+        report = self.build_configurable_report(config)
+        if template_path is not None:
+            try:
+                from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+                environment = Environment(
+                    loader=FileSystemLoader(str(template_path.parent)),
+                    autoescape=select_autoescape(["html", "xml"]),
+                )
+                template = environment.get_template(template_path.name)
+                return template.render(report=report)
+            except ImportError:
+                pass
+        return _render_report_html_fallback(report)
 
     def render_daily_report_csv(self, date_iso: str) -> str:
         report = self.get_daily_report(date_iso)
@@ -360,9 +481,6 @@ class RuntimeDatabase:
         ]
         for status, count in sorted(report["status_counts"].items()):
             lines.append("status_counts,{0},{1}".format(status, count))
-        grid = report["grid_active_power_kw"]
-        for key in ("sample_count", "min", "max", "average"):
-            lines.append("grid_active_power_kw,{0},{1}".format(key, grid.get(key)))
         price = report["price_ct_kwh"]
         for key in ("slot_count", "min", "max", "average"):
             lines.append("price_ct_kwh,{0},{1}".format(key, price.get(key)))
@@ -375,6 +493,148 @@ class RuntimeDatabase:
                 )
             )
         return "\n".join(lines) + "\n"
+
+    def _build_report_summary_section(self, normalized: Dict[str, Any], section_config: Dict[str, str]) -> Dict[str, object]:
+        cards = []
+        for channel_id in normalized["channels"]:
+            stats = self._channel_stats(channel_id, normalized["start"], normalized["end"])
+            meta = REPORT_CHANNELS.get(channel_id, {"label": channel_id, "unit": ""})
+            display = _summary_display_value(stats, meta)
+            cards.append(
+                {
+                    "channel_id": channel_id,
+                    "label": meta["label"],
+                    "unit": meta["unit"],
+                    "group": meta.get("group", "EMS"),
+                    "kind": meta.get("kind", "average"),
+                    "sample_count": stats["sample_count"],
+                    "min": _optional_float(stats["min_value"]),
+                    "max": _optional_float(stats["max_value"]),
+                    "average": _optional_float(stats["average_value"]),
+                    "first": _optional_float(stats["first_value"]),
+                    "last": _optional_float(stats["last_value"]),
+                    "delta": display["delta"],
+                    "display_value": display["value"],
+                    "display_label": display["label"],
+                    "detail": display["detail"],
+                }
+            )
+        return {"id": section_config["id"], "component": "summary", "title": section_config["title"], "cards": cards}
+
+    def _build_report_chart_section(self, normalized: Dict[str, Any], section_config: Dict[str, str]) -> Dict[str, object]:
+        series = []
+        for channel_id in normalized["channels"]:
+            rows = self.get_channel_history(
+                channel_id,
+                limit=normalized["limit"],
+                granularity=normalized["granularity"],
+                start=normalized["start"],
+                end=normalized["end"],
+            )
+            meta = REPORT_CHANNELS.get(channel_id, {"label": channel_id, "unit": ""})
+            series.append(
+                {
+                    "channel_id": channel_id,
+                    "label": meta["label"],
+                    "unit": meta["unit"],
+                    "points": [
+                        {"timestamp": row["timestamp"], "value": _optional_float(_history_row_value(row))}
+                        for row in reversed(rows)
+                    ],
+                }
+            )
+        return {"id": section_config["id"], "component": "line_chart", "title": section_config["title"], "series": series}
+
+    def _build_report_table_section(self, normalized: Dict[str, Any], section_config: Dict[str, str]) -> Dict[str, object]:
+        rows = []
+        for channel_id in normalized["channels"]:
+            meta = REPORT_CHANNELS.get(channel_id, {"label": channel_id, "unit": ""})
+            for row in self.get_channel_history(
+                channel_id,
+                limit=min(normalized["limit"], 200),
+                granularity=normalized["granularity"],
+                start=normalized["start"],
+                end=normalized["end"],
+            ):
+                rows.append(
+                    {
+                        "timestamp": row["timestamp"],
+                        "channel_id": channel_id,
+                        "label": meta["label"],
+                        "value": _optional_float(_history_row_value(row)),
+                        "unit": meta["unit"],
+                    }
+                )
+        rows.sort(key=lambda row: str(row["timestamp"]), reverse=True)
+        return {"id": section_config["id"], "component": "table", "title": section_config["title"], "rows": rows[:200]}
+
+    def _build_report_events_section(self, normalized: Dict[str, Any], section_config: Dict[str, str]) -> Dict[str, object]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT timestamp, channel_id, event_type, severity, message
+                FROM bacnet_events
+                WHERE timestamp >= ? AND timestamp < ?
+                ORDER BY timestamp DESC, id DESC
+                LIMIT 50
+                """,
+                (normalized["start"], normalized["end"]),
+            ).fetchall()
+        return {"id": section_config["id"], "component": "events", "title": section_config["title"], "rows": [dict(row) for row in rows]}
+
+    def _channel_stats(self, channel_id: str, start: str, end: str) -> sqlite3.Row:
+        with self._connection() as connection:
+            return connection.execute(
+                """
+                SELECT
+                    COUNT(*) AS sample_count,
+                    MIN(value) AS min_value,
+                    MAX(value) AS max_value,
+                    AVG(value) AS average_value,
+                    (
+                        SELECT value
+                        FROM channel_samples first
+                        WHERE first.channel_id = ?
+                          AND first.error IS NULL
+                          AND first.value IS NOT NULL
+                          AND first.timestamp >= ?
+                          AND first.timestamp < ?
+                        ORDER BY first.timestamp ASC, first.id ASC
+                        LIMIT 1
+                    ) AS first_value,
+                    (
+                        SELECT value
+                        FROM channel_samples latest
+                        WHERE latest.channel_id = ?
+                          AND latest.error IS NULL
+                          AND latest.value IS NOT NULL
+                          AND latest.timestamp >= ?
+                          AND latest.timestamp < ?
+                        ORDER BY latest.timestamp DESC, latest.id DESC
+                        LIMIT 1
+                    ) AS last_value
+                FROM channel_samples
+                WHERE channel_id = ?
+                  AND error IS NULL
+                  AND value IS NOT NULL
+                  AND timestamp >= ?
+                  AND timestamp < ?
+                """,
+                (channel_id, start, end, channel_id, start, end, channel_id, start, end),
+            ).fetchone()
+
+    def _energy_counter_total(self, start: str, end: str) -> Optional[float]:
+        total = 0.0
+        has_value = False
+        for channel_id, metadata in REPORT_CHANNELS.items():
+            if metadata.get("kind") != "energy_counter":
+                continue
+            stats = self._channel_stats(channel_id, start, end)
+            display = _summary_display_value(stats, metadata)
+            if display["delta"] is not None:
+                total += float(display["delta"])
+                has_value = True
+        return total if has_value else None
 
     def _ensure_schema(self) -> None:
         with self._connection() as connection:
@@ -695,7 +955,6 @@ class RuntimeDatabase:
                     AVG(value) AS average_value
                 FROM channel_samples
                 WHERE channel_id = ?
-                  AND direction = 'input'
                   AND error IS NULL
                   AND value IS NOT NULL
                   AND timestamp >= ?
@@ -717,7 +976,6 @@ class RuntimeDatabase:
                 SELECT timestamp, value
                 FROM channel_samples
                 WHERE channel_id = ?
-                  AND direction = 'input'
                   AND error IS NULL
                   AND value IS NOT NULL
                   AND timestamp >= ?
@@ -762,6 +1020,310 @@ def _extract_grid_power(input_reads: Optional[Dict[str, Dict[str, object]]]) -> 
     if not isinstance(grid, dict):
         return None
     return _optional_float(grid.get("value"))
+
+
+def _summary_display_value(stats: sqlite3.Row, meta: Dict[str, object]) -> Dict[str, object]:
+    sample_count = int(stats["sample_count"] or 0)
+    first = _optional_float(stats["first_value"])
+    last = _optional_float(stats["last_value"])
+    average = _optional_float(stats["average_value"])
+    minimum = _optional_float(stats["min_value"])
+    maximum = _optional_float(stats["max_value"])
+    kind = str(meta.get("kind") or "average")
+
+    if kind == "energy_counter":
+        delta = None
+        if first is not None and last is not None and sample_count > 1:
+            raw_delta = last - first
+            delta = raw_delta if raw_delta >= 0 else None
+        if delta is not None:
+            return {
+                "value": delta,
+                "delta": delta,
+                "label": "Erzeugung im Zeitraum",
+                "detail": "Zaehler {0} -> {1}".format(_format_report_number(first), _format_report_number(last)),
+            }
+        return {
+            "value": last,
+            "delta": None,
+            "label": "Zaehlerstand",
+            "detail": "{0} Samples".format(sample_count),
+        }
+
+    if kind == "state":
+        return {
+            "value": last,
+            "delta": None,
+            "label": "Letzter Zustand",
+            "detail": "{0} Samples".format(sample_count),
+        }
+
+    return {
+        "value": average,
+        "delta": None,
+        "label": "Mittelwert",
+        "detail": "Min {0} / Max {1}".format(_format_report_number(minimum), _format_report_number(maximum)),
+    }
+
+
+def _normalize_report_config(config: Dict[str, object]) -> Dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    default_end = now.isoformat().replace("+00:00", "Z")
+    default_start = (now - timedelta(days=1)).isoformat().replace("+00:00", "Z")
+    start = _optional_text(config.get("start")) or default_start
+    end = _optional_text(config.get("end")) or default_end
+    granularity = (_optional_text(config.get("granularity")) or "5m").lower()
+    if granularity not in REPORT_GRANULARITIES:
+        granularity = "5m"
+    channels = config.get("channels")
+    if not isinstance(channels, list) or not channels:
+        channels = [
+            "site.chp_electric_energy_kwh",
+            "site.chp_thermal_energy_kwh",
+            "site.pellet_thermal_energy_kwh",
+            "site.gas_thermal_energy_kwh",
+            "tariff.current_price_ct_kwh",
+            "site.outdoor_temperature_c",
+            "site.buffer_1_top_temperature_c",
+            "site.buffer_1_bottom_temperature_c",
+        ]
+    normalized_channels = [
+        str(channel_id)
+        for channel_id in channels
+        if str(channel_id) in REPORT_CHANNELS
+    ]
+    if not normalized_channels:
+        normalized_channels = ["tariff.current_price_ct_kwh"]
+
+    raw_sections = config.get("sections")
+    if not isinstance(raw_sections, list) or not raw_sections:
+        raw_sections = [
+            {"component": "summary", "title": "Kennzahlen"},
+            {"component": "line_chart", "title": "Zeitverlauf"},
+            {"component": "table", "title": "Messwerte"},
+            {"component": "events", "title": "BACnet Events"},
+        ]
+    sections = []
+    for index, section in enumerate(raw_sections, start=1):
+        section = section if isinstance(section, dict) else {}
+        component = str(section.get("component", "summary"))
+        if component not in REPORT_COMPONENTS:
+            continue
+        sections.append(
+            {
+                "id": str(section.get("id") or "section-{0}".format(index)),
+                "component": component,
+                "title": str(section.get("title") or REPORT_COMPONENTS[component]),
+            }
+        )
+    if not sections:
+        sections = [{"id": "section-1", "component": "summary", "title": "Kennzahlen"}]
+
+    try:
+        limit = int(config.get("limit", 500))
+    except (TypeError, ValueError):
+        limit = 500
+    return {
+        "title": _optional_text(config.get("title")) or "Mini EMS Report",
+        "start": start,
+        "end": end,
+        "granularity": granularity,
+        "channels": normalized_channels,
+        "sections": sections,
+        "limit": max(1, min(limit, 5000)),
+        "available_channels": [
+            {"id": channel_id, **metadata}
+            for channel_id, metadata in REPORT_CHANNELS.items()
+        ],
+        "available_components": [
+            {"id": component, "label": label}
+            for component, label in REPORT_COMPONENTS.items()
+        ],
+        "available_granularities": list(REPORT_GRANULARITIES),
+    }
+
+
+def _history_row_value(row: Dict[str, object]) -> object:
+    for key in ("average_value", "last_value", "value"):
+        if key in row:
+            return row[key]
+    return None
+
+
+def _render_report_html_fallback(report: Dict[str, object]) -> str:
+    sections = "\n".join(_render_report_section_fallback(section) for section in report["sections"])
+    pipeline = "".join("<span>{0}</span>".format(escape(str(step))) for step in report.get("export_pipeline", []))
+    highlights = _render_report_highlights(report)
+    return """<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>{title}</title>
+  <style>
+    @page {{ size: A4; margin: 15mm; }}
+    * {{ box-sizing: border-box; }}
+    body {{ margin: 0; background: #edf2f7; color: #16202a; font-family: Segoe UI, Arial, sans-serif; font-size: 12px; line-height: 1.45; }}
+    .report-shell {{ width: min(1240px, 100%); margin: 0 auto; padding: 30px; }}
+    .hero {{ display: grid; grid-template-columns: 1fr auto; gap: 28px; align-items: end; padding: 30px; border-radius: 8px; background: linear-gradient(135deg, #101b25 0%, #173245 58%, #1f5b62 100%); color: #fff; box-shadow: 0 18px 50px rgba(16, 27, 37, .18); }}
+    h1 {{ margin: 0; font-size: 34px; line-height: 1.08; }}
+    h2 {{ margin: 0 0 16px; font-size: 17px; }}
+    .subtitle {{ margin: 8px 0 0; color: #c9d6e2; font-size: 13px; }}
+    .eyebrow {{ display: block; color: #647181; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }}
+    .hero .eyebrow, .generated {{ color: #c9d6e2; }}
+    .generated {{ text-align: right; }}
+    .pipeline {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }}
+    .pipeline span {{ min-height: 26px; padding: 5px 9px; border: 1px solid rgba(255,255,255,.22); border-radius: 8px; color: #e8f0f7; }}
+    .highlights {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }}
+    .highlight {{ min-height: 118px; padding: 16px; border: 1px solid #d8e0e8; border-radius: 8px; background: #fff; box-shadow: 0 12px 30px rgba(22, 32, 42, .08); }}
+    .highlight.energy {{ border-color: #afdcca; background: linear-gradient(180deg, #edf9f4, #fff); }}
+    .highlight strong {{ display: block; margin-top: 9px; color: #0f1720; font-size: 26px; line-height: 1; }}
+    .highlight small {{ color: #647181; font-size: 12px; font-weight: 500; }}
+    section {{ margin-top: 18px; padding: 22px; border: 1px solid #d8e0e8; border-radius: 8px; background: #fff; box-shadow: 0 10px 26px rgba(22, 32, 42, .06); page-break-inside: avoid; }}
+    .cards {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }}
+    .card {{ min-height: 132px; padding: 15px; border: 1px solid #d8e0e8; border-radius: 8px; background: linear-gradient(180deg, #f4f7fa, #fff); page-break-inside: avoid; }}
+    .card.energy {{ border-color: #b9dfcf; background: linear-gradient(180deg, #eefaf5, #fff); }}
+    .card-title {{ display: block; margin-top: 7px; font-size: 13px; font-weight: 700; }}
+    .metric {{ display: block; margin-top: 10px; color: #0f1720; font-size: 24px; font-weight: 700; line-height: 1; }}
+    .metric small {{ color: #647181; font-size: 12px; font-weight: 500; }}
+    .meta {{ margin: 8px 0 0; color: #647181; font-size: 11px; }}
+    .chart-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
+    .chart-card {{ padding: 14px; border: 1px solid #d8e0e8; border-radius: 8px; background: #fff; page-break-inside: avoid; }}
+    .chart-head {{ display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: #647181; }}
+    .chart {{ width: 100%; height: 170px; border: 1px solid #d8e0e8; background: linear-gradient(180deg, #fbfdff, #f5f8fb); }}
+    .empty {{ padding: 18px; border: 1px dashed #d8e0e8; color: #647181; }}
+    table {{ width: 100%; border-collapse: collapse; }}
+    th, td {{ border-bottom: 1px solid #d8e0e8; padding: 8px 7px; text-align: left; font-size: 11px; }}
+    th {{ color: #647181; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }}
+    td.value {{ font-weight: 700; text-align: right; white-space: nowrap; }}
+    .print-note {{ margin-top: 18px; color: #647181; font-size: 11px; }}
+    @media print {{ body {{ background: #fff; }} .report-shell {{ width: 100%; padding: 0; }} .hero, section, .highlight {{ box-shadow: none; }} }}
+    @media (max-width: 900px) {{ .report-shell {{ padding: 16px; }} .hero, .cards, .chart-grid, .highlights {{ grid-template-columns: 1fr; }} .generated {{ text-align: left; }} }}
+  </style>
+</head>
+<body>
+  <main class="report-shell">
+    <header class="hero">
+      <div>
+        <span class="eyebrow">Mini EMS Report</span>
+        <h1>{title}</h1>
+        <p class="subtitle">{subtitle}</p>
+        <div class="pipeline">{pipeline}</div>
+      </div>
+      <div class="generated"><span class="eyebrow">Erstellt</span><strong>{generated_at}</strong></div>
+    </header>
+    {highlights}
+    {sections}
+    <p class="print-note">Hinweis: Wenn der direkte PDF-Renderer nicht installiert ist, kann diese Ansicht im Browser mit Drucken / Als PDF speichern exportiert werden.</p>
+  </main>
+</body>
+</html>
+""".format(
+        title=escape(str(report["title"])),
+        subtitle=escape(str(report["subtitle"])),
+        generated_at=escape(str(report.get("generated_at") or "")),
+        pipeline=pipeline,
+        highlights=highlights,
+        sections=sections,
+    )
+
+
+def _render_report_section_fallback(section: Dict[str, object]) -> str:
+    title = escape(str(section.get("title", "")))
+    component = section.get("component")
+    if component == "summary":
+        cards = "".join(
+            "<article class='card {0}'><span class='eyebrow'>{1}</span><span class='card-title'>{2}</span><strong class='metric'>{3} <small>{4}</small></strong><p class='meta'>{5}; {6}</p><p class='meta'>{7} Samples</p></article>".format(
+                "energy" if card.get("kind") == "energy_counter" else "",
+                escape(str(card.get("group") or "EMS")),
+                escape(str(card["label"])),
+                _format_report_number(card.get("display_value")),
+                escape(str(card.get("unit") or "")),
+                escape(str(card.get("display_label") or "")),
+                escape(str(card.get("detail") or "")),
+                escape(str(card.get("sample_count") or 0)),
+            )
+            for card in section.get("cards", [])
+        )
+        return "<section><h2>{0}</h2><div class='cards'>{1}</div></section>".format(title, cards)
+    if component == "line_chart":
+        charts = "".join(_render_report_series_card(serie) for serie in section.get("series", []))
+        if not charts:
+            charts = "<div class='empty'>Keine Diagrammdaten fuer diese Auswahl.</div>"
+        return "<section><h2>{0}</h2><div class='chart-grid'>{1}</div></section>".format(title, charts)
+    rows = section.get("rows", [])
+    header = "<tr><th>Zeit</th><th>Kanal</th><th>Wert</th><th>Details</th></tr>"
+    body = "".join(
+        "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td></tr>".format(
+            escape(str(row.get("timestamp", ""))),
+            escape(str(row.get("label") or row.get("channel_id", ""))),
+            escape(_format_report_number(row.get("value"))),
+            escape(str(row.get("message") or row.get("event_type") or row.get("unit") or "")),
+        )
+        for row in rows
+    )
+    return "<section><h2>{0}</h2><table>{1}{2}</table></section>".format(title, header, body)
+
+
+def _render_report_highlights(report: Dict[str, object]) -> str:
+    cards: List[Dict[str, object]] = []
+    for section in report.get("sections", []):
+        if section.get("component") == "summary":
+            cards = list(section.get("cards", []))
+            break
+    if not cards:
+        return ""
+
+    energy_cards = [card for card in cards if card.get("kind") == "energy_counter"]
+    selected = (energy_cards + [card for card in cards if card not in energy_cards])[:4]
+    rendered = "".join(
+        "<article class='highlight {0}'><span class='eyebrow'>{1}</span><span class='card-title'>{2}</span><strong>{3} <small>{4}</small></strong><p class='meta'>{5}</p></article>".format(
+            "energy" if card.get("kind") == "energy_counter" else "",
+            escape(str(card.get("group") or "EMS")),
+            escape(str(card.get("label") or "")),
+            _format_report_number(card.get("display_value")),
+            escape(str(card.get("unit") or "")),
+            escape(str(card.get("display_label") or "")),
+        )
+        for card in selected
+    )
+    return "<div class='highlights'>{0}</div>".format(rendered)
+
+
+def _render_report_series_card(serie: Dict[str, object]) -> str:
+    points = [point for point in serie.get("points", []) if point.get("value") is not None]
+    label = escape(str(serie.get("label") or serie.get("channel_id") or ""))
+    unit = escape(str(serie.get("unit") or ""))
+    if not points:
+        chart = "<div class='empty'>Keine Daten im gewaehlten Zeitraum.</div>"
+        meta = ""
+    else:
+        width = 520
+        height = 150
+        values = [float(point["value"]) for point in points]
+        min_value = min(values)
+        max_value = max(values)
+        span = max(max_value - min_value, 1e-9)
+        step = width / max(len(points) - 1, 1)
+        polyline = " ".join(
+            "{0:.1f},{1:.1f}".format(
+                point_index * step,
+                132 - (((float(point["value"]) - min_value) / span) * 112),
+            )
+            for point_index, point in enumerate(points)
+        )
+        stroke = "#16875a" if str(serie.get("unit") or "") == "kWh" else "#2563eb"
+        chart = "<svg class='chart' viewBox='0 0 {0} {1}' preserveAspectRatio='none'><line x1='0' y1='132' x2='{0}' y2='132' stroke='#d8e0e8'></line><polyline fill='none' stroke='{2}' stroke-width='2.4' points='{3}'></polyline></svg>".format(width, height, stroke, polyline)
+        meta = "<p class='meta'>Min {0} / Max {1}</p>".format(_format_report_number(min_value), _format_report_number(max_value))
+    return "<article class='chart-card'><div class='chart-head'><strong>{0}</strong><span>{1}</span></div>{2}{3}</article>".format(label, unit, chart, meta)
+
+
+def _format_report_number(value: object) -> str:
+    if value is None:
+        return "-"
+    try:
+        return "{0:.2f}".format(float(value))
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _normalize_numeric_value(value: object) -> Optional[float]:

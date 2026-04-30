@@ -56,6 +56,7 @@ class HealthState:
     last_cycle_at: Optional[str] = None
     last_price_handoff_at: Optional[str] = None
     last_price_handoff_slot_label: Optional[str] = None
+    last_price_handoff_key: Optional[str] = None
     last_price_handoff_value_ct_kwh: Optional[float] = None
     cycle_counter: int = 0
 
@@ -76,6 +77,7 @@ class HealthState:
             "last_cycle_at": self.last_cycle_at,
             "last_price_handoff_at": self.last_price_handoff_at,
             "last_price_handoff_slot_label": self.last_price_handoff_slot_label,
+            "last_price_handoff_key": self.last_price_handoff_key,
             "last_price_handoff_value_ct_kwh": self.last_price_handoff_value_ct_kwh,
             "cycle_counter": self.cycle_counter,
         }
@@ -99,6 +101,7 @@ class HealthState:
             last_cycle_at=_optional_string(raw.get("last_cycle_at")),
             last_price_handoff_at=_optional_string(raw.get("last_price_handoff_at")),
             last_price_handoff_slot_label=_optional_string(raw.get("last_price_handoff_slot_label")),
+            last_price_handoff_key=_optional_string(raw.get("last_price_handoff_key")),
             last_price_handoff_value_ct_kwh=_optional_float(raw.get("last_price_handoff_value_ct_kwh")),
             cycle_counter=int(raw.get("cycle_counter", 0)),
         )

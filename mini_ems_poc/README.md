@@ -21,10 +21,9 @@ Der PoC beweist vor allem die Kernfrage: Kann ein kleiner lokaler Stack in Echtz
 
 Aktuell macht Mini EMS PoC genau diese Dinge:
 
-- liest `grid.active_power_kw` von `AV:300`
 - liest `site.outdoor_temperature_c` von `AI:1801` am zweiten Controller
+- liest ausgewaehlte reale Waerme-, Puffer- und Energiezaehlerpunkte fuer Reports
 - schreibt den aktuellen Viertelstundenpreis auf `AV:1000`
-- schreibt `grid_lockout` auf `BV:400`
 - schreibt `spotmarket_lockout` auf `BV:401`
 - speichert Zyklen, Kanalwerte, Preisfenster und BACnet-Ereignisse lokal in SQLite
 - stellt einen lokalen Read-only-HTTP-API-Zugang und ein einfaches Dashboard bereit
@@ -40,6 +39,8 @@ Der Ablauf ist bewusst simpel:
 5. Der komplette Lauf wird fuer Diagnose und Reporting gespeichert.
 
 Damit ist das System klein genug fuer schnelle Iteration, aber schon real genug, um Betrieb und Logik sauber zu testen.
+Der fruehere AV300-Netzbezug war ein Testpunkt und ist in der Standardkonfiguration nicht mehr aktiv.
+Die Energiezaehler AV48 bis AV51 werden read-only von Controller 192.168.244.30 erfasst und im Reporting als BHKW-, Pellet- und Gas-Erzeugung ausgewertet.
 
 ## Kernbausteine
 

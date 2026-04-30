@@ -33,6 +33,7 @@ class AdditionalInputConfig:
     plausible_min: Optional[float] = None
     plausible_max: Optional[float] = None
     include_in_health: bool = False
+    read_interval_cycles: int = 1
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ class GridLockoutConfig:
     threshold_kw: float
     clear_threshold_kw: float
     below_threshold_cycles_required: int
+    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -253,6 +255,7 @@ def load_config(path: Path) -> MiniEmsConfig:
                     threshold_kw=float(grid_lockout["threshold_kw"]),
                     clear_threshold_kw=float(grid_lockout["clear_threshold_kw"]),
                     below_threshold_cycles_required=int(grid_lockout["below_threshold_cycles_required"]),
+                    enabled=bool(grid_lockout.get("enabled", True)),
                 ),
                 spotmarket_lockout=SpotMarketLockoutConfig(
                     negative_quarters_min_consecutive=int(
@@ -366,6 +369,7 @@ def _load_additional_inputs(
             plausible_min=_optional_float(entry.get("plausible_min")),
             plausible_max=_optional_float(entry.get("plausible_max")),
             include_in_health=bool(entry.get("include_in_health", False)),
+            read_interval_cycles=int(entry.get("read_interval_cycles", 1)),
         )
     return additional_inputs
 
@@ -488,4 +492,8 @@ def _validate_config(config: MiniEmsConfig) -> None:
         ):
             raise ValueError(
                 "additional_inputs plausible_min must be <= plausible_max for {0}".format(channel_id)
+            )
+        if input_config.read_interval_cycles <= 0:
+            raise ValueError(
+                "additional_inputs read_interval_cycles must be > 0 for {0}".format(channel_id)
             )

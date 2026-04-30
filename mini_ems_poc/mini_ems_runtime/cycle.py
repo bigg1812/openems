@@ -93,60 +93,74 @@ class CycleRunner:
             self._persist(snapshot, input_reads=input_reads, price_snapshot=None, spotmarket_plan=None)
             return snapshot
 
-        grid_read = self.read_diagnostics.read_float_channel(
-            GRID_ACTIVE_POWER_CHANNEL,
-            samples=1,
-            delay_seconds=self.config.timing.inter_read_delay_seconds,
-            plausible_min=-1_000_000.0,
-            plausible_max=1_000_000.0,
-        )
-        input_reads[GRID_ACTIVE_POWER_CHANNEL] = grid_read.to_dict()
-        if grid_read.status != "ok" or grid_read.value is None:
-            self.state.health.consecutive_comm_errors += 1
-            snapshot = self._handle_safe_mode(
-                cycle_id=cycle_id,
-                timestamp=timestamp,
-                reason="grid_read: {0}".format(grid_read.error or "grid active power unavailable"),
-                price_snapshot=price_snapshot,
-                input_reads=input_reads,
-                controller_outcomes=controller_outcomes,
-                desired_outputs={},
-                write_results={},
-                spotmarket_plan=None,
-                spotmarket_active_now=None,
-                spotmarket_source=None,
-                spotmarket_next_window=None,
-                spotmarket_override=None,
-                degraded_reason=None,
+        if self.config.controllers.grid_lockout.enabled:
+            grid_read = self.read_diagnostics.read_float_channel(
+                GRID_ACTIVE_POWER_CHANNEL,
+                samples=1,
+                delay_seconds=self.config.timing.inter_read_delay_seconds,
+                plausible_min=-1_000_000.0,
+                plausible_max=1_000_000.0,
             )
-            self._persist(snapshot, input_reads=input_reads, price_snapshot=price_snapshot, spotmarket_plan=None)
-            return snapshot
+            input_reads[GRID_ACTIVE_POWER_CHANNEL] = grid_read.to_dict()
+            if grid_read.status != "ok" or grid_read.value is None:
+                self.state.health.consecutive_comm_errors += 1
+                snapshot = self._handle_safe_mode(
+                    cycle_id=cycle_id,
+                    timestamp=timestamp,
+                    reason="grid_read: {0}".format(grid_read.error or "grid active power unavailable"),
+                    price_snapshot=price_snapshot,
+                    input_reads=input_reads,
+                    controller_outcomes=controller_outcomes,
+                    desired_outputs={},
+                    write_results={},
+                    spotmarket_plan=None,
+                    spotmarket_active_now=None,
+                    spotmarket_source=None,
+                    spotmarket_next_window=None,
+                    spotmarket_override=None,
+                    degraded_reason=None,
+                )
+                self._persist(snapshot, input_reads=input_reads, price_snapshot=price_snapshot, spotmarket_plan=None)
+                return snapshot
 
-        grid_outcome = self.grid_controller.evaluate(grid_read.value, self.state.grid_lockout)
-        controller_outcomes["grid_lockout"] = grid_outcome.to_dict()
-        if not grid_outcome.valid or grid_outcome.safe_mode_required:
-            self.state.health.consecutive_comm_errors += 1
-            snapshot = self._handle_safe_mode(
-                cycle_id=cycle_id,
-                timestamp=timestamp,
-                reason="grid_lockout: {0}".format(grid_outcome.reason),
-                price_snapshot=price_snapshot,
-                input_reads=input_reads,
-                controller_outcomes=controller_outcomes,
-                desired_outputs={},
-                write_results={},
-                spotmarket_plan=None,
-                spotmarket_active_now=None,
-                spotmarket_source=None,
-                spotmarket_next_window=None,
-                spotmarket_override=None,
-                degraded_reason=None,
+            grid_outcome = self.grid_controller.evaluate(grid_read.value, self.state.grid_lockout)
+            controller_outcomes["grid_lockout"] = grid_outcome.to_dict()
+            if not grid_outcome.valid or grid_outcome.safe_mode_required:
+                self.state.health.consecutive_comm_errors += 1
+                snapshot = self._handle_safe_mode(
+                    cycle_id=cycle_id,
+                    timestamp=timestamp,
+                    reason="grid_lockout: {0}".format(grid_outcome.reason),
+                    price_snapshot=price_snapshot,
+                    input_reads=input_reads,
+                    controller_outcomes=controller_outcomes,
+                    desired_outputs={},
+                    write_results={},
+                    spotmarket_plan=None,
+                    spotmarket_active_now=None,
+                    spotmarket_source=None,
+                    spotmarket_next_window=None,
+                    spotmarket_override=None,
+                    degraded_reason=None,
+                )
+                self._persist(snapshot, input_reads=input_reads, price_snapshot=price_snapshot, spotmarket_plan=None)
+                return snapshot
+        else:
+            grid_outcome = ControllerOutcome(
+                name="grid_lockout",
+                valid=True,
+                desired_value=False,
+                reason="Grid lockout disabled; AV300 is not used for control",
+                state_name="disabled",
+                metrics={},
+                safe_mode_required=False,
             )
-            self._persist(snapshot, input_reads=input_reads, price_snapshot=price_snapshot, spotmarket_plan=None)
-            return snapshot
+            controller_outcomes["grid_lockout"] = grid_outcome.to_dict()
 
         for channel_id in self.registry.additional_input_channel_ids():
             point = self.registry.get(channel_id)
+            if not self._should_read_additional_input(point, force_confirmation=force_confirmation):
+                continue
             diagnostic = self.read_diagnostics.read_float_channel(
                 channel_id,
                 samples=1,
@@ -194,17 +208,18 @@ class CycleRunner:
             "tomorrow_window_count": spotmarket_plan["tomorrow"]["window_count"],
         }
 
-        desired_outputs = {
-            GRID_LOCKOUT_CHANNEL: bool(grid_outcome.desired_value),
-            SPOTMARKET_LOCKOUT_CHANNEL: bool(spotmarket_active_now),
-            CURRENT_PRICE_CHANNEL: float(price_snapshot.current_price_ct_kwh),
-        }
+        desired_outputs = {}
+        if self.config.controllers.grid_lockout.enabled:
+            desired_outputs[GRID_LOCKOUT_CHANNEL] = bool(grid_outcome.desired_value)
+        desired_outputs[SPOTMARKET_LOCKOUT_CHANNEL] = bool(spotmarket_active_now)
+        desired_outputs[CURRENT_PRICE_CHANNEL] = float(price_snapshot.current_price_ct_kwh)
 
         write_results, critical_errors, noncritical_errors = self._apply_outputs(
             desired_outputs=desired_outputs,
             cycle_id=cycle_id,
             timestamp=timestamp,
             force_confirmation=force_confirmation,
+            current_price_handoff_key=_price_handoff_key(price_snapshot),
             current_slot_label=price_snapshot.current_slot_label,
             current_price_ct_kwh=price_snapshot.current_price_ct_kwh,
         )
@@ -304,7 +319,7 @@ class CycleRunner:
             write_results=write_results,
             current_slot_label=price_snapshot.current_slot_label,
             desired_price_ct_kwh=price_snapshot.current_price_ct_kwh,
-            grid_active_power_kw=grid_read.value,
+            grid_active_power_kw=snapshot.get("grid_active_power_kw"),
             today_date=price_snapshot.today_date_iso,
             tomorrow_prices_available=price_snapshot.tomorrow_prices_available,
         )
@@ -318,6 +333,7 @@ class CycleRunner:
         cycle_id: str,
         timestamp: str,
         force_confirmation: bool,
+        current_price_handoff_key: str,
         current_slot_label: str,
         current_price_ct_kwh: float,
     ) -> Tuple[Dict[str, object], List[str], List[str]]:
@@ -329,7 +345,15 @@ class CycleRunner:
             output_state = self.state.outputs[channel_id]
             policy = self.config.output_policies.for_channel(channel_id)
             previous_value = output_state.value
-            needs_write = force_confirmation or (not output_state.is_confirmed) or output_state.value != desired_value
+            needs_write = (
+                force_confirmation
+                or (not output_state.is_confirmed)
+                or output_state.value != desired_value
+                or (
+                    channel_id == CURRENT_PRICE_CHANNEL
+                    and self.state.health.last_price_handoff_key != current_price_handoff_key
+                )
+            )
             if not needs_write:
                 results[channel_id] = {
                     "changed": False,
@@ -340,6 +364,7 @@ class CycleRunner:
                     "criticality": policy.criticality,
                     "readback_value": output_state.last_readback_value,
                     "ack_received": output_state.last_confirmation_mode == "ack",
+                    "handoff_key": current_price_handoff_key if channel_id == CURRENT_PRICE_CHANNEL else None,
                 }
                 continue
 
@@ -407,6 +432,7 @@ class CycleRunner:
                 "readback_value": confirmation.readback_value,
                 "ack_received": confirmation.ack_received,
                 "attempts": confirmation.attempts,
+                "handoff_key": current_price_handoff_key if channel_id == CURRENT_PRICE_CHANNEL else None,
             }
             log_event(
                 self.logger,
@@ -425,9 +451,19 @@ class CycleRunner:
             if channel_id == CURRENT_PRICE_CHANNEL and (force_confirmation or previous_value != desired_value):
                 self.state.health.last_price_handoff_at = timestamp
                 self.state.health.last_price_handoff_slot_label = current_slot_label
+                self.state.health.last_price_handoff_key = current_price_handoff_key
+                self.state.health.last_price_handoff_value_ct_kwh = float(desired_value)
+            elif channel_id == CURRENT_PRICE_CHANNEL and self.state.health.last_price_handoff_key != current_price_handoff_key:
+                self.state.health.last_price_handoff_at = timestamp
+                self.state.health.last_price_handoff_slot_label = current_slot_label
+                self.state.health.last_price_handoff_key = current_price_handoff_key
                 self.state.health.last_price_handoff_value_ct_kwh = float(desired_value)
 
         return results, critical_errors, noncritical_errors
+
+    def _should_read_additional_input(self, point, *, force_confirmation: bool) -> bool:
+        interval = max(1, int(point.read_interval_cycles))
+        return force_confirmation or interval == 1 or self.state.health.cycle_counter % interval == 0
 
     def _handle_safe_mode(
         self,
@@ -730,9 +766,14 @@ class CycleRunner:
             "last_degraded_reason": self.state.health.last_degraded_reason,
             "last_price_handoff_at": self.state.health.last_price_handoff_at,
             "last_price_handoff_slot_label": self.state.health.last_price_handoff_slot_label,
+            "last_price_handoff_key": self.state.health.last_price_handoff_key,
             "last_price_handoff_value_ct_kwh": self.state.health.last_price_handoff_value_ct_kwh,
         }
 
     def _next_cycle_id(self) -> str:
         self.state.health.cycle_counter += 1
         return "cycle-{0:06d}".format(self.state.health.cycle_counter)
+
+
+def _price_handoff_key(price_snapshot: PublishedPriceSnapshot) -> str:
+    return "{0}/{1}".format(price_snapshot.today_date_iso, price_snapshot.current_slot_label)

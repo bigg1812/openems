@@ -106,7 +106,7 @@ class MiniEmsApiServer:
                         self._send_json(api_server._load_json(api_server.spotmarket_plan_path, {}))
                         return
                     if parsed.path == "/api/history":
-                        channel_id = _single_value(query, "channel_id", "grid.active_power_kw")
+                        channel_id = _single_value(query, "channel_id", "tariff.current_price_ct_kwh")
                         limit = int(_single_value(query, "limit", str(api_server.api_config.history_default_limit)))
                         granularity = _single_value(query, "granularity", "raw")
                         start = _optional_single_value(query, "start")
@@ -144,11 +144,22 @@ class MiniEmsApiServer:
                         date_iso = _single_value(query, "date", api_server._default_report_date())
                         self._send_json(api_server.runtime_db.get_report_studio_payload(date_iso))
                         return
+                    if parsed.path == "/api/report/html":
+                        config = api_server._report_config_from_query(query)
+                        self._send_text(
+                            api_server.runtime_db.render_report_html(config, api_server._report_template_path()),
+                            "text/html; charset=utf-8",
+                        )
+                        return
+                    if parsed.path == "/api/report/pdf":
+                        config = api_server._report_config_from_query(query)
+                        self._send_report_pdf(config)
+                        return
                     if parsed.path == "/api/weather":
                         self._send_json(api_server._get_weather_payload())
                         return
                     if parsed.path == "/api/diagnostics/read":
-                        channel_id = _single_value(query, "channel_id", "grid.active_power_kw")
+                        channel_id = _single_value(query, "channel_id", "tariff.current_price_ct_kwh")
                         samples = int(_single_value(query, "samples", "3"))
                         diagnostic = api_server.read_diagnostics.read_float_channel(
                             channel_id=channel_id,
@@ -177,6 +188,10 @@ class MiniEmsApiServer:
                     if parsed.path == "/api/config/spotmarket-lockout":
                         payload = self._read_json_body()
                         self._send_json(api_server.update_spotmarket_lockout_settings(payload))
+                        return
+                    if parsed.path == "/api/report/preview":
+                        payload = self._read_json_body()
+                        self._send_json(api_server.runtime_db.build_configurable_report(payload))
                         return
                 except ValueError as error:
                     self._send_json(
@@ -233,6 +248,25 @@ class MiniEmsApiServer:
                 self.end_headers()
                 self.wfile.write(raw)
 
+            def _send_report_pdf(self, config: Dict[str, object]) -> None:
+                html = api_server.runtime_db.render_report_html(config, api_server._report_template_path())
+                try:
+                    from weasyprint import HTML
+                except ImportError:
+                    self._send_text(
+                        html,
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                raw = HTML(string=html, base_url=str(api_server.dashboard_dir.parent)).write_pdf()
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Disposition", 'attachment; filename="mini-ems-report.pdf"')
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
             def _send_file(self, path: Path, content_type: str) -> None:
                 if not path.exists():
                     self._send_json({"error": "not_found", "path": str(path)}, status=HTTPStatus.NOT_FOUND)
@@ -246,6 +280,22 @@ class MiniEmsApiServer:
                 self.wfile.write(raw)
 
         return Handler
+
+    def _report_template_path(self) -> Path:
+        return self.dashboard_dir.parent / "mini_ems_runtime" / "templates" / "report.html.j2"
+
+    def _report_config_from_query(self, query: Dict[str, list[str]]) -> Dict[str, object]:
+        return {
+            "title": _single_value(query, "title", "Mini EMS Report"),
+            "start": _optional_single_value(query, "start"),
+            "end": _optional_single_value(query, "end"),
+            "granularity": _single_value(query, "granularity", "5m"),
+            "channels": _multi_value(query, "channels", ["tariff.current_price_ct_kwh", "site.outdoor_temperature_c"]),
+            "sections": [
+                {"component": component}
+                for component in _multi_value(query, "sections", ["summary", "line_chart", "table", "events"])
+            ],
+        }
 
     def _default_report_date(self) -> str:
         health = self._load_json(self.health_path, {})
@@ -485,3 +535,13 @@ def _optional_single_value(query: Dict[str, list[str]], key: str) -> Optional[st
     if not values:
         return None
     return values[0]
+
+
+def _multi_value(query: Dict[str, list[str]], key: str, default: list[str]) -> list[str]:
+    values = query.get(key)
+    if not values:
+        return list(default)
+    result = []
+    for value in values:
+        result.extend(part for part in str(value).split(",") if part)
+    return result or list(default)
