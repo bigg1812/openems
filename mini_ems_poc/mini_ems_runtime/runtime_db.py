@@ -28,31 +28,33 @@ ROLLUP_TABLES = {
     "1d": "channel_rollups_1d",
 }
 REPORT_CHANNELS = {
-    "tariff.current_price_ct_kwh": {"label": "Spotpreis", "unit": "ct/kWh", "group": "Markt", "kind": "average"},
-    "site.outdoor_temperature_c": {"label": "Aussentemperatur", "unit": "C", "group": "Wetter", "kind": "average"},
+    "tariff.current_price_ct_kwh": {"label": "Strompreis", "unit": "ct/kWh", "group": "Markt", "kind": "average"},
+    "grid.active_power_kw": {"label": "Netzleistung", "unit": "kW", "group": "Netz", "kind": "average"},
+    "site.outdoor_temperature_c": {"label": "Außentemperatur", "unit": "C", "group": "Wetter", "kind": "average"},
     "site.buffer_1_top_temperature_c": {"label": "Puffer 1 oben", "unit": "C", "group": "Puffer", "kind": "average"},
     "site.buffer_1_bottom_temperature_c": {"label": "Puffer 1 unten", "unit": "C", "group": "Puffer", "kind": "average"},
     "site.buffer_2_top_temperature_c": {"label": "Puffer 2 oben", "unit": "C", "group": "Puffer", "kind": "average"},
     "site.buffer_2_bottom_temperature_c": {"label": "Puffer 2 unten", "unit": "C", "group": "Puffer", "kind": "average"},
-    "site.heat_generation_flow_temperature_c": {"label": "Waermeerzeugung Vorlauf", "unit": "C", "group": "Waerme", "kind": "average"},
-    "site.heat_generation_return_temperature_c": {"label": "Waermeerzeugung Ruecklauf", "unit": "C", "group": "Waerme", "kind": "average"},
+    "site.heat_generation_flow_temperature_c": {"label": "Wärmeerzeugung Vorlauf", "unit": "C", "group": "Wärme", "kind": "average"},
+    "site.heat_generation_return_temperature_c": {"label": "Wärmeerzeugung Rücklauf", "unit": "C", "group": "Wärme", "kind": "average"},
     "site.boiler_1_flow_temperature_c": {"label": "Gaskessel Vorlauf", "unit": "C", "group": "Gaskessel", "kind": "average"},
-    "site.boiler_1_return_temperature_c": {"label": "Gaskessel Ruecklauf", "unit": "C", "group": "Gaskessel", "kind": "average"},
+    "site.boiler_1_return_temperature_c": {"label": "Gaskessel Rücklauf", "unit": "C", "group": "Gaskessel", "kind": "average"},
     "site.boiler_2_flow_temperature_c": {"label": "Pelletkessel Vorlauf", "unit": "C", "group": "Pellet", "kind": "average"},
-    "site.boiler_2_return_temperature_c": {"label": "Pelletkessel Ruecklauf", "unit": "C", "group": "Pellet", "kind": "average"},
+    "site.boiler_2_return_temperature_c": {"label": "Pelletkessel Rücklauf", "unit": "C", "group": "Pellet", "kind": "average"},
     "site.chp_flow_temperature_c": {"label": "BHKW Vorlauf", "unit": "C", "group": "BHKW", "kind": "average"},
-    "site.chp_return_temperature_c": {"label": "BHKW Ruecklauf", "unit": "C", "group": "BHKW", "kind": "average"},
+    "site.chp_return_temperature_c": {"label": "BHKW Rücklauf", "unit": "C", "group": "BHKW", "kind": "average"},
     "site.chp_electric_energy_kwh": {"label": "BHKW elektrisch", "unit": "kWh", "group": "Energie", "kind": "energy_counter"},
     "site.chp_thermal_energy_kwh": {"label": "BHKW thermisch", "unit": "kWh", "group": "Energie", "kind": "energy_counter"},
     "site.pellet_thermal_energy_kwh": {"label": "Pellet thermisch", "unit": "kWh", "group": "Energie", "kind": "energy_counter"},
     "site.gas_thermal_energy_kwh": {"label": "Gas thermisch", "unit": "kWh", "group": "Energie", "kind": "energy_counter"},
-    "ems.lockout_spotmarket": {"label": "Spotmarkt-Sperre", "unit": "", "group": "EMS", "kind": "state"},
+    "ems.lockout_spotmarket": {"label": "Preissteuerung", "unit": "", "group": "Betrieb", "kind": "state"},
+    "ems.lockout_grid": {"label": "Netzschutz", "unit": "", "group": "Betrieb", "kind": "state"},
 }
 REPORT_COMPONENTS = {
     "summary": "Kennzahlen",
     "line_chart": "Liniendiagramm",
     "table": "Datentabelle",
-    "events": "BACnet Events",
+    "events": "Kommunikationshinweise",
 }
 REPORT_GRANULARITIES = ("raw", "5m", "1h", "1d")
 
@@ -412,19 +414,19 @@ class RuntimeDatabase:
                 {"id": "custom", "label": "Frei", "ready": False},
             ],
             "exports": [
-                {"label": "Tagesreport CSV", "href": "/api/report/daily.csv?date={0}".format(date_iso)},
-                {"label": "Tagesreport JSON", "href": "/api/report/daily?date={0}".format(date_iso)},
+                {"label": "Tagesbericht CSV", "href": "/api/report/daily.csv?date={0}".format(date_iso)},
+                {"label": "Tagesbericht JSON", "href": "/api/report/daily?date={0}".format(date_iso)},
             ],
             "metrics": [
-                {"id": "price", "label": "Preis Niveau", "value": report["price_ct_kwh"].get("average"), "unit": "ct/kWh"},
-                {"id": "energy", "label": "Energiezaehler", "value": self._energy_counter_total("{0}T00:00:00Z".format(date_iso), "{0}T23:59:59Z".format(date_iso)), "unit": "kWh"},
-                {"id": "events", "label": "BACnet Events", "value": report.get("bacnet_event_count"), "unit": ""},
+                {"id": "price", "label": "Preisniveau", "value": report["price_ct_kwh"].get("average"), "unit": "ct/kWh"},
+                {"id": "energy", "label": "Energiezähler", "value": self._energy_counter_total("{0}T00:00:00Z".format(date_iso), "{0}T23:59:59Z".format(date_iso)), "unit": "kWh"},
+                {"id": "events", "label": "Kommunikationshinweise", "value": report.get("bacnet_event_count"), "unit": ""},
                 {"id": "windows", "label": "Preisfenster", "value": len(report.get("spotmarket_windows", [])), "unit": ""},
             ],
             "next_steps": [
-                "Energiezaehler BHKW, Pellet und Gas als Standard-Report pruefen",
+                "Energiezähler BHKW, Pellet und Gas als Standardbericht prüfen",
                 "PDF-Layout mit Betreiberlogo und Monatsvergleich erweitern",
-                "Automatischen Wochenreport terminieren",
+                "Automatischen Wochenbericht terminieren",
             ],
             "config": _normalize_report_config({"start": "{0}T00:00:00Z".format(date_iso), "end": "{0}T23:59:59Z".format(date_iso)}),
         }
@@ -446,7 +448,7 @@ class RuntimeDatabase:
             "config": normalized,
             "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "title": normalized["title"],
-            "subtitle": "{0} bis {1}, Aufloesung {2}".format(
+            "subtitle": "{0} bis {1}, Zeitraster {2}".format(
                 normalized["start"],
                 normalized["end"],
                 normalized["granularity"],
@@ -498,7 +500,7 @@ class RuntimeDatabase:
         cards = []
         for channel_id in normalized["channels"]:
             stats = self._channel_stats(channel_id, normalized["start"], normalized["end"])
-            meta = REPORT_CHANNELS.get(channel_id, {"label": channel_id, "unit": ""})
+            meta = REPORT_CHANNELS.get(channel_id, {"label": "Datenpunkt", "unit": ""})
             display = _summary_display_value(stats, meta)
             cards.append(
                 {
@@ -531,7 +533,7 @@ class RuntimeDatabase:
                 start=normalized["start"],
                 end=normalized["end"],
             )
-            meta = REPORT_CHANNELS.get(channel_id, {"label": channel_id, "unit": ""})
+            meta = REPORT_CHANNELS.get(channel_id, {"label": "Datenpunkt", "unit": ""})
             series.append(
                 {
                     "channel_id": channel_id,
@@ -548,7 +550,7 @@ class RuntimeDatabase:
     def _build_report_table_section(self, normalized: Dict[str, Any], section_config: Dict[str, str]) -> Dict[str, object]:
         rows = []
         for channel_id in normalized["channels"]:
-            meta = REPORT_CHANNELS.get(channel_id, {"label": channel_id, "unit": ""})
+            meta = REPORT_CHANNELS.get(channel_id, {"label": "Datenpunkt", "unit": ""})
             for row in self.get_channel_history(
                 channel_id,
                 limit=min(normalized["limit"], 200),
@@ -1041,13 +1043,13 @@ def _summary_display_value(stats: sqlite3.Row, meta: Dict[str, object]) -> Dict[
                 "value": delta,
                 "delta": delta,
                 "label": "Erzeugung im Zeitraum",
-                "detail": "Zaehler {0} -> {1}".format(_format_report_number(first), _format_report_number(last)),
+                "detail": "Zähler {0} -> {1}".format(_format_report_number(first), _format_report_number(last)),
             }
         return {
             "value": last,
             "delta": None,
-            "label": "Zaehlerstand",
-            "detail": "{0} Samples".format(sample_count),
+            "label": "Zählerstand",
+            "detail": "{0} Messpunkte".format(sample_count),
         }
 
     if kind == "state":
@@ -1055,7 +1057,7 @@ def _summary_display_value(stats: sqlite3.Row, meta: Dict[str, object]) -> Dict[
             "value": last,
             "delta": None,
             "label": "Letzter Zustand",
-            "detail": "{0} Samples".format(sample_count),
+            "detail": "{0} Messpunkte".format(sample_count),
         }
 
     return {
@@ -1101,7 +1103,7 @@ def _normalize_report_config(config: Dict[str, object]) -> Dict[str, Any]:
             {"component": "summary", "title": "Kennzahlen"},
             {"component": "line_chart", "title": "Zeitverlauf"},
             {"component": "table", "title": "Messwerte"},
-            {"component": "events", "title": "BACnet Events"},
+            {"component": "events", "title": "Kommunikationshinweise"},
         ]
     sections = []
     for index, section in enumerate(raw_sections, start=1):
@@ -1124,7 +1126,7 @@ def _normalize_report_config(config: Dict[str, object]) -> Dict[str, Any]:
     except (TypeError, ValueError):
         limit = 500
     return {
-        "title": _optional_text(config.get("title")) or "Mini EMS Report",
+        "title": _optional_text(config.get("title")) or "Mini EMS Betriebsbericht",
         "start": start,
         "end": end,
         "granularity": granularity,
@@ -1204,7 +1206,7 @@ def _render_report_html_fallback(report: Dict[str, object]) -> str:
   <main class="report-shell">
     <header class="hero">
       <div>
-        <span class="eyebrow">Mini EMS Report</span>
+        <span class="eyebrow">Mini EMS Betriebsbericht</span>
         <h1>{title}</h1>
         <p class="subtitle">{subtitle}</p>
         <div class="pipeline">{pipeline}</div>
@@ -1232,7 +1234,7 @@ def _render_report_section_fallback(section: Dict[str, object]) -> str:
     component = section.get("component")
     if component == "summary":
         cards = "".join(
-            "<article class='card {0}'><span class='eyebrow'>{1}</span><span class='card-title'>{2}</span><strong class='metric'>{3} <small>{4}</small></strong><p class='meta'>{5}; {6}</p><p class='meta'>{7} Samples</p></article>".format(
+            "<article class='card {0}'><span class='eyebrow'>{1}</span><span class='card-title'>{2}</span><strong class='metric'>{3} <small>{4}</small></strong><p class='meta'>{5}; {6}</p><p class='meta'>{7} Messpunkte</p></article>".format(
                 "energy" if card.get("kind") == "energy_counter" else "",
                 escape(str(card.get("group") or "EMS")),
                 escape(str(card["label"])),
@@ -1248,14 +1250,14 @@ def _render_report_section_fallback(section: Dict[str, object]) -> str:
     if component == "line_chart":
         charts = "".join(_render_report_series_card(serie) for serie in section.get("series", []))
         if not charts:
-            charts = "<div class='empty'>Keine Diagrammdaten fuer diese Auswahl.</div>"
+            charts = "<div class='empty'>Keine Diagrammdaten für diese Auswahl.</div>"
         return "<section><h2>{0}</h2><div class='chart-grid'>{1}</div></section>".format(title, charts)
     rows = section.get("rows", [])
-    header = "<tr><th>Zeit</th><th>Kanal</th><th>Wert</th><th>Details</th></tr>"
+    header = "<tr><th>Zeit</th><th>Datenpunkt</th><th>Wert</th><th>Details</th></tr>"
     body = "".join(
         "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td></tr>".format(
             escape(str(row.get("timestamp", ""))),
-            escape(str(row.get("label") or row.get("channel_id", ""))),
+            escape(str(row.get("label") or "Anlage")),
             escape(_format_report_number(row.get("value"))),
             escape(str(row.get("message") or row.get("event_type") or row.get("unit") or "")),
         )
@@ -1291,10 +1293,10 @@ def _render_report_highlights(report: Dict[str, object]) -> str:
 
 def _render_report_series_card(serie: Dict[str, object]) -> str:
     points = [point for point in serie.get("points", []) if point.get("value") is not None]
-    label = escape(str(serie.get("label") or serie.get("channel_id") or ""))
+    label = escape(str(serie.get("label") or "Datenpunkt"))
     unit = escape(str(serie.get("unit") or ""))
     if not points:
-        chart = "<div class='empty'>Keine Daten im gewaehlten Zeitraum.</div>"
+        chart = "<div class='empty'>Keine Daten im gewählten Zeitraum.</div>"
         meta = ""
     else:
         width = 520

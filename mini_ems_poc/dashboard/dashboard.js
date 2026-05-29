@@ -1,16 +1,154 @@
-const REFRESH_INTERVAL_MS = 15000;
-const HOURS_48_MS = 48 * 60 * 60 * 1000;
-const PRICE_SLOT_MINUTES = 15;
-const SVG_WIDTH = 1200;
-const SVG_HEIGHT = 300;
-const CHART_MARGIN = { top: 18, right: 18, bottom: 42, left: 62 };
-const TIME_FORMATTER = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
-const SHORT_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("de-DE", {
-  day: "2-digit",
-  month: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
+const REFRESH_INTERVAL_MS = 30000;
+const PRICE_SLOT_MS = 15 * 60 * 1000;
+const DEFAULT_CHANNELS = [
+  { id: "tariff.current_price_ct_kwh", label: "Strompreis", unit: "ct/kWh", group: "Markt", kind: "average" },
+  { id: "grid.active_power_kw", label: "Netzleistung", unit: "kW", group: "Netz", kind: "average" },
+  { id: "site.outdoor_temperature_c", label: "Außentemperatur", unit: "C", group: "Wetter", kind: "average" },
+  { id: "site.buffer_1_top_temperature_c", label: "Puffer 1 oben", unit: "C", group: "Puffer", kind: "average" },
+  { id: "site.buffer_1_bottom_temperature_c", label: "Puffer 1 unten", unit: "C", group: "Puffer", kind: "average" },
+  { id: "site.buffer_2_top_temperature_c", label: "Puffer 2 oben", unit: "C", group: "Puffer", kind: "average" },
+  { id: "site.buffer_2_bottom_temperature_c", label: "Puffer 2 unten", unit: "C", group: "Puffer", kind: "average" },
+  { id: "site.heat_generation_flow_temperature_c", label: "Wärmeerzeugung Vorlauf", unit: "C", group: "Wärme", kind: "average" },
+  { id: "site.heat_generation_return_temperature_c", label: "Wärmeerzeugung Rücklauf", unit: "C", group: "Wärme", kind: "average" },
+  { id: "site.boiler_1_flow_temperature_c", label: "Gaskessel Vorlauf", unit: "C", group: "Gaskessel", kind: "average" },
+  { id: "site.boiler_1_return_temperature_c", label: "Gaskessel Rücklauf", unit: "C", group: "Gaskessel", kind: "average" },
+  { id: "site.boiler_2_flow_temperature_c", label: "Pelletkessel Vorlauf", unit: "C", group: "Pellet", kind: "average" },
+  { id: "site.boiler_2_return_temperature_c", label: "Pelletkessel Rücklauf", unit: "C", group: "Pellet", kind: "average" },
+  { id: "site.chp_flow_temperature_c", label: "BHKW Vorlauf", unit: "C", group: "BHKW", kind: "average" },
+  { id: "site.chp_return_temperature_c", label: "BHKW Rücklauf", unit: "C", group: "BHKW", kind: "average" },
+  { id: "site.chp_electric_energy_kwh", label: "BHKW elektrisch", unit: "kWh", group: "Energie", kind: "energy_counter" },
+  { id: "site.chp_thermal_energy_kwh", label: "BHKW thermisch", unit: "kWh", group: "Energie", kind: "energy_counter" },
+  { id: "site.pellet_thermal_energy_kwh", label: "Pellet thermisch", unit: "kWh", group: "Energie", kind: "energy_counter" },
+  { id: "site.gas_thermal_energy_kwh", label: "Gas thermisch", unit: "kWh", group: "Energie", kind: "energy_counter" },
+  { id: "ems.lockout_spotmarket", label: "Preissteuerung", unit: "", group: "Betrieb", kind: "state" },
+  { id: "ems.lockout_grid", label: "Netzschutz", unit: "", group: "Betrieb", kind: "state" },
+];
+
+const CUSTOMER_CHANNEL_LABELS = new Map(DEFAULT_CHANNELS.map((channel) => [channel.id, channel]));
+
+const VIEW_PRESETS = [
+  {
+    id: "preset:operations",
+    label: "Betrieb",
+    range: "24h",
+    granularity: "5m",
+    channels: ["tariff.current_price_ct_kwh", "grid.active_power_kw", "ems.lockout_spotmarket", "site.outdoor_temperature_c"],
+  },
+  {
+    id: "preset:thermal",
+    label: "Wärme",
+    range: "24h",
+    granularity: "5m",
+    channels: [
+      "site.buffer_1_top_temperature_c",
+      "site.buffer_1_bottom_temperature_c",
+      "site.buffer_2_top_temperature_c",
+      "site.buffer_2_bottom_temperature_c",
+      "site.heat_generation_flow_temperature_c",
+      "site.heat_generation_return_temperature_c",
+    ],
+  },
+  {
+    id: "preset:generation",
+    label: "Erzeugung",
+    range: "7d",
+    granularity: "1h",
+    channels: [
+      "site.chp_electric_energy_kwh",
+      "site.chp_thermal_energy_kwh",
+      "site.pellet_thermal_energy_kwh",
+      "site.gas_thermal_energy_kwh",
+    ],
+  },
+];
+
+const SERIES_COLORS = ["#2563eb", "#16875a", "#b7791f", "#bf3f36", "#40556b", "#7c3aed", "#0891b2", "#be185d"];
+const DATE_TIME = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const TIME_ONLY = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
+
+const appState = {
+  availableChannels: DEFAULT_CHANNELS,
+  selectedChannels: new Set(VIEW_PRESETS[0].channels),
+  savedViews: [],
+  statusPayload: null,
+  reportStudio: null,
+  activeHistories: new Map(),
+};
+
+document.addEventListener("DOMContentLoaded", () => {
+  appState.savedViews = loadSavedViews();
+  bindUi();
+  setReportDefaults();
+  renderViewSelect();
+  applyView(VIEW_PRESETS[0]);
+  refreshDashboard();
+  window.setInterval(refreshDashboard, REFRESH_INTERVAL_MS);
 });
+
+function bindUi() {
+  document.getElementById("refresh-button").addEventListener("click", refreshDashboard);
+  document.getElementById("range-select").addEventListener("change", refreshWorkbench);
+  document.getElementById("granularity-select").addEventListener("change", refreshWorkbench);
+  document.getElementById("channel-search").addEventListener("input", renderChannelPicker);
+  document.getElementById("clear-channels").addEventListener("click", () => {
+    appState.selectedChannels.clear();
+    renderChannelPicker();
+    refreshWorkbench();
+  });
+  document.getElementById("view-select").addEventListener("change", (event) => {
+    const view = findView(event.target.value);
+    if (view) {
+      applyView(view);
+      refreshWorkbench();
+    }
+  });
+  document.getElementById("save-view-button").addEventListener("click", saveCurrentView);
+  document.getElementById("report-form").addEventListener("submit", previewReport);
+  document.getElementById("report-title").addEventListener("input", updateReportLinks);
+  document.getElementById("report-start").addEventListener("change", updateReportLinks);
+  document.getElementById("report-end").addEventListener("change", updateReportLinks);
+  document.getElementById("report-granularity").addEventListener("change", updateReportLinks);
+  document.querySelectorAll("input[name='report-section']").forEach((input) => input.addEventListener("change", updateReportLinks));
+  document.getElementById("diagnostic-read-button").addEventListener("click", runDiagnosticRead);
+  document.querySelectorAll(".nav-link").forEach((link) => {
+    link.addEventListener("click", () => {
+      document.querySelectorAll(".nav-link").forEach((item) => item.classList.remove("active"));
+      link.classList.add("active");
+    });
+  });
+}
+
+async function refreshDashboard() {
+  const button = document.getElementById("refresh-button");
+  button.disabled = true;
+  try {
+    const [statusPayload, dailyReport, weather, reportStudio] = await Promise.all([
+      fetchJson("/api/status"),
+      fetchJson("/api/report/daily"),
+      fetchOptionalJson("/api/weather", { status: "unavailable" }),
+      fetchOptionalJson("/api/report/studio", null),
+    ]);
+    appState.statusPayload = statusPayload;
+    appState.reportStudio = reportStudio;
+    appState.availableChannels = normalizeChannels(reportStudio?.config?.available_channels);
+
+    renderStatus(statusPayload);
+    renderSignals(statusPayload);
+    renderWindows(statusPayload.spotmarket_plan || {});
+    renderRecentCycles(statusPayload.recent_cycles || []);
+    renderDailyReport(dailyReport);
+    renderWeather(weather);
+    renderChannelPicker();
+    renderReportChannelList();
+    await renderPriceOverview(statusPayload);
+    await refreshWorkbench();
+    updateReportLinks();
+  } catch (error) {
+    renderGlobalError(error);
+  } finally {
+    button.disabled = false;
+  }
+}
 
 async function fetchJson(path) {
   const response = await fetch(path, { cache: "no-store" });
@@ -18,6 +156,17 @@ async function fetchJson(path) {
     throw new Error(`${path} returned ${response.status}`);
   }
   return response.json();
+}
+
+async function fetchOptionalJson(path, fallback) {
+  try {
+    return await fetchJson(path);
+  } catch (error) {
+    if (fallback === null) {
+      return null;
+    }
+    return { ...fallback, error: error.message };
+  }
 }
 
 async function postJson(path, payload) {
@@ -34,71 +183,82 @@ async function postJson(path, payload) {
   return responsePayload;
 }
 
-async function refreshDashboard() {
-  const [statusPayload, reportPayload] = await Promise.all([
-    fetchJson("/api/status"),
-    fetchJson("/api/report/daily"),
-  ]);
-
-  const referenceNow = getReferenceNow(statusPayload);
-  const [gridHistory, priceHistory] = await Promise.all([
-    fetchGridHistory(referenceNow),
-    fetchPriceHistory(referenceNow, statusPayload),
-  ]);
-
-  renderStatus(statusPayload);
-  renderWindows(statusPayload.spotmarket_plan || {});
-  renderSpotmarketSettings(statusPayload.spotmarket_settings || {});
-  renderRecentCycles(statusPayload.recent_cycles || []);
-  renderHistoryCharts(statusPayload, gridHistory.rows || [], priceHistory.rows || [], referenceNow);
-  renderReport(reportPayload);
-}
-
-async function fetchGridHistory(referenceNow) {
-  const end = new Date(referenceNow.getTime() + 5 * 60 * 1000);
-  const start = new Date(referenceNow.getTime() - HOURS_48_MS);
-  const query = new URLSearchParams({
-    channel_id: "grid.active_power_kw",
-    granularity: "5m",
-    start: start.toISOString(),
-    end: end.toISOString(),
-    limit: "800",
+function normalizeChannels(rawChannels) {
+  const channels = Array.isArray(rawChannels) && rawChannels.length ? rawChannels : DEFAULT_CHANNELS;
+  const byId = new Map(DEFAULT_CHANNELS.map((channel) => [channel.id, channel]));
+  channels.forEach((channel) => {
+    if (channel && channel.id) {
+      const customerCopy = CUSTOMER_CHANNEL_LABELS.get(channel.id) || {};
+      byId.set(channel.id, { ...byId.get(channel.id), ...channel, ...customerCopy });
+    }
   });
-  return fetchJson(`/api/history?${query.toString()}`);
-}
-
-async function fetchPriceHistory(referenceNow, statusPayload) {
-  const end = new Date(referenceNow.getTime() + 5 * 60 * 1000);
-  const start = new Date(getPriceChartRange(referenceNow, statusPayload).startTime);
-  const query = new URLSearchParams({
-    channel_id: "tariff.current_price_ct_kwh",
-    granularity: "raw",
-    start: start.toISOString(),
-    end: end.toISOString(),
-    limit: "1800",
+  return [...byId.values()].sort((a, b) => {
+    const group = String(a.group || "").localeCompare(String(b.group || ""), "de");
+    return group || String(a.label || a.id).localeCompare(String(b.label || b.id), "de");
   });
-  return fetchJson(`/api/history?${query.toString()}`);
 }
 
 function renderStatus(payload) {
   const health = payload.health || {};
   const state = payload.state || {};
   const status = health.status || "-";
+  setText("global-status", friendlyState(status));
+  document.getElementById("global-status-dot").className = `status-dot ${cssToken(status)}`;
+  setText("operator-message", buildOperatorMessage(health));
+  setText("last-updated", health.timestamp ? `Stand ${formatTimestamp(health.timestamp)}` : "-");
+  setText("health-line", [
+    `Sicherer Modus: ${health.safe_mode_reason ? "aktiv" : "aus"}`,
+    `Morgen: ${health.tomorrow_prices_available ? "Preise verfügbar" : "wartet"}`,
+  ].join(" / "));
 
-  const statusBadge = document.getElementById("status-badge");
-  statusBadge.textContent = status;
-  statusBadge.className = `status-pill ${status}`;
+  setText("kpi-price", formatNumber(health.current_price_ct_kwh, "ct/kWh", 3));
+  setText("kpi-slot", `Zeitfenster ${health.current_slot_label || "-"}`);
+  setText("kpi-spotmarket", formatBool(health.spotmarket_active_now));
+  setText("kpi-spotmarket-source", health.spotmarket_active_now ? "Preissteuerung aktiv" : "Normalbetrieb");
+  setText("kpi-grid-lockout", health.grid_lockout_active === null || health.grid_lockout_active === undefined ? "deaktiviert" : formatBool(health.grid_lockout_active));
+  setText("kpi-grid-state", friendlyState(health.grid_lockout_state || state.grid_lockout?.mode));
+  setText("kpi-grid-power", formatNumber(health.grid_active_power_kw, "kW", 2));
+  setText("kpi-grid-read", health.grid_read_status ? friendlyState(health.grid_read_status) : "derzeit nicht aktiv");
+  setText("spotmarket-summary", buildPriceWindowSummary(health, appState.statusPayload?.spotmarket_plan || {}));
+}
 
-  setText("current-price", formatNumber(health.current_price_ct_kwh, "ct/kWh"));
-  setText("current-slot", `Slot ${health.current_slot_label || "-"}`);
-  setText("grid-power", formatNumber(health.grid_active_power_kw, "kW"));
-  setText("grid-read-status", health.grid_read_status || "-");
-  setText("spotmarket-lockout", formatBool(health.spotmarket_active_now));
-  setText("spotmarket-source", health.spotmarket_source || "-");
-  setText("grid-lockout", formatBool(health.grid_lockout_active));
-  setText("grid-lockout-state", health.grid_lockout_state || state.grid_lockout?.mode || "-");
-  setText("operator-message", health.operator_message || "-");
-  setText("spotmarket-summary", health.spotmarket_summary || "Keine Spotmarket-Daten");
+function renderSignals(payload) {
+  const health = payload.health || {};
+  const priceCache = payload.price_cache || {};
+  const source = priceCache.price_source_status || {};
+  const writeStatus = health.write_status || {};
+  const currentPrice = writeStatus.current_price || {};
+  const spotmarket = writeStatus.spotmarket_lockout || {};
+  const tomorrowSlots = Number(source.tomorrow_slots_found ?? priceCache.tomorrow?.available_slot_count ?? 0);
+  const todaySlots = Number(source.today_slots_found ?? priceCache.today?.available_slot_count ?? 0);
+  const rows = [
+    {
+      state: currentPrice.last_error ? "error" : currentPrice.confirmed === false ? "warn" : "ok",
+      title: "Preis an Anlage übergeben",
+      text: `${currentPrice.confirmed === false ? "wartet auf Bestätigung" : "bestätigt"} / ${formatAge(health.last_price_handoff_at || currentPrice.last_confirmed_at)}`,
+    },
+    {
+      state: spotmarket.last_error ? "error" : spotmarket.confirmed === false ? "warn" : "ok",
+      title: "Preissteuerung",
+      text: `${formatBool(spotmarket.desired_value)} / ${formatAge(spotmarket.last_confirmed_at)}`,
+    },
+    {
+      state: todaySlots > 0 ? "ok" : "warn",
+      title: "Preisdaten",
+      text: `${todaySlots || "-"} Werte heute / ${tomorrowSlots || "-"} Werte morgen`,
+    },
+    {
+      state: health.safe_mode_reason ? "error" : "ok",
+      title: "Sicherer Betriebszustand",
+      text: health.safe_mode_reason ? "Sicherer Modus ist aktiv" : "Anlage läuft normal",
+    },
+  ];
+  document.getElementById("signal-list").innerHTML = rows.map((row) => `
+    <article class="signal-card ${row.state}">
+      <strong>${escapeHtml(row.title)}</strong>
+      <span>${escapeHtml(row.text)}</span>
+    </article>
+  `).join("");
 }
 
 function renderWindows(plan) {
@@ -106,798 +266,827 @@ function renderWindows(plan) {
   renderWindowList("windows-tomorrow", plan.tomorrow?.windows || []);
 }
 
-function renderSpotmarketSettings(settings) {
-  const select = document.getElementById("negative-hours-select");
-  const state = document.getElementById("spotmarket-settings-state");
-  if (!select || !state) {
-    return;
-  }
-  const hours = toFiniteNumber(settings.min_consecutive_hours);
-  if (Number.isFinite(hours)) {
-    setSelectValue(select, hours);
-    state.textContent = `Aktiv ab ${formatHours(hours)} (${settings.min_consecutive_quarters || "-"} Slots)`;
-  } else {
-    state.textContent = "Noch keine Einstellung geladen.";
-  }
-}
-
 function renderWindowList(targetId, windows) {
-  const container = document.getElementById(targetId);
+  const target = document.getElementById(targetId);
   if (!windows.length) {
-    container.innerHTML = '<div class="window-card"><strong>Keine Fenster</strong><span>Aktuell keine negativen Zeitfenster.</span></div>';
+    target.innerHTML = '<div class="empty-state">Keine geplanten Preisfenster.</div>';
     return;
   }
-  container.innerHTML = windows.map((window) => `
+  target.innerHTML = windows.map((window) => `
     <article class="window-card">
-      <strong>${window.start_label} - ${window.end_label_exclusive}</strong>
-      <span>${window.length_quarters} Viertelstunden</span>
-      <span>Min ${formatNumber(window.min_price_ct_kwh, "ct/kWh")} / Max ${formatNumber(window.max_price_ct_kwh, "ct/kWh")}</span>
+      <strong>${escapeHtml(window.start_label)} - ${escapeHtml(window.end_label_exclusive)}</strong>
+      <span>${escapeHtml(window.length_quarters)} Viertelstunden / ab ${escapeHtml(formatNumber(window.min_price_ct_kwh, "ct/kWh", 3))}</span>
     </article>
   `).join("");
 }
 
-function renderRecentCycles(rows) {
-  const body = document.getElementById("cycles-body");
-  body.innerHTML = rows.map((row) => `
-    <tr>
-      <td>${row.cycle_id || "-"}</td>
-      <td>${row.status || "-"}</td>
-      <td>${row.current_slot_label || "-"}</td>
-      <td>${formatNumber(row.current_price_ct_kwh, "ct/kWh")}</td>
-      <td>${formatNumber(row.grid_active_power_kw, "kW")}</td>
-      <td>${formatTimestamp(row.timestamp)}</td>
-    </tr>
-  `).join("");
-}
-
-function renderHistoryCharts(statusPayload, gridRows, priceRows, referenceNow) {
-  const priceTimeline = buildPriceTimeline(statusPayload, priceRows, referenceNow);
-  const gridTimeline = buildGridTimeline(gridRows, referenceNow);
-
-  setText(
-    "price-history-meta",
-    priceTimeline.windows.length
-      ? `${priceTimeline.windows.length} BV401-Fenster`
-      : "Kein BV401-Fenster",
-  );
-  setText(
-    "grid-history-meta",
-    gridTimeline.series.length
-      ? `${gridTimeline.series.length} Messpunkte`
-      : "Keine 48h-Daten",
-  );
-
-  renderTimelineChart("price-history-chart", {
-    emptyText: "Keine 48h-Preisdaten vorhanden.",
+async function renderPriceOverview(payload) {
+  const referenceNow = getReferenceNow(payload);
+  const range = { start: new Date(referenceNow.getTime() - 12 * 60 * 60 * 1000), end: new Date(referenceNow.getTime() + 36 * 60 * 60 * 1000) };
+  const history = await fetchHistorySafe("tariff.current_price_ct_kwh", range.start, new Date(referenceNow.getTime() + 5 * 60 * 1000), "raw", 1800);
+  const timeline = buildPriceTimeline(payload, history.rows || [], range, referenceNow);
+  setText("price-chart-meta", timeline.points.length ? `${timeline.points.length} Werte` : "keine Werte");
+  renderLineChart(document.getElementById("price-chart"), timeline.points, {
     unit: "ct/kWh",
-    startTime: priceTimeline.startTime,
-    endTime: priceTimeline.endTime,
-    series: priceTimeline.series,
+    color: "#2563eb",
     step: true,
-    showArea: true,
-    fillBaselineValue: 0,
-    areaClass: "price-area",
-    lineClass: "price-line",
-    pointClass: "price-point",
-    windows: priceTimeline.windows,
-    tracker: priceTimeline.tracker,
-    stats: [
-      { label: "Min", value: formatNumber(priceTimeline.min, "ct/kWh") },
-      { label: "Max", value: formatNumber(priceTimeline.max, "ct/kWh") },
-      { label: "Jetzt", value: formatNumber(priceTimeline.currentValue, "ct/kWh") },
-      { label: "BV401", value: priceTimeline.windowSummary },
-    ],
+    windows: timeline.windows,
+    now: referenceNow.getTime(),
+    empty: "Keine Preisdaten für die Ansicht vorhanden.",
   });
-
-  renderTimelineChart("grid-history-chart", {
-    emptyText: "Keine 48h-Historie fuer Netzbezug vorhanden.",
-    unit: "kW",
-    startTime: gridTimeline.startTime,
-    endTime: gridTimeline.endTime,
-    series: gridTimeline.series,
-    step: false,
-    showArea: true,
-    fillBaselineValue: 0,
-    areaClass: "grid-area",
-    lineClass: "grid-line-path",
-    pointClass: "grid-point",
-    tracker: gridTimeline.tracker,
-    stats: [
-      { label: "Min", value: formatNumber(gridTimeline.min, "kW") },
-      { label: "Max", value: formatNumber(gridTimeline.max, "kW") },
-      { label: "Letzter", value: formatNumber(gridTimeline.currentValue, "kW") },
-      { label: "Zeitraum", value: "Letzte 48 Stunden" },
-    ],
-  });
+  document.getElementById("price-chart-stats").innerHTML = [
+    statCell("Minimum", formatNumber(timeline.min, "ct/kWh", 3)),
+    statCell("Maximum", formatNumber(timeline.max, "ct/kWh", 3)),
+    statCell("Aktuell", formatNumber(timeline.current, "ct/kWh", 3)),
+    statCell("Preisfenster", timeline.windows.length ? timeline.windows.map((item) => item.label).join(", ") : "keins"),
+  ].join("");
 }
 
-function buildPriceTimeline(statusPayload, priceRows, referenceNow) {
-  const priceCache = statusPayload.price_cache || {};
-  const health = statusPayload.health || {};
-  const plan = statusPayload.spotmarket_plan || {};
-  const referenceTime = referenceNow.getTime();
-  const { startTime, endTime } = getPriceChartRange(referenceNow, statusPayload);
-  const historySeries = [...priceRows]
-    .reverse()
-    .map((row) => ({
-      time: parseTimestamp(row.timestamp),
-      value: pickHistoryValue(row),
-      source: "history",
-    }))
-    .filter((point) => (
-      Number.isFinite(point.time)
-      && Number.isFinite(point.value)
-      && point.time >= startTime
-      && point.time <= referenceTime
-    ));
-  const futureBySlot = new Map();
-
+function buildPriceTimeline(payload, historyRows, range, referenceNow) {
+  const priceCache = payload.price_cache || {};
+  const health = payload.health || {};
+  const history = normalizeHistoryRows(historyRows)
+    .map((row) => ({ time: parseTime(row.timestamp), value: historyValue(row) }))
+    .filter((point) => isFinitePoint(point) && point.time >= range.start.getTime() && point.time <= referenceNow.getTime());
+  const forecast = [];
   for (const day of [priceCache.today, priceCache.tomorrow]) {
     if (!day || typeof day.date !== "string" || !Array.isArray(day.slots)) {
       continue;
     }
-    day.slots.forEach((value, slotIndex) => {
-      const time = buildSlotTime(day.date, slotIndex);
-      const numericValue = toFiniteNumber(value);
-      if (time >= referenceTime && time <= endTime && Number.isFinite(numericValue)) {
-        futureBySlot.set(time, {
-          time,
-          value: numericValue,
-          source: "forecast",
-        });
+    day.slots.forEach((value, index) => {
+      const time = buildSlotTime(day.date, index);
+      const numeric = toNumber(value);
+      if (Number.isFinite(time) && Number.isFinite(numeric) && time >= referenceNow.getTime() && time <= range.end.getTime()) {
+        forecast.push({ time, value: numeric });
       }
     });
   }
-
-  const series = mergeTimelineSeries(historySeries, [...futureBySlot.values()], startTime, endTime);
-  const windows = buildWindowBands(plan).filter((window) => window.end > startTime && window.start < endTime);
-  const currentValue = toFiniteNumber(health.current_price_ct_kwh);
-
-  return {
-    startTime,
-    endTime,
-    series,
-    windows,
-    min: minValue(series),
-    max: maxValue(series),
-    currentValue,
-    tracker: {
-      time: clamp(referenceNow.getTime(), startTime, endTime),
-      value: currentValue,
-      label: `Jetzt ${TIME_FORMATTER.format(referenceNow)}`,
-      valueText: formatNumber(currentValue, "ct/kWh"),
-    },
-    windowSummary: windows.length
-      ? windows.map((window) => window.rangeLabel).join(", ")
-      : "Kein Fenster aktiv",
-  };
-}
-
-function getPriceChartRange(referenceNow, statusPayload) {
-  const todayStart = new Date(referenceNow.getFullYear(), referenceNow.getMonth(), referenceNow.getDate()).getTime();
-  if (!hasTomorrowPrices(statusPayload)) {
-    return {
-      startTime: todayStart - (HOURS_48_MS / 2),
-      endTime: todayStart + (HOURS_48_MS / 2),
-    };
-  }
-  return {
-    startTime: todayStart,
-    endTime: todayStart + HOURS_48_MS,
-  };
-}
-
-function hasTomorrowPrices(statusPayload) {
-  const tomorrow = statusPayload?.price_cache?.tomorrow;
-  const availableSlotCount = Number(tomorrow?.available_slot_count ?? 0);
-  const foundSlotCount = Number(statusPayload?.price_cache?.price_source_status?.tomorrow_slots_found ?? 0);
-  return availableSlotCount > 0 && foundSlotCount > 0;
-}
-
-function mergeTimelineSeries(historySeries, forecastSeries, startTime, endTime) {
   const byTime = new Map();
-  for (const point of historySeries) {
-    byTime.set(point.time, point);
-  }
-  for (const point of forecastSeries) {
-    byTime.set(point.time, point);
-  }
-  const series = [...byTime.values()]
-    .filter((point) => point.time >= startTime && point.time <= endTime)
-    .sort((left, right) => left.time - right.time);
-  if (!series.length) {
-    return [];
-  }
-  return series;
-}
-
-function buildGridTimeline(rows, referenceNow) {
-  const series = [...rows]
-    .reverse()
-    .map((row) => ({
-      time: parseTimestamp(row.timestamp),
-      value: pickHistoryValue(row),
-    }))
-    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value));
-
-  const currentValue = series.length ? series[series.length - 1].value : null;
-  const endTime = referenceNow.getTime();
+  [...history, ...forecast].forEach((point) => byTime.set(point.time, point));
+  const points = [...byTime.values()].sort((a, b) => a.time - b.time);
+  const values = points.map((point) => point.value).filter(Number.isFinite);
+  const windows = buildWindowBands(payload.spotmarket_plan || {}).filter((window) => window.end >= range.start.getTime() && window.start <= range.end.getTime());
   return {
-    startTime: endTime - HOURS_48_MS,
-    endTime,
-    series,
-    min: minValue(series),
-    max: maxValue(series),
-    currentValue,
-    tracker: {
-      time: endTime,
-      value: currentValue,
-      label: `Jetzt ${TIME_FORMATTER.format(referenceNow)}`,
-      valueText: formatNumber(currentValue, "kW"),
-    },
+    points,
+    windows,
+    min: values.length ? Math.min(...values) : null,
+    max: values.length ? Math.max(...values) : null,
+    current: toNumber(health.current_price_ct_kwh),
   };
 }
 
 function buildWindowBands(plan) {
   const bands = [];
-  for (const dayKey of ["today", "tomorrow"]) {
-    const day = plan[dayKey];
+  for (const day of [plan.today, plan.tomorrow]) {
     if (!day || typeof day.date !== "string" || !Array.isArray(day.windows)) {
       continue;
     }
-    for (const window of day.windows) {
-      const startSlot = Number(window.start_slot);
-      const endSlot = Number(window.end_slot_exclusive);
-      if (!Number.isFinite(startSlot) || !Number.isFinite(endSlot)) {
-        continue;
+    day.windows.forEach((window) => {
+      const start = buildSlotTime(day.date, Number(window.start_slot));
+      const end = buildSlotTime(day.date, Number(window.end_slot_exclusive));
+      if (Number.isFinite(start) && Number.isFinite(end)) {
+        bands.push({
+          start,
+          end,
+          label: `${window.start_label}-${window.end_label_exclusive}`,
+        });
       }
-      bands.push({
-        start: buildSlotTime(day.date, startSlot),
-        end: buildSlotTime(day.date, endSlot),
-        label: "BV401 AN",
-        rangeLabel: `${window.start_label}-${window.end_label_exclusive}`,
-      });
-    }
+    });
   }
   return bands;
 }
 
-function renderTimelineChart(targetId, config) {
-  const container = document.getElementById(targetId);
-  const validSeries = config.series.filter((point) => Number.isFinite(point.value));
-
-  if (!validSeries.length) {
-    container.innerHTML = `<div class="timeline-chart-empty">${escapeHtml(config.emptyText)}</div>`;
-    return;
-  }
-
-  const bounds = resolveBounds(validSeries.map((point) => point.value));
-  const width = SVG_WIDTH;
-  const height = SVG_HEIGHT;
-  const plotWidth = width - CHART_MARGIN.left - CHART_MARGIN.right;
-  const plotHeight = height - CHART_MARGIN.top - CHART_MARGIN.bottom;
-  const scaleX = (time) => CHART_MARGIN.left + (((time - config.startTime) / Math.max(config.endTime - config.startTime, 1)) * plotWidth);
-  const scaleY = (value) => CHART_MARGIN.top + plotHeight - (((value - bounds.min) / Math.max(bounds.max - bounds.min, 1e-9)) * plotHeight);
-  const seriesEndTime = config.endTime;
-  const path = config.step
-    ? buildStepPath(config.series, scaleX, scaleY, seriesEndTime)
-    : buildLinePath(validSeries, scaleX, scaleY);
-  const areaBaselineValue = resolveAreaBaselineValue(bounds, config.fillBaselineValue);
-  const areaPath = config.showArea
-    ? config.step
-      ? buildStepAreaPath(config.series, scaleX, scaleY, seriesEndTime, scaleY(areaBaselineValue))
-      : buildLineAreaPath(validSeries, scaleX, scaleY, scaleY(areaBaselineValue))
-    : "";
-
-  const zeroLine = bounds.min <= 0 && bounds.max >= 0
-    ? `<line class="zero-line" x1="${CHART_MARGIN.left}" y1="${scaleY(0).toFixed(1)}" x2="${(width - CHART_MARGIN.right).toFixed(1)}" y2="${scaleY(0).toFixed(1)}"></line>`
-    : "";
-
-  const gridLines = buildYTicks(bounds.min, bounds.max).map((tick) => {
-    const y = scaleY(tick);
-    return `
-      <line class="chart-grid" x1="${CHART_MARGIN.left}" y1="${y.toFixed(1)}" x2="${(width - CHART_MARGIN.right).toFixed(1)}" y2="${y.toFixed(1)}"></line>
-      <text class="value-label" x="${(CHART_MARGIN.left - 10).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end">${escapeHtml(formatAxisValue(tick))}</text>
-    `;
-  }).join("");
-
-  const xTicks = buildTimeTicks(config.startTime, config.endTime, 5).map((tick, index, ticks) => {
-    const x = scaleX(tick);
-    const anchor = index === 0 ? "start" : index === ticks.length - 1 ? "end" : "middle";
-    return `<text class="tick-label" x="${x.toFixed(1)}" y="${(height - 10).toFixed(1)}" text-anchor="${anchor}">${escapeHtml(SHORT_DATE_TIME_FORMATTER.format(new Date(tick)))}</text>`;
-  }).join("");
-
-  const windowRects = (config.windows || [])
-    .filter((window) => window.end > config.startTime && window.start < config.endTime)
-    .map((window) => {
-      const x = scaleX(Math.max(window.start, config.startTime));
-      const endX = scaleX(Math.min(window.end, config.endTime));
-      const labelX = x + ((endX - x) / 2);
-      return `
-        <rect class="chart-window" x="${x.toFixed(1)}" y="${CHART_MARGIN.top}" width="${Math.max(endX - x, 2).toFixed(1)}" height="${plotHeight.toFixed(1)}" rx="10"></rect>
-        <text class="chart-window-label" x="${labelX.toFixed(1)}" y="${(CHART_MARGIN.top + 16).toFixed(1)}" text-anchor="middle">${escapeHtml(window.label)}</text>
-      `;
-    }).join("");
-
-  const tracker = buildTrackerMarkup(config.tracker, scaleX, scaleY, config.startTime, config.endTime, height, bounds, config.pointClass);
-
-  container.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
-      <line class="axis" x1="${CHART_MARGIN.left}" y1="${(height - CHART_MARGIN.bottom).toFixed(1)}" x2="${(width - CHART_MARGIN.right).toFixed(1)}" y2="${(height - CHART_MARGIN.bottom).toFixed(1)}"></line>
-      ${gridLines}
-      ${windowRects}
-      ${zeroLine}
-      ${areaPath ? `<path class="chart-area ${config.areaClass || ""}" d="${areaPath}"></path>` : ""}
-      <path class="chart-line ${config.lineClass}" d="${path}"></path>
-      ${tracker}
-      <g class="hover-layer" style="display: none;">
-        <line class="tracker hover-tracker" x1="0" y1="${CHART_MARGIN.top}" x2="0" y2="${(height - CHART_MARGIN.bottom).toFixed(1)}"></line>
-        <circle class="current-point ${config.pointClass}" cx="0" cy="0" r="5"></circle>
-        <rect class="tracker-callout" x="0" y="0" width="120" height="42" rx="8"></rect>
-        <text class="tracker-callout-title" x="0" y="0"></text>
-        <text class="tracker-callout-value" x="0" y="0"></text>
-      </g>
-      <rect class="chart-hover-capture" x="${CHART_MARGIN.left}" y="${CHART_MARGIN.top}" width="${plotWidth}" height="${plotHeight}" fill="transparent"></rect>
-      ${xTicks}
-    </svg>
-    <div class="timeline-chart-footer">
-      ${(config.stats || []).map((item) => `
-        <article class="timeline-stat">
-          <span class="timeline-stat-label">${escapeHtml(item.label)}</span>
-          <strong class="timeline-stat-value">${escapeHtml(item.value)}</strong>
-        </article>
+function renderChannelPicker() {
+  const query = document.getElementById("channel-search").value.trim().toLowerCase();
+  const channels = appState.availableChannels.filter((channel) => {
+    const haystack = `${channel.id} ${channel.label} ${channel.group} ${channel.unit}`.toLowerCase();
+    return !query || haystack.includes(query);
+  });
+  const byGroup = groupBy(channels, (channel) => channel.group || "EMS");
+  document.getElementById("channel-list").innerHTML = [...byGroup.entries()].map(([group, groupChannels]) => `
+    <div class="channel-group">
+      <span class="micro-label">${escapeHtml(group)}</span>
+      ${groupChannels.map((channel) => `
+        <label class="channel-option">
+          <input type="checkbox" value="${escapeHtml(channel.id)}" ${appState.selectedChannels.has(channel.id) ? "checked" : ""}>
+          <span>
+            ${escapeHtml(channel.label || "Datenpunkt")}
+            <small>${escapeHtml([channel.group, channel.unit].filter(Boolean).join(" / "))}</small>
+          </span>
+        </label>
       `).join("")}
     </div>
-  `;
-  installTimelineHover(container, {
-    bounds,
-    endTime: config.endTime,
-    pointClass: config.pointClass,
-    scaleX,
-    scaleY,
-    series: validSeries,
-    startTime: config.startTime,
-    unit: config.unit,
-  });
-}
-
-function buildTrackerMarkup(tracker, scaleX, scaleY, startTime, endTime, chartHeight, bounds, pointClass) {
-  if (!tracker || !Number.isFinite(tracker.time)) {
-    return "";
-  }
-  const clampedTime = clamp(tracker.time, startTime, endTime);
-  const x = scaleX(clampedTime);
-  const label = tracker.label || "";
-  const valueText = tracker.valueText || "";
-  const boxWidth = Math.max(label.length, valueText.length, 10) * 7 + 20;
-  const boxHeight = valueText ? 42 : 26;
-  const boxX = clamp(x - (boxWidth / 2), CHART_MARGIN.left, SVG_WIDTH - CHART_MARGIN.right - boxWidth);
-  const boxY = 8;
-  let pointMarkup = "";
-  if (Number.isFinite(tracker.value) && tracker.value >= bounds.min && tracker.value <= bounds.max) {
-    pointMarkup = `<circle class="current-point ${pointClass}" cx="${x.toFixed(1)}" cy="${scaleY(tracker.value).toFixed(1)}" r="6"></circle>`;
-  }
-  return `
-    <line class="tracker" x1="${x.toFixed(1)}" y1="${CHART_MARGIN.top}" x2="${x.toFixed(1)}" y2="${(chartHeight - CHART_MARGIN.bottom).toFixed(1)}"></line>
-    <rect class="tracker-callout" x="${boxX.toFixed(1)}" y="${boxY.toFixed(1)}" width="${boxWidth.toFixed(1)}" height="${boxHeight.toFixed(1)}" rx="12"></rect>
-    <text class="tracker-callout-title" x="${(boxX + 12).toFixed(1)}" y="${(boxY + 16).toFixed(1)}">${escapeHtml(label)}</text>
-    ${valueText ? `<text class="tracker-callout-value" x="${(boxX + 12).toFixed(1)}" y="${(boxY + 33).toFixed(1)}">${escapeHtml(valueText)}</text>` : ""}
-    ${pointMarkup}
-  `;
-}
-
-function buildLinePath(series, scaleX, scaleY) {
-  return series
-    .map((point, index) => `${index === 0 ? "M" : "L"} ${scaleX(point.time).toFixed(1)} ${scaleY(point.value).toFixed(1)}`)
-    .join(" ");
-}
-
-function buildStepPath(series, scaleX, scaleY, endTime) {
-  let path = "";
-  let segmentOpen = false;
-
-  for (let index = 0; index < series.length; index += 1) {
-    const point = series[index];
-    const value = point.value;
-    if (!Number.isFinite(value)) {
-      segmentOpen = false;
-      continue;
-    }
-
-    const nextPoint = series[index + 1];
-    const nextTime = nextPoint ? nextPoint.time : Math.min(point.time + PRICE_SLOT_MINUTES * 60 * 1000, endTime);
-    const x = scaleX(point.time);
-    const y = scaleY(value);
-    const endX = scaleX(nextTime);
-
-    if (!segmentOpen) {
-      path += `M ${x.toFixed(1)} ${y.toFixed(1)} `;
-      segmentOpen = true;
-    } else {
-      path += `L ${x.toFixed(1)} ${y.toFixed(1)} `;
-    }
-
-    path += `H ${endX.toFixed(1)} `;
-
-    if (nextPoint && Number.isFinite(nextPoint.value)) {
-      path += `V ${scaleY(nextPoint.value).toFixed(1)} `;
-    } else {
-      segmentOpen = false;
-    }
-  }
-
-  return path.trim();
-}
-
-function buildLineAreaPath(series, scaleX, scaleY, baselineY) {
-  if (!series.length) {
-    return "";
-  }
-  const firstX = scaleX(series[0].time);
-  const lastX = scaleX(series[series.length - 1].time);
-  return `M ${firstX.toFixed(1)} ${baselineY.toFixed(1)} L ${buildLinePath(series, scaleX, scaleY).slice(2)} L ${lastX.toFixed(1)} ${baselineY.toFixed(1)} Z`;
-}
-
-function buildStepAreaPath(series, scaleX, scaleY, endTime, baselineY) {
-  let path = "";
-  let segmentOpen = false;
-  let segmentStartX = null;
-
-  for (let index = 0; index < series.length; index += 1) {
-    const point = series[index];
-    if (!Number.isFinite(point.value)) {
-      if (segmentOpen) {
-        path += `L ${scaleX(series[index - 1].time).toFixed(1)} ${baselineY.toFixed(1)} Z `;
+  `).join("") || '<div class="empty-state">Keine passenden Datenpunkte.</div>';
+  document.querySelectorAll("#channel-list input[type='checkbox']").forEach((input) => {
+    input.addEventListener("change", () => {
+      if (input.checked) {
+        appState.selectedChannels.add(input.value);
+      } else {
+        appState.selectedChannels.delete(input.value);
       }
-      segmentOpen = false;
-      segmentStartX = null;
-      continue;
-    }
-    const nextPoint = series[index + 1];
-    const nextTime = nextPoint ? nextPoint.time : Math.min(point.time + PRICE_SLOT_MINUTES * 60 * 1000, endTime);
-    const endX = scaleX(nextTime);
-    const y = scaleY(point.value);
-
-    if (!segmentOpen) {
-      const startX = scaleX(point.time);
-      segmentStartX = startX;
-      path += `M ${startX.toFixed(1)} ${baselineY.toFixed(1)} L ${startX.toFixed(1)} ${y.toFixed(1)} `;
-      segmentOpen = true;
-    }
-
-    path += `H ${endX.toFixed(1)} `;
-    if (nextPoint && Number.isFinite(nextPoint.value)) {
-      path += `V ${scaleY(nextPoint.value).toFixed(1)} `;
-    } else {
-      path += `L ${endX.toFixed(1)} ${baselineY.toFixed(1)} L ${segmentStartX.toFixed(1)} ${baselineY.toFixed(1)} Z `;
-      segmentOpen = false;
-      segmentStartX = null;
-    }
-  }
-
-  return path.trim();
-}
-
-function installTimelineHover(container, config) {
-  const svg = container.querySelector("svg");
-  const capture = container.querySelector(".chart-hover-capture");
-  const layer = container.querySelector(".hover-layer");
-  if (!svg || !capture || !layer || !config.series.length) {
-    return;
-  }
-
-  const trackerLine = layer.querySelector(".hover-tracker");
-  const point = layer.querySelector("circle");
-  const box = layer.querySelector("rect");
-  const title = layer.querySelector(".tracker-callout-title");
-  const value = layer.querySelector(".tracker-callout-value");
-
-  capture.addEventListener("mousemove", (event) => {
-    const svgPoint = svg.createSVGPoint();
-    svgPoint.x = event.clientX;
-    svgPoint.y = event.clientY;
-    const cursor = svgPoint.matrixTransform(svg.getScreenCTM().inverse());
-    const cursorRatio = (cursor.x - CHART_MARGIN.left) / Math.max(SVG_WIDTH - CHART_MARGIN.left - CHART_MARGIN.right, 1);
-    const cursorTime = config.startTime + (clamp(cursorRatio, 0, 1) * (config.endTime - config.startTime));
-    const nearest = nearestTimelinePoint(config.series, cursorTime);
-    if (!nearest) {
-      layer.style.display = "none";
-      return;
-    }
-
-    const x = config.scaleX(nearest.time);
-    const y = config.scaleY(nearest.value);
-    const label = SHORT_DATE_TIME_FORMATTER.format(new Date(nearest.time));
-    const valueText = formatNumber(nearest.value, config.unit || "");
-    const boxWidth = Math.max(label.length, valueText.length, 12) * 7 + 22;
-    const boxHeight = 42;
-    const boxX = clamp(x + 10, CHART_MARGIN.left, SVG_WIDTH - CHART_MARGIN.right - boxWidth);
-    const boxY = clamp(y - 52, 4, SVG_HEIGHT - CHART_MARGIN.bottom - boxHeight);
-
-    layer.style.display = "";
-    trackerLine.setAttribute("x1", x.toFixed(1));
-    trackerLine.setAttribute("x2", x.toFixed(1));
-    point.setAttribute("cx", x.toFixed(1));
-    point.setAttribute("cy", y.toFixed(1));
-    box.setAttribute("x", boxX.toFixed(1));
-    box.setAttribute("y", boxY.toFixed(1));
-    box.setAttribute("width", boxWidth.toFixed(1));
-    box.setAttribute("height", boxHeight.toFixed(1));
-    title.setAttribute("x", (boxX + 12).toFixed(1));
-    title.setAttribute("y", (boxY + 16).toFixed(1));
-    title.textContent = label;
-    value.setAttribute("x", (boxX + 12).toFixed(1));
-    value.setAttribute("y", (boxY + 33).toFixed(1));
-    value.textContent = valueText;
-  });
-  capture.addEventListener("mouseleave", () => {
-    layer.style.display = "none";
-  });
-}
-
-function nearestTimelinePoint(series, time) {
-  let nearest = null;
-  let nearestDistance = Number.POSITIVE_INFINITY;
-  for (const point of series) {
-    const distance = Math.abs(point.time - time);
-    if (distance < nearestDistance) {
-      nearest = point;
-      nearestDistance = distance;
-    }
-  }
-  return nearest;
-}
-
-function buildYTicks(min, max) {
-  const ticks = [];
-  const stepCount = 4;
-  for (let index = 0; index <= stepCount; index += 1) {
-    ticks.push(min + (((max - min) / stepCount) * index));
-  }
-  return ticks;
-}
-
-function buildTimeTicks(startTime, endTime, count) {
-  const ticks = [];
-  for (let index = 0; index < count; index += 1) {
-    const ratio = count === 1 ? 0 : index / (count - 1);
-    ticks.push(startTime + ((endTime - startTime) * ratio));
-  }
-  return ticks;
-}
-
-function resolveBounds(values) {
-  let min = Math.min(...values);
-  let max = Math.max(...values);
-
-  if (min === max) {
-    const padding = min === 0 ? 1 : Math.abs(min) * 0.15;
-    min -= padding;
-    max += padding;
-  } else {
-    const padding = (max - min) * 0.08;
-    min -= padding;
-    max += padding;
-  }
-
-  return { min, max };
-}
-
-function resolveAreaBaselineValue(bounds, baselineValue) {
-  if (Number.isFinite(baselineValue) && baselineValue >= bounds.min && baselineValue <= bounds.max) {
-    return baselineValue;
-  }
-  return bounds.min;
-}
-
-function minValue(series) {
-  const values = series.map((point) => point.value).filter((value) => Number.isFinite(value));
-  return values.length ? Math.min(...values) : null;
-}
-
-function maxValue(series) {
-  const values = series.map((point) => point.value).filter((value) => Number.isFinite(value));
-  return values.length ? Math.max(...values) : null;
-}
-
-function renderReport(report) {
-  setText("report-date", report.date || "-");
-  const summary = document.getElementById("report-summary");
-  const statusCounts = report.status_counts || {};
-  summary.innerHTML = [
-    reportCard("Zyklen", report.cycle_count),
-    reportCard("BACnet Events", report.bacnet_event_count),
-    reportCard("Grid Mittelwert", formatNumber(report.grid_active_power_kw?.average, "kW")),
-    reportCard("Preis Mittelwert", formatNumber(report.price_ct_kwh?.average, "ct/kWh")),
-    reportCard("healthy", statusCounts.healthy || 0),
-    reportCard("degraded", statusCounts.degraded || 0),
-    reportCard("safe_mode", statusCounts.safe_mode || 0),
-    reportCard("Fenster", (report.spotmarket_windows || []).length),
-  ].join("");
-
-  const eventsBody = document.getElementById("report-events");
-  eventsBody.innerHTML = (report.recent_bacnet_events || []).map((event) => `
-    <tr>
-      <td>${formatTimestamp(event.timestamp)}</td>
-      <td>${event.channel_id || "-"}</td>
-      <td>${event.event_type || "-"}</td>
-      <td>${event.severity || "-"}</td>
-      <td>${event.message || "-"}</td>
-    </tr>
-  `).join("");
-}
-
-function reportCard(label, value) {
-  return `<article class="report-item"><span>${label}</span><strong>${value ?? "-"}</strong></article>`;
-}
-
-function setText(id, value) {
-  const element = document.getElementById(id);
-  if (!element) {
-    return;
-  }
-  element.textContent = value ?? "-";
-}
-
-function formatBool(value) {
-  if (value === true || value === 1) {
-    return "AN";
-  }
-  if (value === false || value === 0) {
-    return "AUS";
-  }
-  return "-";
-}
-
-function formatNumber(value, unit, digits = 3) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return "-";
-  }
-  return `${Number(value).toFixed(digits)} ${unit}`;
-}
-
-function formatAxisValue(value) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return "-";
-  }
-  const absolute = Math.abs(Number(value));
-  const digits = absolute >= 10 ? 0 : absolute >= 1 ? 1 : 2;
-  return Number(value).toFixed(digits);
-}
-
-function formatTimestamp(value) {
-  if (!value) {
-    return "-";
-  }
-  return String(value).replace("T", " ").replace("Z", " UTC");
-}
-
-function parseTimestamp(value) {
-  if (!value) {
-    return Number.NaN;
-  }
-  const parsed = new Date(value);
-  return parsed.getTime();
-}
-
-function buildSlotTime(dateIso, slotIndex) {
-  const date = new Date(`${dateIso}T00:00:00`);
-  date.setMinutes(date.getMinutes() + (slotIndex * PRICE_SLOT_MINUTES));
-  return date.getTime();
-}
-
-function startOfDay(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
-}
-
-function getReferenceNow(payload) {
-  for (const candidate of [payload?.price_cache?.last_update_at, payload?.health?.timestamp]) {
-    const parsed = new Date(candidate);
-    if (Number.isFinite(parsed.getTime())) {
-      return parsed;
-    }
-  }
-  return new Date();
-}
-
-function pickHistoryValue(row) {
-  for (const key of ["average_value", "last_value", "value"]) {
-    const parsed = toFiniteNumber(row[key]);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return Number.NaN;
-}
-
-function toFiniteNumber(value) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-async function runDiagnostic() {
-  const output = document.getElementById("diagnostic-output");
-  output.textContent = "Diagnose laeuft...";
-  try {
-    const payload = await fetchJson("/api/diagnostics/read?channel_id=grid.active_power_kw&samples=3");
-    output.textContent = JSON.stringify(payload, null, 2);
-  } catch (error) {
-    output.textContent = `Diagnose fehlgeschlagen: ${error.message}`;
-  }
-}
-
-async function saveSpotmarketSettings(event) {
-  event.preventDefault();
-  const select = document.getElementById("negative-hours-select");
-  const state = document.getElementById("spotmarket-settings-state");
-  const button = document.getElementById("spotmarket-settings-save");
-  const hours = Number(select.value);
-  if (!Number.isFinite(hours) || hours <= 0) {
-    state.textContent = "Bitte eine gueltige Dauer waehlen.";
-    return;
-  }
-
-  button.disabled = true;
-  state.textContent = "Speichere...";
-  try {
-    const settings = await postJson("/api/config/spotmarket-lockout", {
-      min_consecutive_hours: hours,
+      refreshWorkbench();
     });
-    renderSpotmarketSettings(settings);
-    await refreshDashboard();
-    state.textContent = `Gespeichert: ${formatHours(settings.min_consecutive_hours)} ab naechstem Zyklus.`;
+  });
+  renderSelectedStrip();
+}
+
+function renderSelectedStrip() {
+  const selected = selectedChannelMeta();
+  const target = document.getElementById("selected-strip");
+  if (!selected.length) {
+    target.innerHTML = '<div class="empty-state">Wähle links die gewünschten Datenpunkte für diese Ansicht.</div>';
+    return;
+  }
+  target.innerHTML = selected.map((channel) => `
+    <article class="selected-chip">
+      <span>${escapeHtml(channel.label || "Datenpunkt")}</span>
+      <button type="button" aria-label="${escapeHtml(channel.label || "Datenpunkt")} entfernen" data-channel="${escapeHtml(channel.id)}">x</button>
+    </article>
+  `).join("");
+  target.querySelectorAll("button[data-channel]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.selectedChannels.delete(button.dataset.channel);
+      renderChannelPicker();
+      refreshWorkbench();
+    });
+  });
+}
+
+async function refreshWorkbench() {
+  renderSelectedStrip();
+  const selected = selectedChannelMeta();
+  if (!selected.length) {
+    document.getElementById("series-grid").innerHTML = '<div class="empty-state">Keine Datenpunkte ausgewählt.</div>';
+    document.getElementById("series-summary-body").innerHTML = "";
+    return;
+  }
+  const range = selectedRange();
+  const granularity = document.getElementById("granularity-select").value;
+  document.getElementById("series-grid").innerHTML = '<div class="empty-state">Daten werden geladen.</div>';
+  const histories = await Promise.all(selected.map(async (channel, index) => {
+    const payload = await fetchHistorySafe(channel.id, range.start, range.end, granularity, historyLimit(granularity));
+    return {
+      channel,
+      color: SERIES_COLORS[index % SERIES_COLORS.length],
+      rows: normalizeHistoryRows(payload.rows || []),
+      error: payload.error || null,
+    };
+  }));
+  appState.activeHistories = new Map(histories.map((item) => [item.channel.id, item]));
+  renderSeriesGrid(histories);
+  renderSeriesSummary(histories);
+  updateReportLinks();
+}
+
+function renderSeriesGrid(histories) {
+  document.getElementById("series-grid").innerHTML = histories.map((item) => {
+    const points = item.rows.map((row) => ({ time: parseTime(row.timestamp), value: historyValue(row) })).filter(isFinitePoint);
+    const stats = seriesStats(points);
+    return `
+      <article class="series-card">
+        <div class="series-head">
+          <div>
+            <strong>${escapeHtml(item.channel.label || "Datenpunkt")}</strong>
+            <span>${escapeHtml([item.channel.group, item.channel.unit || valueKindLabel(item.channel.kind)].filter(Boolean).join(" / "))}</span>
+          </div>
+          <span class="badge">${escapeHtml(item.channel.unit || item.channel.kind || "")}</span>
+        </div>
+        ${item.error ? `<div class="empty-state compact">${escapeHtml(item.error)}</div>` : `<div class="mini-chart">${renderSparkline(points, item.color, item.channel.unit)}</div>`}
+        <div class="chart-stats">
+          ${statCell("Letzter", formatNumber(stats.last, item.channel.unit))}
+          ${statCell("Min", formatNumber(stats.min, item.channel.unit))}
+          ${statCell("Max", formatNumber(stats.max, item.channel.unit))}
+          ${statCell("Messpunkte", String(points.length))}
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderSeriesSummary(histories) {
+  const rows = histories.map((item) => {
+    const points = item.rows.map((row) => ({ time: parseTime(row.timestamp), value: historyValue(row) })).filter(isFinitePoint);
+    const stats = seriesStats(points);
+    return `
+      <tr>
+        <td>${escapeHtml(item.channel.label || "Datenpunkt")}</td>
+        <td>${escapeHtml(formatNumber(stats.last, item.channel.unit))}</td>
+        <td>${escapeHtml(formatNumber(stats.min, item.channel.unit))}</td>
+        <td>${escapeHtml(formatNumber(stats.max, item.channel.unit))}</td>
+        <td>${escapeHtml(points.length)}</td>
+      </tr>
+    `;
+  });
+  document.getElementById("series-summary-body").innerHTML = rows.join("");
+}
+
+async function fetchHistory(channelId, start, end, granularity, limit) {
+  const query = new URLSearchParams({
+    channel_id: channelId,
+    granularity,
+    start: start.toISOString(),
+    end: end.toISOString(),
+    limit: String(limit),
+  });
+  return fetchJson(`/api/history?${query.toString()}`);
+}
+
+async function fetchHistorySafe(channelId, start, end, granularity, limit) {
+  try {
+    return await fetchHistory(channelId, start, end, granularity, limit);
   } catch (error) {
-    state.textContent = `Speichern fehlgeschlagen: ${error.message}`;
+    return {
+      rows: [],
+      error: "Daten konnten nicht geladen werden.",
+    };
+  }
+}
+
+function renderLineChart(target, points, options = {}) {
+  const clean = points.filter(isFinitePoint).sort((a, b) => a.time - b.time);
+  if (!clean.length) {
+    target.innerHTML = `<div class="chart-empty">${escapeHtml(options.empty || "Keine Daten vorhanden.")}</div>`;
+    return;
+  }
+  const width = 1100;
+  const height = 300;
+  const margin = { top: 18, right: 22, bottom: 36, left: 58 };
+  const times = clean.map((point) => point.time);
+  const values = clean.map((point) => point.value);
+  const xMin = Math.min(...times);
+  const xMax = Math.max(...times);
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const pad = Math.max((rawMax - rawMin) * 0.12, rawMax === rawMin ? 1 : 0.2);
+  const yMin = rawMin - pad;
+  const yMax = rawMax + pad;
+  const plotW = width - margin.left - margin.right;
+  const plotH = height - margin.top - margin.bottom;
+  const x = (time) => margin.left + ((time - xMin) / Math.max(xMax - xMin, 1)) * plotW;
+  const y = (value) => margin.top + plotH - ((value - yMin) / Math.max(yMax - yMin, 1e-9)) * plotH;
+  const path = options.step ? steppedPath(clean, x, y) : linePath(clean, x, y);
+  const areaPath = `${path} L ${x(clean[clean.length - 1].time).toFixed(1)} ${height - margin.bottom} L ${x(clean[0].time).toFixed(1)} ${height - margin.bottom} Z`;
+  const yTicks = Array.from({ length: 4 }, (_, index) => yMin + ((yMax - yMin) * index / 3));
+  const xTicks = Array.from({ length: 5 }, (_, index) => xMin + ((xMax - xMin) * index / 4));
+  const windows = (options.windows || []).map((window) => {
+    const left = Math.max(margin.left, x(window.start));
+    const right = Math.min(width - margin.right, x(window.end));
+    const windowWidth = Math.max(0, right - left);
+    return windowWidth ? `<rect class="chart-window" x="${left.toFixed(1)}" y="${margin.top}" width="${windowWidth.toFixed(1)}" height="${plotH}" rx="4"><title>${escapeHtml(window.label)}</title></rect>` : "";
+  }).join("");
+  const nowLine = Number.isFinite(options.now) && options.now >= xMin && options.now <= xMax
+    ? `<line class="chart-now" x1="${x(options.now).toFixed(1)}" y1="${margin.top}" x2="${x(options.now).toFixed(1)}" y2="${height - margin.bottom}"></line>`
+    : "";
+  target.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Zeitverlauf">
+      ${windows}
+      ${yTicks.map((tick) => `<line class="chart-grid-line" x1="${margin.left}" y1="${y(tick).toFixed(1)}" x2="${width - margin.right}" y2="${y(tick).toFixed(1)}"></line><text class="chart-axis-label" x="${margin.left - 8}" y="${(y(tick) + 4).toFixed(1)}" text-anchor="end">${escapeHtml(formatAxis(tick))}</text>`).join("")}
+      ${xTicks.map((tick) => `<text class="chart-axis-label" x="${x(tick).toFixed(1)}" y="${height - 12}" text-anchor="middle">${escapeHtml(DATE_TIME.format(new Date(tick)))}</text>`).join("")}
+      ${nowLine}
+      <path class="chart-area" d="${areaPath}" fill="${options.color || SERIES_COLORS[0]}"></path>
+      <path class="chart-line" d="${path}" stroke="${options.color || SERIES_COLORS[0]}"></path>
+    </svg>
+  `;
+}
+
+function renderSparkline(points, color, unit) {
+  const clean = points.filter(isFinitePoint).sort((a, b) => a.time - b.time);
+  if (!clean.length) {
+    return '<div class="chart-empty">Keine Daten.</div>';
+  }
+  const width = 520;
+  const height = 170;
+  const margin = { top: 12, right: 12, bottom: 24, left: 44 };
+  const times = clean.map((point) => point.time);
+  const values = clean.map((point) => point.value);
+  const xMin = Math.min(...times);
+  const xMax = Math.max(...times);
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const pad = Math.max((rawMax - rawMin) * 0.14, rawMax === rawMin ? 1 : 0.2);
+  const yMin = rawMin - pad;
+  const yMax = rawMax + pad;
+  const x = (time) => margin.left + ((time - xMin) / Math.max(xMax - xMin, 1)) * (width - margin.left - margin.right);
+  const y = (value) => margin.top + (height - margin.top - margin.bottom) - ((value - yMin) / Math.max(yMax - yMin, 1e-9)) * (height - margin.top - margin.bottom);
+  const path = linePath(clean, x, y);
+  const ticks = [yMin, (yMin + yMax) / 2, yMax];
+  return `
+    <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+      ${ticks.map((tick) => `<line class="chart-grid-line" x1="${margin.left}" y1="${y(tick).toFixed(1)}" x2="${width - margin.right}" y2="${y(tick).toFixed(1)}"></line><text class="chart-axis-label" x="${margin.left - 8}" y="${(y(tick) + 4).toFixed(1)}" text-anchor="end">${escapeHtml(formatAxis(tick))}</text>`).join("")}
+      <path class="chart-line" d="${path}" stroke="${color}"></path>
+      <text class="chart-axis-label" x="${width - margin.right}" y="${height - 8}" text-anchor="end">${escapeHtml(unit || "")}</text>
+    </svg>
+  `;
+}
+
+function renderViewSelect() {
+  const select = document.getElementById("view-select");
+  select.innerHTML = [
+    ...VIEW_PRESETS.map((view) => `<option value="${escapeHtml(view.id)}">${escapeHtml(view.label)}</option>`),
+    ...appState.savedViews.map((view) => `<option value="${escapeHtml(view.id)}">${escapeHtml(view.label)}</option>`),
+  ].join("");
+}
+
+function findView(id) {
+  return [...VIEW_PRESETS, ...appState.savedViews].find((view) => view.id === id);
+}
+
+function applyView(view) {
+  appState.selectedChannels = new Set(view.channels);
+  document.getElementById("range-select").value = view.range || "24h";
+  document.getElementById("granularity-select").value = view.granularity || "5m";
+  const select = document.getElementById("view-select");
+  if ([...select.options].some((option) => option.value === view.id)) {
+    select.value = view.id;
+  }
+  renderChannelPicker();
+}
+
+function saveCurrentView() {
+  const input = document.getElementById("view-name");
+  const label = input.value.trim();
+  if (!label) {
+    input.focus();
+    return;
+  }
+  const view = {
+    id: `saved:${Date.now()}`,
+    label,
+    range: document.getElementById("range-select").value,
+    granularity: document.getElementById("granularity-select").value,
+    channels: [...appState.selectedChannels],
+  };
+  appState.savedViews.push(view);
+  localStorage.setItem("miniEmsViews", JSON.stringify(appState.savedViews));
+  input.value = "";
+  renderViewSelect();
+  document.getElementById("view-select").value = view.id;
+}
+
+function loadSavedViews() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem("miniEmsViews") || "[]");
+    return Array.isArray(parsed) ? parsed.filter((view) => view && view.id && Array.isArray(view.channels)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function selectedChannelMeta() {
+  const byId = new Map(appState.availableChannels.map((channel) => [channel.id, channel]));
+  return [...appState.selectedChannels].map((id) => byId.get(id) || { id, label: "Datenpunkt", unit: "", group: "EMS" });
+}
+
+function renderReportChannelList() {
+  const target = document.getElementById("report-channel-list");
+  const signature = appState.availableChannels.map((channel) => channel.id).join("|");
+  if (target.dataset.signature === signature) {
+    return;
+  }
+  const defaults = new Set(VIEW_PRESETS[2].channels.concat(["tariff.current_price_ct_kwh", "site.outdoor_temperature_c"]));
+  target.innerHTML = appState.availableChannels.map((channel) => `
+    <label class="check">
+      <input type="checkbox" name="report-channel" value="${escapeHtml(channel.id)}" ${defaults.has(channel.id) ? "checked" : ""}>
+      <span>${escapeHtml(channel.label || "Datenpunkt")}${channel.unit ? ` (${escapeHtml(channel.unit)})` : ""}</span>
+    </label>
+  `).join("");
+  target.dataset.signature = signature;
+  target.querySelectorAll("input").forEach((input) => input.addEventListener("change", updateReportLinks));
+}
+
+function setReportDefaults() {
+  const end = new Date();
+  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  document.getElementById("report-start").value = toDatetimeLocal(start);
+  document.getElementById("report-end").value = toDatetimeLocal(end);
+}
+
+async function previewReport(event) {
+  event.preventDefault();
+  const button = document.getElementById("report-preview-button");
+  const target = document.getElementById("report-preview");
+  button.disabled = true;
+  target.innerHTML = '<article class="preview-card">Bericht wird berechnet.</article>';
+  try {
+    const config = buildReportConfig();
+    const payload = await postJson("/api/report/preview", config);
+    target.innerHTML = renderReportPreview(payload);
+    updateReportLinks();
+  } catch (error) {
+    target.innerHTML = `<article class="preview-card error"><strong>Fehler</strong><span>${escapeHtml(error.message)}</span></article>`;
   } finally {
     button.disabled = false;
   }
 }
 
-function setSelectValue(select, value) {
-  const normalized = String(Number(value));
-  const existing = [...select.options].find((option) => Number(option.value) === Number(value));
-  if (!existing) {
-    const option = document.createElement("option");
-    option.value = normalized;
-    option.textContent = formatHours(value);
-    select.appendChild(option);
-  }
-  select.value = existing ? existing.value : normalized;
+function buildReportConfig() {
+  const channels = [...document.querySelectorAll("input[name='report-channel']:checked")].map((input) => input.value);
+  const sections = [...document.querySelectorAll("input[name='report-section']:checked")].map((input) => ({ component: input.value }));
+  return {
+    title: document.getElementById("report-title").value.trim() || "Mini EMS Betriebsbericht",
+    start: datetimeLocalToIso(document.getElementById("report-start").value),
+    end: datetimeLocalToIso(document.getElementById("report-end").value),
+    granularity: document.getElementById("report-granularity").value,
+    channels,
+    sections,
+  };
 }
 
-function formatHours(value) {
-  const hours = Number(value);
-  if (!Number.isFinite(hours)) {
+function renderReportPreview(report) {
+  const sections = Array.isArray(report.sections) ? report.sections : [];
+  if (!sections.length) {
+    return '<article class="preview-card">Keine Berichtsbausteine vorhanden.</article>';
+  }
+  return sections.map((section) => {
+    const count = section.cards?.length || section.rows?.length || section.series?.reduce((sum, serie) => sum + (serie.points?.length || 0), 0) || 0;
+    return `
+      <article class="preview-card ready">
+        <strong>${escapeHtml(section.title || reportSectionLabel(section.component))}</strong>
+        <span>${escapeHtml(reportSectionLabel(section.component))} / ${escapeHtml(count)} Elemente</span>
+      </article>
+    `;
+  }).join("");
+}
+
+function updateReportLinks() {
+  const config = buildReportConfig();
+  const query = new URLSearchParams({
+    title: config.title,
+    start: config.start,
+    end: config.end,
+    granularity: config.granularity,
+    channels: config.channels.join(","),
+    sections: config.sections.map((section) => section.component).join(","),
+  });
+  document.getElementById("report-html-link").href = `/api/report/html?${query.toString()}`;
+  document.getElementById("report-pdf-link").href = `/api/report/pdf?${query.toString()}`;
+}
+
+function renderDailyReport(report) {
+  const price = report.price_ct_kwh || {};
+  const statusCounts = report.status_counts || {};
+  document.getElementById("daily-report").innerHTML = [
+    reportTile("Läufe", report.cycle_count),
+    reportTile("Normale Läufe", statusCounts.healthy || 0),
+    reportTile("Kommunikationshinweise", report.bacnet_event_count),
+    reportTile("Durchschnittspreis", formatNumber(price.average, "ct/kWh", 3)),
+    reportTile("Niedrigster Preis", formatNumber(price.min, "ct/kWh", 3)),
+    reportTile("Preisfenster", (report.spotmarket_windows || []).length),
+  ].join("");
+}
+
+function renderRecentCycles(rows) {
+  const body = document.getElementById("cycles-body");
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="5">Keine Läufe vorhanden.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map((row) => `
+    <tr>
+      <td>${escapeHtml(row.cycle_id || "-")}</td>
+      <td><span class="badge ${cssToken(row.status)}">${escapeHtml(friendlyState(row.status))}</span></td>
+      <td>${escapeHtml(row.current_slot_label || "-")}</td>
+      <td>${escapeHtml(formatNumber(row.current_price_ct_kwh, "ct/kWh", 3))}</td>
+      <td>${escapeHtml(formatTimestamp(row.timestamp))}</td>
+    </tr>
+  `).join("");
+}
+
+function renderWeather(payload) {
+  const target = document.getElementById("weather-panel");
+  if (!payload || payload.status !== "ok") {
+    target.innerHTML = `<div class="empty-state">Wetter nicht verfügbar${payload?.error ? `: ${escapeHtml(payload.error)}` : ""}</div>`;
+    return;
+  }
+  const current = payload.current || {};
+  target.innerHTML = `
+    <div class="weather-now">
+      <span class="micro-label">${escapeHtml(payload.site || "Standort")} / ${escapeHtml(payload.source || "Wetter")}</span>
+      <strong>${escapeHtml(formatNumber(current.temperature_c, "C", 1))}</strong>
+      <span>${escapeHtml(current.weather_label || "-")} / gefühlt ${escapeHtml(formatNumber(current.apparent_temperature_c, "C", 1))}</span>
+    </div>
+    <div class="weather-details">
+      ${reportTile("Luftfeuchte", formatNumber(current.humidity_percent, "%", 0))}
+      ${reportTile("Wind", formatNumber(current.wind_speed_kmh, "km/h", 1))}
+      ${reportTile("Regen", formatNumber(current.precipitation_mm, "mm", 1))}
+      ${reportTile("Stand", payload.fetched_at ? formatTimestamp(payload.fetched_at) : "-")}
+    </div>
+  `;
+}
+
+async function runDiagnosticRead() {
+  const target = document.getElementById("diagnostic-output");
+  target.textContent = "Prüfung läuft...";
+  try {
+    const payload = await fetchJson("/api/diagnostics/read?channel_id=tariff.current_price_ct_kwh&samples=3");
+    target.innerHTML = renderDiagnosticResult(payload);
+  } catch (error) {
+    target.innerHTML = renderDiagnosticError(error);
+  }
+}
+
+function selectedRange() {
+  const end = getReferenceNow(appState.statusPayload || {});
+  const value = document.getElementById("range-select").value;
+  const hours = value === "6h" ? 6 : value === "48h" ? 48 : value === "7d" ? 24 * 7 : 24;
+  return {
+    start: new Date(end.getTime() - hours * 60 * 60 * 1000),
+    end,
+  };
+}
+
+function historyLimit(granularity) {
+  if (granularity === "raw") {
+    return 5000;
+  }
+  if (granularity === "5m") {
+    return 2500;
+  }
+  return 1000;
+}
+
+function getReferenceNow(payload) {
+  const time = parseTime(payload?.health?.timestamp || payload?.health?.last_healthy_at);
+  return new Date(Number.isFinite(time) ? time : Date.now());
+}
+
+function normalizeHistoryRows(rows) {
+  return [...rows].sort((a, b) => parseTime(a.timestamp) - parseTime(b.timestamp));
+}
+
+function historyValue(row) {
+  return toNumber(row.average_value ?? row.last_value ?? row.value ?? row.desired_value);
+}
+
+function seriesStats(points) {
+  const values = points.map((point) => point.value).filter(Number.isFinite);
+  if (!values.length) {
+    return { min: null, max: null, last: null };
+  }
+  return {
+    min: Math.min(...values),
+    max: Math.max(...values),
+    last: values[values.length - 1],
+  };
+}
+
+function isFinitePoint(point) {
+  return Number.isFinite(point.time) && Number.isFinite(point.value);
+}
+
+function linePath(points, scaleX, scaleY) {
+  return points.map((point, index) => `${index === 0 ? "M" : "L"} ${scaleX(point.time).toFixed(1)} ${scaleY(point.value).toFixed(1)}`).join(" ");
+}
+
+function steppedPath(points, scaleX, scaleY) {
+  if (!points.length) {
+    return "";
+  }
+  const path = [`M ${scaleX(points[0].time).toFixed(1)} ${scaleY(points[0].value).toFixed(1)}`];
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    path.push(`L ${scaleX(current.time).toFixed(1)} ${scaleY(previous.value).toFixed(1)}`);
+    path.push(`L ${scaleX(current.time).toFixed(1)} ${scaleY(current.value).toFixed(1)}`);
+  }
+  return path.join(" ");
+}
+
+function buildSlotTime(dateIso, slotIndex) {
+  const start = new Date(`${dateIso}T00:00:00`);
+  return start.getTime() + Number(slotIndex) * PRICE_SLOT_MS;
+}
+
+function groupBy(items, keyFn) {
+  const map = new Map();
+  items.forEach((item) => {
+    const key = keyFn(item);
+    if (!map.has(key)) {
+      map.set(key, []);
+    }
+    map.get(key).push(item);
+  });
+  return map;
+}
+
+function statCell(label, value) {
+  return `<article class="stat-cell"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? "-")}</strong></article>`;
+}
+
+function reportTile(label, value) {
+  return `<article class="report-tile"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? "-")}</strong></article>`;
+}
+
+function buildOperatorMessage(health) {
+  if (health.safe_mode_reason) {
+    return "Die Anlage ist im sicheren Modus. Bitte den Systemzustand prüfen.";
+  }
+  const price = formatNumber(health.current_price_ct_kwh, "ct/kWh", 3);
+  const slot = health.current_slot_label ? ` für das Zeitfenster ${health.current_slot_label}` : "";
+  const tomorrow = health.tomorrow_prices_available ? "Die Preise für morgen sind vorhanden." : "Die Preise für morgen werden noch erwartet.";
+  return `Aktueller Strompreis${slot}: ${price}. ${tomorrow}`;
+}
+
+function buildPriceWindowSummary(health, plan) {
+  const todayWindows = plan.today?.windows || [];
+  const tomorrowWindows = plan.tomorrow?.windows || [];
+  const active = health.spotmarket_active_now ? "Die Preissteuerung ist aktuell aktiv." : "Die Anlage läuft aktuell ohne aktive Preissteuerung.";
+  const today = todayWindows.length ? `Heute: ${todayWindows.map(windowLabel).join(", ")}.` : "Heute sind keine Preisfenster geplant.";
+  const tomorrow = tomorrowWindows.length ? `Morgen: ${tomorrowWindows.map(windowLabel).join(", ")}.` : "Für morgen sind keine Preisfenster geplant.";
+  return `${active} ${today} ${tomorrow}`;
+}
+
+function renderDiagnosticResult(payload) {
+  const channel = channelMeta(payload?.channel_id);
+  const status = friendlyState(payload?.status);
+  const successful = Number(payload?.successful_sample_count || 0);
+  const expected = Number(payload?.sample_count || 0);
+  const values = [
+    reportTile("Datenpunkt", channel.label || "Strompreis"),
+    reportTile("Status", status),
+    reportTile("Messwerte", `${successful} von ${expected || successful}`),
+    reportTile("Letzter Wert", formatNumber(payload?.value, channel.unit || "ct/kWh", 3)),
+    reportTile("Mittelwert", formatNumber(payload?.average_value, channel.unit || "ct/kWh", 3)),
+    reportTile("Plausibilität", payload?.plausible === false ? "prüfen" : "in Ordnung"),
+  ];
+  const message = payload?.error
+    ? `<div class="diagnostic-message warn">${escapeHtml(friendlyDiagnosticError(payload.error))}</div>`
+    : '<div class="diagnostic-message ok">Die Preisprüfung war erfolgreich.</div>';
+  return `<div class="diagnostic-cards">${values.join("")}</div>${message}`;
+}
+
+function renderDiagnosticError(error) {
+  return `<div class="diagnostic-message warn">${escapeHtml(error?.message || "Die Preisprüfung konnte nicht ausgeführt werden.")}</div>`;
+}
+
+function friendlyDiagnosticError(error) {
+  const text = String(error || "");
+  if (!text) {
+    return "Die Prüfung liefert keine Detailmeldung.";
+  }
+  if (text.includes("value_out_of_range")) {
+    return "Der Messwert liegt außerhalb des erwarteten Bereichs.";
+  }
+  if (text.toLowerCase().includes("timeout")) {
+    return "Die Anlage hat nicht rechtzeitig geantwortet.";
+  }
+  return "Die Prüfung meldet: " + text.replace(/[_-]/g, " ");
+}
+
+function channelMeta(channelId) {
+  return appState.availableChannels.find((channel) => channel.id === channelId)
+    || CUSTOMER_CHANNEL_LABELS.get(channelId)
+    || { label: "Datenpunkt", unit: "" };
+}
+
+function windowLabel(window) {
+  return `${window.start_label || "-"} bis ${window.end_label_exclusive || "-"}`;
+}
+
+function friendlyState(value) {
+  const key = String(value || "").toLowerCase();
+  if (!key) {
     return "-";
   }
-  if (hours === 1) {
-    return "1 Stunde";
+  if (key === "disabled") {
+    return "deaktiviert";
   }
-  return `${hours.toLocaleString("de-DE", { maximumFractionDigits: 2 })} Stunden`;
+  if (key === "monitoring") {
+    return "beobachtet";
+  }
+  if (key === "ok" || key === "healthy") {
+    return "in Ordnung";
+  }
+  if (key === "active" || key === "on") {
+    return "aktiv";
+  }
+  if (key === "inactive" || key === "off") {
+    return "aus";
+  }
+  return String(value).replace(/_/g, " ");
 }
 
-document.getElementById("refresh-button").addEventListener("click", refreshDashboard);
-document.getElementById("diagnostic-button").addEventListener("click", runDiagnostic);
-document.getElementById("spotmarket-settings-form").addEventListener("submit", saveSpotmarketSettings);
+function valueKindLabel(kind) {
+  if (kind === "energy_counter") {
+    return "Zähler";
+  }
+  if (kind === "state") {
+    return "Status";
+  }
+  return "Messwert";
+}
 
-refreshDashboard().catch((error) => {
-  document.getElementById("operator-message").textContent = `Dashboard-Fehler: ${error.message}`;
-});
-setInterval(() => {
-  refreshDashboard().catch((error) => {
-    document.getElementById("operator-message").textContent = `Dashboard-Fehler: ${error.message}`;
-  });
-}, REFRESH_INTERVAL_MS);
+function reportSectionLabel(component) {
+  return {
+    summary: "Kennzahlen",
+    line_chart: "Diagramme",
+    table: "Datentabelle",
+    events: "Kommunikationshinweise",
+  }[component] || "Abschnitt";
+}
+
+function renderGlobalError(error) {
+  setText("operator-message", "Die Daten konnten nicht geladen werden. Bitte die Verbindung zur lokalen Anlage prüfen.");
+  setText("global-status", "Fehler");
+  document.getElementById("global-status-dot").className = "status-dot error";
+}
+
+function setText(id, value) {
+  const element = document.getElementById(id);
+  if (element) {
+    element.textContent = value ?? "-";
+  }
+}
+
+function formatNumber(value, unit = "", decimals = 2) {
+  const number = toNumber(value);
+  if (!Number.isFinite(number)) {
+    return "-";
+  }
+  const digits = Math.abs(number) >= 1000 ? 0 : decimals;
+  const rendered = number.toLocaleString("de-DE", { maximumFractionDigits: digits, minimumFractionDigits: Math.min(digits, 1) });
+  return unit ? `${rendered} ${unit}` : rendered;
+}
+
+function formatAxis(value) {
+  const number = toNumber(value);
+  if (!Number.isFinite(number)) {
+    return "-";
+  }
+  if (Math.abs(number) >= 1000) {
+    return number.toLocaleString("de-DE", { maximumFractionDigits: 0 });
+  }
+  if (Math.abs(number) >= 10) {
+    return number.toLocaleString("de-DE", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+  }
+  return number.toLocaleString("de-DE", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+
+function formatBool(value) {
+  if (value === true || value === 1) {
+    return "aktiv";
+  }
+  if (value === false || value === 0) {
+    return "aus";
+  }
+  return "-";
+}
+
+function formatTimestamp(value) {
+  const time = parseTime(value);
+  return Number.isFinite(time) ? DATE_TIME.format(new Date(time)) : "-";
+}
+
+function formatAge(value) {
+  const time = parseTime(value);
+  if (!Number.isFinite(time)) {
+    return "-";
+  }
+  const minutes = Math.max(0, Math.round((Date.now() - time) / 60000));
+  if (minutes < 2) {
+    return "gerade eben";
+  }
+  if (minutes < 120) {
+    return `vor ${minutes} min`;
+  }
+  return `vor ${Math.round(minutes / 60)} h`;
+}
+
+function parseTime(value) {
+  if (!value) {
+    return Number.NaN;
+  }
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function toNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return Number.NaN;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) ? number : Number.NaN;
+}
+
+function toDatetimeLocal(date) {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function datetimeLocalToIso(value) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : new Date().toISOString();
+}
+
+function cssToken(value) {
+  return String(value || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}

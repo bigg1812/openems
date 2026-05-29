@@ -748,6 +748,34 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertEqual(cards["site.chp_electric_energy_kwh"]["delta"], 12.5)
         self.assertEqual(cards["site.gas_thermal_energy_kwh"]["delta"], 40.0)
 
+    def test_report_html_uses_customer_language(self) -> None:
+        db = RuntimeDatabase(self.config.database_path)
+        db.record_external_channel_samples(
+            [
+                {"channel_id": CURRENT_PRICE_CHANNEL, "value": -0.25},
+                {"channel_id": "ems.lockout_spotmarket", "value": 1.0},
+            ],
+            cycle_id="customer-language",
+            timestamp="2026-04-01T12:00:00Z",
+        )
+
+        html = db.render_report_html(
+            {
+                "title": "Mini EMS Betriebsbericht",
+                "start": "2026-04-01T00:00:00Z",
+                "end": "2026-04-02T00:00:00Z",
+                "channels": [CURRENT_PRICE_CHANNEL, "ems.lockout_spotmarket"],
+                "sections": [{"component": "summary"}, {"component": "table"}],
+            }
+        )
+
+        self.assertIn("Strompreis", html)
+        self.assertIn("Preissteuerung", html)
+        self.assertIn("Messpunkte", html)
+        self.assertNotIn("Samples", html)
+        self.assertNotIn("Spotpreis", html)
+        self.assertNotIn("ems.lockout", html)
+
     def test_health_file_is_compact_operator_snapshot(self) -> None:
         fake_socket = FakeSocket(
             [

@@ -286,7 +286,7 @@ class MiniEmsApiServer:
 
     def _report_config_from_query(self, query: Dict[str, list[str]]) -> Dict[str, object]:
         return {
-            "title": _single_value(query, "title", "Mini EMS Report"),
+            "title": _single_value(query, "title", "Mini EMS Betriebsbericht"),
             "start": _optional_single_value(query, "start"),
             "end": _optional_single_value(query, "end"),
             "granularity": _single_value(query, "granularity", "5m"),

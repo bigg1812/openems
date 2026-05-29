@@ -4,17 +4,18 @@
   <meta charset="utf-8">
   <title>{{ report.title }}</title>
   <style>
-    @page { size: A4; margin: 15mm; }
+    @page { size: A4; margin: 14mm; }
     :root {
-      --ink: #16202a;
-      --muted: #647181;
-      --line: #d8e0e8;
-      --soft: #f4f7fa;
+      --ink: #17212b;
+      --muted: #657384;
+      --line: #dbe4ee;
+      --soft: #f6f8fb;
       --panel: #ffffff;
       --blue: #2563eb;
       --green: #16875a;
       --amber: #b7791f;
-      --dark: #0f1720;
+      --red: #bf3f36;
+      --dark: #111b25;
     }
     * { box-sizing: border-box; }
     body {
@@ -30,32 +31,55 @@
       margin: 0 auto;
       padding: 28px;
     }
-    .hero {
+    .report-cover {
       display: grid;
       grid-template-columns: 1fr auto;
       gap: 24px;
       align-items: end;
       padding: 26px;
       border-radius: 8px;
-      background: linear-gradient(135deg, #12202d, #1f3b4c);
-      color: #fff;
+      background: var(--dark);
+      color: #ffffff;
     }
-    h1 { margin: 0; font-size: 30px; letter-spacing: 0; }
-    h2 { margin: 0 0 14px; font-size: 16px; letter-spacing: 0; }
-    .subtitle { margin: 8px 0 0; color: #c9d6e2; font-size: 13px; }
-    .generated { color: #c9d6e2; text-align: right; }
+    .eyebrow {
+      display: block;
+      color: #9fb0c2;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 6px 0 0;
+      font-size: 30px;
+      font-weight: 680;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 0 0 14px;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      margin: 8px 0 0;
+      color: #cad6e2;
+    }
+    .generated {
+      text-align: right;
+      color: #cad6e2;
+    }
     .pipeline {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-top: 16px;
+      margin-top: 18px;
     }
     .pipeline span {
       min-height: 26px;
       padding: 5px 9px;
-      border: 1px solid rgba(255,255,255,0.22);
+      border: 1px solid rgba(255, 255, 255, 0.22);
       border-radius: 8px;
-      color: #e8f0f7;
+      color: #edf4fb;
     }
     section {
       margin-top: 18px;
@@ -71,33 +95,43 @@
       gap: 10px;
     }
     .card {
-      min-height: 128px;
+      min-height: 122px;
       padding: 14px;
       border: 1px solid var(--line);
+      border-top: 3px solid var(--blue);
       border-radius: 8px;
-      background: linear-gradient(180deg, var(--soft), #fff);
+      background: var(--soft);
       page-break-inside: avoid;
     }
-    .card.energy { border-color: #b9dfcf; background: linear-gradient(180deg, #eefaf5, #fff); }
-    .eyebrow {
-      display: block;
-      color: var(--muted);
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+    .card.energy {
+      border-top-color: var(--green);
     }
-    .card-title { display: block; margin-top: 7px; font-size: 13px; font-weight: 600; }
+    .card.state {
+      border-top-color: var(--amber);
+    }
+    .card-title {
+      display: block;
+      margin-top: 7px;
+      font-weight: 650;
+    }
     .metric {
       display: block;
       margin-top: 10px;
-      color: var(--dark);
-      font-size: 24px;
-      font-weight: 650;
+      color: var(--ink);
+      font-size: 23px;
+      font-weight: 680;
       line-height: 1;
     }
-    .metric small { color: var(--muted); font-size: 12px; font-weight: 500; }
-    .meta { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+    .metric small {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .meta {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
     .chart-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -107,7 +141,7 @@
       padding: 14px;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: #fff;
+      background: #ffffff;
       page-break-inside: avoid;
     }
     .chart-head {
@@ -119,33 +153,61 @@
     }
     .chart {
       width: 100%;
-      height: 150px;
+      height: 152px;
       border: 1px solid var(--line);
-      background: linear-gradient(180deg, #fbfdff, #f5f8fb);
+      background: #fbfdff;
     }
-    .empty { padding: 18px; border: 1px dashed var(--line); color: var(--muted); }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { border-bottom: 1px solid var(--line); padding: 8px 7px; text-align: left; font-size: 11px; }
-    th { color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
-    td.value { font-weight: 600; text-align: right; white-space: nowrap; }
-    .print-note { margin-top: 18px; color: var(--muted); font-size: 11px; }
+    .empty {
+      padding: 18px;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 7px;
+      text-align: left;
+      font-size: 11px;
+    }
+    th {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    td.value {
+      font-weight: 650;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .print-note {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 11px;
+    }
     @media print {
-      body { background: #fff; }
+      body { background: #ffffff; }
       .report-shell { width: 100%; padding: 0; }
-      .hero, section { box-shadow: none; }
+      .report-cover, section { box-shadow: none; }
     }
     @media (max-width: 900px) {
       .report-shell { padding: 16px; }
-      .hero, .cards, .chart-grid { grid-template-columns: 1fr; }
+      .report-cover, .cards, .chart-grid { grid-template-columns: 1fr; }
       .generated { text-align: left; }
     }
   </style>
 </head>
 <body>
   <main class="report-shell">
-    <header class="hero">
+    <header class="report-cover">
       <div>
-        <span class="eyebrow">Mini EMS Report</span>
+        <span class="eyebrow">Mini EMS Betriebsbericht</span>
         <h1>{{ report.title }}</h1>
         <p class="subtitle">{{ report.subtitle }}</p>
         <div class="pipeline">
@@ -166,15 +228,15 @@
         {% if section.component == "summary" %}
           <div class="cards">
             {% for card in section.cards %}
-              <article class="card {{ 'energy' if card.kind == 'energy_counter' else '' }}">
+              <article class="card {{ 'energy' if card.kind == 'energy_counter' else '' }} {{ 'state' if card.kind == 'state' else '' }}">
                 <span class="eyebrow">{{ card.group }}</span>
                 <span class="card-title">{{ card.label }}</span>
                 <strong class="metric">
                   {{ "%.2f"|format(card.display_value) if card.display_value is not none else "-" }}
                   <small>{{ card.unit }}</small>
                 </strong>
-                <p class="meta">{{ card.display_label }} · {{ card.detail }}</p>
-                <p class="meta">{{ card.sample_count }} Samples</p>
+                <p class="meta">{{ card.display_label }} / {{ card.detail }}</p>
+                <p class="meta">{{ card.sample_count }} Messpunkte</p>
               </article>
             {% endfor %}
           </div>
@@ -192,29 +254,33 @@
                   {% set min_value = values | min %}
                   {% set max_value = values | max %}
                   {% set span = max_value - min_value if max_value != min_value else 1 %}
+                  {% set divisor = points|length - 1 if points|length > 1 else 1 %}
                   <svg class="chart" viewBox="0 0 520 150" preserveAspectRatio="none" role="img" aria-label="{{ serie.label }}">
-                    <line x1="0" y1="132" x2="520" y2="132" stroke="#d8e0e8" />
+                    <line x1="0" y1="132" x2="520" y2="132" stroke="#dbe4ee"></line>
                     <polyline
                       fill="none"
                       stroke="{{ '#16875a' if serie.unit == 'kWh' else '#2563eb' }}"
                       stroke-width="2.4"
-                      points="{% for point in points %}{{ (loop.index0 / ([points|length - 1, 1]|max) * 520)|round(1) }},{{ (132 - (((point.value - min_value) / span) * 112))|round(1) }} {% endfor %}" />
+                      points="{% for point in points %}{{ (loop.index0 / divisor * 520)|round(1) }},{{ (132 - (((point.value - min_value) / span) * 112))|round(1) }} {% endfor %}">
+                    </polyline>
                   </svg>
                   <p class="meta">Min {{ "%.2f"|format(min_value) }} / Max {{ "%.2f"|format(max_value) }}</p>
                 {% else %}
-                  <div class="empty">Keine Daten im gewaehlten Zeitraum.</div>
+                  <div class="empty">Keine Daten im gewählten Zeitraum.</div>
                 {% endif %}
               </article>
             {% endfor %}
           </div>
         {% elif section.component == "table" %}
           <table>
-            <thead><tr><th>Zeit</th><th>Kanal</th><th>Wert</th><th>Einheit</th></tr></thead>
+            <thead>
+              <tr><th>Zeit</th><th>Datenpunkt</th><th>Wert</th><th>Einheit</th></tr>
+            </thead>
             <tbody>
               {% for row in section.rows %}
                 <tr>
                   <td>{{ row.timestamp }}</td>
-                  <td>{{ row.label or row.channel_id }}</td>
+                  <td>{{ row.label or "Datenpunkt" }}</td>
                   <td class="value">{{ "%.2f"|format(row.value) if row.value is not none else "-" }}</td>
                   <td>{{ row.unit }}</td>
                 </tr>
@@ -223,12 +289,14 @@
           </table>
         {% else %}
           <table>
-            <thead><tr><th>Zeit</th><th>Kanal</th><th>Status</th><th>Meldung</th></tr></thead>
+            <thead>
+              <tr><th>Zeit</th><th>Bereich</th><th>Status</th><th>Meldung</th></tr>
+            </thead>
             <tbody>
               {% for row in section.rows %}
                 <tr>
                   <td>{{ row.timestamp }}</td>
-                  <td>{{ row.channel_id }}</td>
+                  <td>{{ "Kommunikation" if row.channel_id else "Anlage" }}</td>
                   <td>{{ row.severity }}</td>
                   <td>{{ row.message or row.event_type }}</td>
                 </tr>
@@ -238,7 +306,7 @@
         {% endif %}
       </section>
     {% endfor %}
-    <p class="print-note">Hinweis: Wenn der direkte PDF-Renderer nicht installiert ist, kann diese Ansicht im Browser mit Drucken / Als PDF speichern exportiert werden.</p>
+    <p class="print-note">Hinweis: Wenn der direkte PDF-Renderer nicht installiert ist, kann diese HTML-Ansicht im Browser als PDF gedruckt werden.</p>
   </main>
 </body>
 </html>
