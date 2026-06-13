@@ -1,6 +1,31 @@
 /* Mini EMS Leitstand — Design-System
    Tokens fuer Light/Dark ueber [data-theme], 4/8-Spacing-Scale,
-   eine Tiefenebene (Border statt Schatten), semantische Statusfarben. */
+   eine Tiefenebene (Border statt Schatten), semantische Statusfarben.
+   Schrift: Inter, lokal aus /vendor ausgeliefert (offline-faehig am IPC). */
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/vendor/inter-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/vendor/inter-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/vendor/inter-latin-600-normal.woff2") format("woff2");
+}
 
 :root {
   color-scheme: light;
@@ -17,7 +42,7 @@
   --radius-lg: 12px;
   --radius-pill: 999px;
 
-  --font: system-ui, -apple-system, "Segoe UI Variable", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 
   --bg: #eef2f6;
@@ -123,10 +148,10 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-body,
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -339,10 +364,29 @@ h3 {
   color: var(--accent-ink);
 }
 
-/* Sections */
-.workspace-band {
+/* Pages */
+.page {
+  display: none;
   padding: var(--sp-5) var(--sp-6);
-  border-bottom: 1px solid var(--line);
+}
+
+.page.active {
+  display: block;
+  animation: page-fade 0.18s ease;
+}
+
+@keyframes page-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.nav-icon {
+  display: inline-flex;
+  width: 18px;
+  justify-content: center;
+  margin-right: var(--sp-2);
+  font-size: 13px;
+  opacity: 0.85;
 }
 
 .section-head {
@@ -489,12 +533,24 @@ h3 {
 }
 
 /* Panels + layout */
-.operations-layout,
-.diagnostic-grid {
+.dashboard-layout {
   display: grid;
   grid-template-columns: 1.55fr 1fr;
   gap: var(--sp-3);
-  margin-top: var(--sp-3);
+}
+
+.dashboard-layout .tool-panel[data-widget="price"] {
+  grid-row: span 2;
+}
+
+.system-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+}
+
+.system-layout > .tool-panel:first-child {
+  grid-column: 1 / -1;
 }
 
 .tool-panel {
@@ -990,10 +1046,6 @@ legend {
 }
 
 /* Diagnostics + weather */
-.diagnostic-grid {
-  grid-template-columns: 1.2fr 0.8fr 1fr;
-}
-
 .weather-panel {
   display: grid;
   gap: var(--sp-3);
@@ -1097,6 +1149,91 @@ legend {
   color: var(--alert);
 }
 
+/* Textarea */
+textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  resize: vertical;
+}
+
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-4);
+  background: rgba(8, 14, 24, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.modal {
+  width: min(520px, 100%);
+  max-height: 86vh;
+  overflow: auto;
+  padding: var(--sp-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+}
+
+.modal-head h3 {
+  font-size: 17px;
+}
+
+.modal-hint {
+  margin: 0 0 var(--sp-4);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.config-section {
+  margin-bottom: var(--sp-4);
+}
+
+.config-section .micro-label {
+  display: block;
+  margin-bottom: var(--sp-2);
+}
+
+.config-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-1);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+}
+
 /* Responsive */
 @media (max-width: 1180px) {
   .app-shell {
@@ -1134,17 +1271,18 @@ legend {
   .kpi-grid,
   .control-grid,
   .selected-strip,
-  .series-grid,
-  .diagnostic-grid {
+  .series-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .operations-layout,
+  .dashboard-layout,
+  .system-layout,
   .channel-layout,
   .report-layout {
     grid-template-columns: 1fr;
   }
 
+  .dashboard-layout .tool-panel[data-widget="price"],
   .tool-panel.wide {
     grid-row: auto;
   }
@@ -1162,7 +1300,7 @@ legend {
   }
 
   .top-bar,
-  .workspace-band {
+  .page {
     padding: var(--sp-4);
   }
 
@@ -1179,7 +1317,6 @@ legend {
   .chart-stats,
   .daily-report,
   .preview-sections,
-  .diagnostic-grid,
   .report-channel-list {
     grid-template-columns: 1fr;
   }

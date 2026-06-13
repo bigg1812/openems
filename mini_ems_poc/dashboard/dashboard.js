@@ -67,6 +67,49 @@ const DATE_TIME = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-d
 const TIME_ONLY = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
 
 const THEME_STORAGE_KEY = "miniEmsTheme";
+const DASHBOARD_STORAGE_KEY = "miniEmsDashboard";
+
+const PAGES = {
+  dashboard: "Dashboard",
+  analyse: "Analyse",
+  berichte: "Berichte",
+  system: "System",
+};
+
+const KPI_CATALOG = [
+  { id: "price", label: "Aktueller Strompreis", accent: "accent-blue",
+    value: (h) => formatNumber(h.current_price_ct_kwh, "ct/kWh", 3),
+    sub: (h) => `Zeitfenster ${h.current_slot_label || "-"}` },
+  { id: "spotmarket", label: "Preissteuerung", accent: "accent-green",
+    value: (h) => formatBool(h.spotmarket_active_now),
+    sub: (h) => (h.spotmarket_active_now ? "Preissteuerung aktiv" : "Normalbetrieb") },
+  { id: "grid_lockout", label: "Netzschutz", accent: "accent-amber",
+    value: (h) => (h.grid_lockout_active === null || h.grid_lockout_active === undefined ? "deaktiviert" : formatBool(h.grid_lockout_active)),
+    sub: (h) => friendlyState(h.grid_lockout_state) },
+  { id: "grid_power", label: "Netzleistung", accent: "accent-slate",
+    value: (h) => formatNumber(h.grid_active_power_kw, "kW", 2),
+    sub: (h) => (h.grid_read_status ? friendlyState(h.grid_read_status) : "derzeit nicht aktiv") },
+  { id: "weather_temp", label: "Außentemperatur", accent: "accent-slate",
+    value: (_h, ctx) => formatNumber(ctx.weather?.current?.temperature_c, "C", 1),
+    sub: (_h, ctx) => ctx.weather?.current?.weather_label || "Wetter" },
+  { id: "price_min", label: "Günstigster Preis heute", accent: "accent-green",
+    value: (_h, ctx) => formatNumber(ctx.priceMin, "ct/kWh", 3), sub: () => "im Tagesverlauf" },
+  { id: "price_max", label: "Höchster Preis heute", accent: "accent-amber",
+    value: (_h, ctx) => formatNumber(ctx.priceMax, "ct/kWh", 3), sub: () => "im Tagesverlauf" },
+  { id: "tomorrow", label: "Preise morgen", accent: "accent-blue",
+    value: (h) => (h.tomorrow_prices_available ? "verfügbar" : "wartet"), sub: () => "Day-Ahead" },
+];
+
+const DASHBOARD_WIDGETS = [
+  { id: "price", label: "Börsenstrompreis" },
+  { id: "weather", label: "Wetter" },
+  { id: "windows", label: "Geplante Preisfenster" },
+];
+
+const DEFAULT_DASHBOARD = {
+  kpis: ["price", "spotmarket", "grid_lockout", "grid_power"],
+  widgets: { price: true, weather: true, windows: true },
+};
 
 const appState = {
   availableChannels: DEFAULT_CHANNELS,
@@ -75,6 +118,9 @@ const appState = {
   statusPayload: null,
   reportStudio: null,
   activeHistories: new Map(),
+  weather: null,
+  priceStats: null,
+  dashboard: { ...DEFAULT_DASHBOARD },
 };
 
 const priceChart = {
@@ -87,8 +133,10 @@ const priceChart = {
 
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
+  appState.dashboard = loadDashboardConfig();
   appState.savedViews = loadSavedViews();
   bindUi();
+  initRouter();
   setReportDefaults();
   renderViewSelect();
   applyView(VIEW_PRESETS[0]);
@@ -124,12 +172,38 @@ function bindUi() {
   document.querySelectorAll(".theme-toggle button[data-theme-value]").forEach((button) => {
     button.addEventListener("click", () => applyTheme(button.dataset.themeValue));
   });
-  document.querySelectorAll(".nav-link").forEach((link) => {
-    link.addEventListener("click", () => {
-      document.querySelectorAll(".nav-link").forEach((item) => item.classList.remove("active"));
-      link.classList.add("active");
-    });
+  document.getElementById("dashboard-config-button").addEventListener("click", openDashboardConfig);
+  document.getElementById("dashboard-config-close").addEventListener("click", closeDashboardConfig);
+  document.getElementById("dashboard-config-save").addEventListener("click", saveDashboardConfig);
+  document.getElementById("dashboard-config-reset").addEventListener("click", resetDashboardConfig);
+  document.getElementById("dashboard-config-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) {
+      closeDashboardConfig();
+    }
   });
+}
+
+function initRouter() {
+  window.addEventListener("hashchange", () => showPage(currentPageFromHash()));
+  showPage(currentPageFromHash());
+}
+
+function currentPageFromHash() {
+  const raw = (location.hash || "").replace(/^#\/?/, "").trim();
+  return PAGES[raw] ? raw : "dashboard";
+}
+
+function showPage(page) {
+  document.querySelectorAll(".page").forEach((element) => {
+    element.classList.toggle("active", element.dataset.page === page);
+  });
+  document.querySelectorAll(".nav-link").forEach((link) => {
+    link.classList.toggle("active", link.dataset.page === page);
+  });
+  setText("page-title", PAGES[page] || "Dashboard");
+  if (page === "dashboard") {
+    rebuildPriceChart();
+  }
 }
 
 function initTheme() {
@@ -181,6 +255,8 @@ async function refreshDashboard() {
     renderChannelPicker();
     renderReportChannelList();
     await renderPriceOverview(statusPayload);
+    renderKpis(statusPayload);
+    applyDashboardWidgets();
     await refreshWorkbench();
     updateReportLinks();
   } catch (error) {
@@ -251,15 +327,39 @@ function renderStatus(payload) {
     `Morgen: ${health.tomorrow_prices_available ? "Preise verfügbar" : "wartet"}`,
   ].join(" / "));
 
-  setText("kpi-price", formatNumber(health.current_price_ct_kwh, "ct/kWh", 3));
-  setText("kpi-slot", `Zeitfenster ${health.current_slot_label || "-"}`);
-  setText("kpi-spotmarket", formatBool(health.spotmarket_active_now));
-  setText("kpi-spotmarket-source", health.spotmarket_active_now ? "Preissteuerung aktiv" : "Normalbetrieb");
-  setText("kpi-grid-lockout", health.grid_lockout_active === null || health.grid_lockout_active === undefined ? "deaktiviert" : formatBool(health.grid_lockout_active));
-  setText("kpi-grid-state", friendlyState(health.grid_lockout_state || state.grid_lockout?.mode));
-  setText("kpi-grid-power", formatNumber(health.grid_active_power_kw, "kW", 2));
-  setText("kpi-grid-read", health.grid_read_status ? friendlyState(health.grid_read_status) : "derzeit nicht aktiv");
   setText("spotmarket-summary", buildPriceWindowSummary(health, appState.statusPayload?.spotmarket_plan || {}));
+}
+
+function renderKpis(payload) {
+  const target = document.getElementById("kpi-grid");
+  if (!target) {
+    return;
+  }
+  const health = payload.health || {};
+  const ctx = {
+    weather: appState.weather,
+    priceMin: appState.priceStats ? appState.priceStats.min : null,
+    priceMax: appState.priceStats ? appState.priceStats.max : null,
+  };
+  const enabled = appState.dashboard.kpis.length ? appState.dashboard.kpis : DEFAULT_DASHBOARD.kpis;
+  const cards = enabled
+    .map((id) => KPI_CATALOG.find((kpi) => kpi.id === id))
+    .filter(Boolean)
+    .map((kpi) => `
+      <article class="metric-card ${kpi.accent}">
+        <span>${escapeHtml(kpi.label)}</span>
+        <strong>${escapeHtml(kpi.value(health, ctx))}</strong>
+        <small>${escapeHtml(kpi.sub(health, ctx))}</small>
+      </article>
+    `);
+  target.innerHTML = cards.join("") || '<div class="empty-state">Keine Kennzahlen ausgewählt. Über „Dashboard anpassen“ hinzufügen.</div>';
+}
+
+function applyDashboardWidgets() {
+  document.querySelectorAll("[data-widget]").forEach((element) => {
+    element.hidden = appState.dashboard.widgets[element.dataset.widget] === false;
+  });
+  rebuildPriceChart();
 }
 
 function renderSignals(payload) {
@@ -325,6 +425,7 @@ async function renderPriceOverview(payload) {
   const range = { start: new Date(referenceNow.getTime() - 12 * 60 * 60 * 1000), end: new Date(referenceNow.getTime() + 36 * 60 * 60 * 1000) };
   const history = await fetchHistorySafe("tariff.current_price_ct_kwh", range.start, new Date(referenceNow.getTime() + 5 * 60 * 1000), "raw", 1800);
   const timeline = buildPriceTimeline(payload, history.rows || [], range, referenceNow);
+  appState.priceStats = { min: timeline.min, max: timeline.max, current: timeline.current };
   setText("price-chart-meta", timeline.points.length ? `${timeline.points.length} Werte` : "keine Werte");
   renderPriceChart(document.getElementById("price-chart"), timeline.points, {
     unit: "ct/kWh",
@@ -803,6 +904,85 @@ function loadSavedViews() {
   }
 }
 
+function loadDashboardConfig() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DASHBOARD_STORAGE_KEY) || "null");
+    if (!parsed || typeof parsed !== "object") {
+      return { kpis: [...DEFAULT_DASHBOARD.kpis], widgets: { ...DEFAULT_DASHBOARD.widgets } };
+    }
+    const validIds = new Set(KPI_CATALOG.map((kpi) => kpi.id));
+    const kpis = Array.isArray(parsed.kpis) ? parsed.kpis.filter((id) => validIds.has(id)) : [...DEFAULT_DASHBOARD.kpis];
+    const widgets = { ...DEFAULT_DASHBOARD.widgets };
+    if (parsed.widgets && typeof parsed.widgets === "object") {
+      DASHBOARD_WIDGETS.forEach((widget) => {
+        if (typeof parsed.widgets[widget.id] === "boolean") {
+          widgets[widget.id] = parsed.widgets[widget.id];
+        }
+      });
+    }
+    return { kpis, widgets };
+  } catch {
+    return { kpis: [...DEFAULT_DASHBOARD.kpis], widgets: { ...DEFAULT_DASHBOARD.widgets } };
+  }
+}
+
+function persistDashboardConfig() {
+  try {
+    localStorage.setItem(DASHBOARD_STORAGE_KEY, JSON.stringify(appState.dashboard));
+  } catch (error) {
+    /* localStorage nicht verfügbar — Konfiguration bleibt nur für diese Sitzung aktiv. */
+  }
+}
+
+function openDashboardConfig() {
+  const kpiList = document.getElementById("kpi-config-list");
+  kpiList.innerHTML = KPI_CATALOG.map((kpi) => `
+    <label class="check">
+      <input type="checkbox" name="config-kpi" value="${escapeHtml(kpi.id)}" ${appState.dashboard.kpis.includes(kpi.id) ? "checked" : ""}>
+      <span>${escapeHtml(kpi.label)}</span>
+    </label>
+  `).join("");
+  const widgetList = document.getElementById("widget-config-list");
+  widgetList.innerHTML = DASHBOARD_WIDGETS.map((widget) => `
+    <label class="check">
+      <input type="checkbox" name="config-widget" value="${escapeHtml(widget.id)}" ${appState.dashboard.widgets[widget.id] !== false ? "checked" : ""}>
+      <span>${escapeHtml(widget.label)}</span>
+    </label>
+  `).join("");
+  document.getElementById("dashboard-config-modal").hidden = false;
+}
+
+function closeDashboardConfig() {
+  document.getElementById("dashboard-config-modal").hidden = true;
+}
+
+function saveDashboardConfig() {
+  const selectedKpis = [...document.querySelectorAll("input[name='config-kpi']:checked")].map((input) => input.value);
+  // Reihenfolge aus dem Katalog beibehalten, damit das Layout stabil bleibt.
+  appState.dashboard.kpis = KPI_CATALOG.map((kpi) => kpi.id).filter((id) => selectedKpis.includes(id));
+  const widgets = { ...DEFAULT_DASHBOARD.widgets };
+  DASHBOARD_WIDGETS.forEach((widget) => {
+    widgets[widget.id] = document.querySelector(`input[name='config-widget'][value='${widget.id}']`)?.checked ?? true;
+  });
+  appState.dashboard.widgets = widgets;
+  persistDashboardConfig();
+  if (appState.statusPayload) {
+    renderKpis(appState.statusPayload);
+  }
+  applyDashboardWidgets();
+  closeDashboardConfig();
+}
+
+function resetDashboardConfig() {
+  appState.dashboard = { kpis: [...DEFAULT_DASHBOARD.kpis], widgets: { ...DEFAULT_DASHBOARD.widgets } };
+  persistDashboardConfig();
+  openDashboardConfig();
+  if (appState.statusPayload) {
+    renderKpis(appState.statusPayload);
+  }
+  applyDashboardWidgets();
+}
+
 function selectedChannelMeta() {
   const byId = new Map(appState.availableChannels.map((channel) => [channel.id, channel]));
   return [...appState.selectedChannels].map((id) => byId.get(id) || { id, label: "Datenpunkt", unit: "", group: "EMS" });
@@ -924,6 +1104,7 @@ function renderRecentCycles(rows) {
 }
 
 function renderWeather(payload) {
+  appState.weather = payload;
   const target = document.getElementById("weather-panel");
   if (!payload || payload.status !== "ok") {
     target.innerHTML = `<div class="empty-state">Wetter nicht verfügbar${payload?.error ? `: ${escapeHtml(payload.error)}` : ""}</div>`;
@@ -1136,8 +1317,11 @@ function valueKindLabel(kind) {
 function reportSectionLabel(component) {
   return {
     summary: "Kennzahlen",
-    line_chart: "Diagramme",
+    line_chart: "Liniendiagramm",
+    bar_chart: "Säulendiagramm",
+    heatmap: "Heatmap",
     table: "Datentabelle",
+    text: "Textbaustein",
     events: "Kommunikationshinweise",
   }[component] || "Abschnitt";
 }
