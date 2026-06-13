@@ -131,6 +131,9 @@ const priceChart = {
   options: null,
 };
 
+const BACKEND_REPORT_SECTIONS = ["summary", "line_chart", "table", "events"];
+let reportCharts = [];
+
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   appState.dashboard = loadDashboardConfig();
@@ -283,20 +286,6 @@ async function fetchOptionalJson(path, fallback) {
     }
     return { ...fallback, error: error.message };
   }
-}
-
-async function postJson(path, payload) {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    cache: "no-store",
-  });
-  const responsePayload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(responsePayload.message || `${path} returned ${response.status}`);
-  }
-  return responsePayload;
 }
 
 function normalizeChannels(rawChannels) {
@@ -1017,17 +1006,321 @@ async function previewReport(event) {
   const button = document.getElementById("report-preview-button");
   const target = document.getElementById("report-preview");
   button.disabled = true;
-  target.innerHTML = '<article class="preview-card">Bericht wird berechnet.</article>';
+  target.innerHTML = '<article class="preview-card">Bericht wird erstellt …</article>';
   try {
-    const config = buildReportConfig();
-    const payload = await postJson("/api/report/preview", config);
-    target.innerHTML = renderReportPreview(payload);
+    await renderReportBuilderPreview(target, buildReportConfig());
     updateReportLinks();
   } catch (error) {
     target.innerHTML = `<article class="preview-card error"><strong>Fehler</strong><span>${escapeHtml(error.message)}</span></article>`;
   } finally {
     button.disabled = false;
   }
+}
+
+function destroyReportCharts() {
+  reportCharts.forEach((chart) => {
+    try {
+      chart.destroy();
+    } catch (error) {
+      /* Instanz bereits entfernt. */
+    }
+  });
+  reportCharts = [];
+}
+
+async function renderReportBuilderPreview(target, config) {
+  destroyReportCharts();
+  const start = new Date(config.start);
+  const end = new Date(config.end);
+  const components = config.sections.map((section) => section.component);
+  if (!components.length) {
+    target.innerHTML = '<article class="preview-card">Keine Bausteine gewählt. Links Bausteine und Datenpunkte auswählen.</article>';
+    return;
+  }
+  const channels = config.channels.length ? config.channels : ["tariff.current_price_ct_kwh"];
+  const needsData = components.some((component) => ["summary", "line_chart", "bar_chart", "heatmap", "table"].includes(component));
+  const histories = needsData
+    ? await Promise.all(channels.map(async (id) => {
+      const meta = channelMeta(id);
+      const payload = await fetchHistorySafe(id, start, end, config.granularity, historyLimit(config.granularity));
+      const points = normalizeHistoryRows(payload.rows || [])
+        .map((row) => ({ time: parseTime(row.timestamp), value: historyValue(row) }))
+        .filter(isFinitePoint);
+      return { id, meta, points, error: payload.error };
+    }))
+    : [];
+
+  target.innerHTML = reportPreviewHeader(config)
+    + components.map((component) => `<article class="report-block" data-block="${escapeHtml(component)}"></article>`).join("");
+
+  const blockEls = target.querySelectorAll(".report-block");
+  components.forEach((component, index) => {
+    renderReportBlock(blockEls[index], component, config, histories);
+  });
+}
+
+function reportPreviewHeader(config) {
+  const range = `${formatTimestamp(config.start)} – ${formatTimestamp(config.end)}`;
+  return `
+    <div class="report-doc-head">
+      <strong>${escapeHtml(config.title)}</strong>
+      <span>Berichtszeitraum ${escapeHtml(range)}</span>
+    </div>
+  `;
+}
+
+function renderReportBlock(el, component, config, histories) {
+  const title = reportSectionLabel(component);
+  el.innerHTML = `<div class="report-block-head"><h4>${escapeHtml(title)}</h4></div><div class="report-block-body"></div>`;
+  const body = el.querySelector(".report-block-body");
+
+  if (component === "text") {
+    const text = (config.text || "").trim();
+    body.innerHTML = text
+      ? `<p class="report-text">${escapeHtml(text).replace(/\n/g, "<br>")}</p>`
+      : '<div class="empty-state compact">Kein Text hinterlegt. Links unter „Eigener Text“ ergänzen.</div>';
+    return;
+  }
+
+  if (component === "events") {
+    body.innerHTML = '<div class="empty-state compact">Kommunikationshinweise werden im PDF-/HTML-Export ergänzt.</div>';
+    return;
+  }
+
+  if (!histories.length) {
+    body.innerHTML = '<div class="empty-state compact">Keine Datenpunkte ausgewählt.</div>';
+    return;
+  }
+
+  if (component === "summary") {
+    body.innerHTML = `<div class="daily-report report-tiles">${histories.map((item) => {
+      const stats = seriesStats(item.points);
+      const avg = item.points.length ? item.points.reduce((sum, point) => sum + point.value, 0) / item.points.length : null;
+      return reportTile(item.meta.label || item.id, `${formatNumber(stats.last, item.meta.unit)} · Ø ${formatNumber(avg, item.meta.unit)}`);
+    }).join("")}</div>`;
+    return;
+  }
+
+  if (component === "table") {
+    body.innerHTML = `<div class="table-wrap"><table><thead><tr>
+        <th>Datenpunkt</th><th>Letzter</th><th>Min</th><th>Max</th><th>Ø</th><th>Messpunkte</th>
+      </tr></thead><tbody>${histories.map((item) => {
+        const stats = seriesStats(item.points);
+        const avg = item.points.length ? item.points.reduce((sum, point) => sum + point.value, 0) / item.points.length : null;
+        return `<tr>
+          <td>${escapeHtml(item.meta.label || item.id)}</td>
+          <td>${escapeHtml(formatNumber(stats.last, item.meta.unit))}</td>
+          <td>${escapeHtml(formatNumber(stats.min, item.meta.unit))}</td>
+          <td>${escapeHtml(formatNumber(stats.max, item.meta.unit))}</td>
+          <td>${escapeHtml(formatNumber(avg, item.meta.unit))}</td>
+          <td>${escapeHtml(item.points.length)}</td>
+        </tr>`;
+      }).join("")}</tbody></table></div>`;
+    return;
+  }
+
+  if (component === "heatmap") {
+    histories.forEach((item) => body.appendChild(buildHeatmapBlock(item)));
+    return;
+  }
+
+  // line_chart / bar_chart: ein Diagramm je Datenpunkt
+  histories.forEach((item, index) => {
+    const frame = document.createElement("div");
+    frame.className = "chart-frame report-chart";
+    body.appendChild(document.createElement("div")).className = "report-series-label";
+    body.lastChild.textContent = item.meta.label || item.id;
+    body.appendChild(frame);
+    const color = SERIES_COLORS[index % SERIES_COLORS.length];
+    if (item.error || !item.points.length) {
+      frame.innerHTML = `<div class="chart-empty">${escapeHtml(item.error || "Keine Daten im Zeitraum.")}</div>`;
+      return;
+    }
+    if (component === "bar_chart") {
+      buildReportBars(frame, item, color);
+    } else {
+      buildReportLine(frame, item, color);
+    }
+  });
+}
+
+function reportChartColors() {
+  const css = getComputedStyle(document.documentElement);
+  const token = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
+  return {
+    grid: token("--line", "#e4eaf1"),
+    axis: token("--muted", "#5b6b7e"),
+    font: token("--font", "Inter, sans-serif"),
+  };
+}
+
+function buildReportLine(frame, item, color) {
+  const colors = reportChartColors();
+  const xs = item.points.map((point) => Math.round(point.time / 1000));
+  const ys = item.points.map((point) => point.value);
+  const chart = new uPlot({
+    width: frame.clientWidth || 520,
+    height: 220,
+    padding: [12, 14, 4, 8],
+    legend: { show: false },
+    cursor: { y: false },
+    scales: { x: { time: true } },
+    axes: [
+      { stroke: colors.axis, font: `12px ${colors.font}`, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
+        values: (_u, splits) => splits.map((value) => TIME_ONLY.format(new Date(value * 1000))) },
+      { stroke: colors.axis, font: `12px ${colors.font}`, size: 52, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
+        values: (_u, splits) => splits.map((value) => formatAxis(value)) },
+    ],
+    series: [{}, { stroke: color, width: 2, fill: hexToRgba(color, 0.1), points: { show: false } }],
+  }, [xs, ys], frame);
+  reportCharts.push(chart);
+  observeReportChart(frame, chart);
+}
+
+function buildReportBars(frame, item, color) {
+  const colors = reportChartColors();
+  const range = item.points[item.points.length - 1].time - item.points[0].time;
+  const bucketMs = range > 3 * 24 * 3600 * 1000 ? 24 * 3600 * 1000 : 3600 * 1000;
+  const buckets = aggregateBuckets(item.points, bucketMs);
+  const xs = buckets.map((bucket) => Math.round(bucket.time / 1000));
+  const ys = buckets.map((bucket) => bucket.value);
+  const perDay = bucketMs >= 24 * 3600 * 1000;
+  const chart = new uPlot({
+    width: frame.clientWidth || 520,
+    height: 220,
+    padding: [12, 14, 4, 8],
+    legend: { show: false },
+    cursor: { y: false },
+    scales: { x: { time: true } },
+    axes: [
+      { stroke: colors.axis, font: `12px ${colors.font}`, grid: { show: false }, ticks: { stroke: colors.grid },
+        values: (_u, splits) => splits.map((value) => (perDay ? DATE_TIME.format(new Date(value * 1000)).slice(0, 5) : TIME_ONLY.format(new Date(value * 1000)))) },
+      { stroke: colors.axis, font: `12px ${colors.font}`, size: 52, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
+        values: (_u, splits) => splits.map((value) => formatAxis(value)) },
+    ],
+    series: [{}, { stroke: color, fill: hexToRgba(color, 0.55), width: 1, paths: uPlot.paths.bars({ size: [0.7, 40] }), points: { show: false } }],
+  }, [xs, ys], frame);
+  reportCharts.push(chart);
+  observeReportChart(frame, chart);
+}
+
+function observeReportChart(frame, chart) {
+  if (typeof ResizeObserver === "undefined") {
+    return;
+  }
+  const observer = new ResizeObserver(() => {
+    if (frame.clientWidth) {
+      chart.setSize({ width: frame.clientWidth, height: 220 });
+    }
+  });
+  observer.observe(frame);
+}
+
+function aggregateBuckets(points, bucketMs) {
+  const map = new Map();
+  points.forEach((point) => {
+    const key = Math.floor(point.time / bucketMs) * bucketMs;
+    const entry = map.get(key) || { sum: 0, count: 0 };
+    entry.sum += point.value;
+    entry.count += 1;
+    map.set(key, entry);
+  });
+  return [...map.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([time, entry]) => ({ time, value: entry.sum / entry.count }));
+}
+
+function buildHeatmapBlock(item) {
+  const wrap = document.createElement("div");
+  wrap.className = "heatmap-block";
+  const label = document.createElement("div");
+  label.className = "report-series-label";
+  label.textContent = item.meta.label || item.id;
+  wrap.appendChild(label);
+
+  if (!item.points.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state compact";
+    empty.textContent = "Keine Daten im Zeitraum.";
+    wrap.appendChild(empty);
+    return wrap;
+  }
+
+  // Raster: Zeilen = Tage, Spalten = Stunde des Tages (0–23), Wert = Mittel.
+  const days = [];
+  const cells = new Map();
+  let min = Infinity;
+  let max = -Infinity;
+  item.points.forEach((point) => {
+    const date = new Date(point.time);
+    const dayKey = date.toISOString().slice(0, 10);
+    if (!cells.has(dayKey)) {
+      cells.set(dayKey, new Array(24).fill(null).map(() => ({ sum: 0, count: 0 })));
+      days.push(dayKey);
+    }
+    const cell = cells.get(dayKey)[date.getHours()];
+    cell.sum += point.value;
+    cell.count += 1;
+  });
+  const valueAt = (dayKey, hour) => {
+    const cell = cells.get(dayKey)[hour];
+    return cell.count ? cell.sum / cell.count : null;
+  };
+  days.forEach((dayKey) => {
+    for (let hour = 0; hour < 24; hour += 1) {
+      const value = valueAt(dayKey, hour);
+      if (value !== null) {
+        min = Math.min(min, value);
+        max = Math.max(max, value);
+      }
+    }
+  });
+
+  const grid = document.createElement("div");
+  grid.className = "heatmap-grid";
+  grid.style.gridTemplateColumns = `auto repeat(24, 1fr)`;
+  grid.appendChild(heatmapCell("", "heatmap-corner"));
+  for (let hour = 0; hour < 24; hour += 1) {
+    grid.appendChild(heatmapCell(hour % 6 === 0 ? String(hour) : "", "heatmap-hour"));
+  }
+  days.forEach((dayKey) => {
+    grid.appendChild(heatmapCell(dayKey.slice(8, 10) + "." + dayKey.slice(5, 7), "heatmap-day"));
+    for (let hour = 0; hour < 24; hour += 1) {
+      const value = valueAt(dayKey, hour);
+      const cell = heatmapCell("", "heatmap-cell");
+      if (value === null) {
+        cell.classList.add("empty");
+      } else {
+        cell.style.background = heatmapColor(value, min, max);
+        cell.title = `${dayKey} ${String(hour).padStart(2, "0")}:00 — ${formatNumber(value, item.meta.unit)}`;
+      }
+      grid.appendChild(cell);
+    }
+  });
+  wrap.appendChild(grid);
+
+  const legend = document.createElement("div");
+  legend.className = "heatmap-legend";
+  legend.innerHTML = `<span>${escapeHtml(formatNumber(min, item.meta.unit))}</span><div class="heatmap-scale"></div><span>${escapeHtml(formatNumber(max, item.meta.unit))}</span>`;
+  wrap.appendChild(legend);
+  return wrap;
+}
+
+function heatmapCell(text, className) {
+  const cell = document.createElement("div");
+  cell.className = className;
+  if (text) {
+    cell.textContent = text;
+  }
+  return cell;
+}
+
+function heatmapColor(value, min, max) {
+  const ratio = max > min ? (value - min) / (max - min) : 0.5;
+  // Blau (niedrig) → Amber (hoch), gut lesbar in beiden Themes.
+  const hue = 210 - ratio * 180;
+  const light = 78 - ratio * 32;
+  return `hsl(${hue.toFixed(0)}, 70%, ${light.toFixed(0)}%)`;
 }
 
 function buildReportConfig() {
@@ -1038,36 +1331,25 @@ function buildReportConfig() {
     start: datetimeLocalToIso(document.getElementById("report-start").value),
     end: datetimeLocalToIso(document.getElementById("report-end").value),
     granularity: document.getElementById("report-granularity").value,
+    text: document.getElementById("report-text") ? document.getElementById("report-text").value : "",
     channels,
     sections,
   };
 }
 
-function renderReportPreview(report) {
-  const sections = Array.isArray(report.sections) ? report.sections : [];
-  if (!sections.length) {
-    return '<article class="preview-card">Keine Berichtsbausteine vorhanden.</article>';
-  }
-  return sections.map((section) => {
-    const count = section.cards?.length || section.rows?.length || section.series?.reduce((sum, serie) => sum + (serie.points?.length || 0), 0) || 0;
-    return `
-      <article class="preview-card ready">
-        <strong>${escapeHtml(section.title || reportSectionLabel(section.component))}</strong>
-        <span>${escapeHtml(reportSectionLabel(section.component))} / ${escapeHtml(count)} Elemente</span>
-      </article>
-    `;
-  }).join("");
-}
-
 function updateReportLinks() {
   const config = buildReportConfig();
+  // Export laeuft ueber das Backend — nur dort unterstuetzte Bausteine uebergeben.
+  const exportSections = config.sections
+    .map((section) => section.component)
+    .filter((component) => BACKEND_REPORT_SECTIONS.includes(component));
   const query = new URLSearchParams({
     title: config.title,
     start: config.start,
     end: config.end,
     granularity: config.granularity,
     channels: config.channels.join(","),
-    sections: config.sections.map((section) => section.component).join(","),
+    sections: exportSections.join(","),
   });
   document.getElementById("report-html-link").href = `/api/report/html?${query.toString()}`;
   document.getElementById("report-pdf-link").href = `/api/report/pdf?${query.toString()}`;

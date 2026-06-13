@@ -1037,12 +1037,126 @@ legend {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.preview-card.ready {
-  border-left: 3px solid var(--ok);
-}
-
 .preview-card.error {
   border-left: 3px solid var(--alert);
+}
+
+/* Report-Baukasten Vorschau */
+.report-doc-head {
+  margin-bottom: var(--sp-3);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.report-doc-head strong {
+  display: block;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.report-doc-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.report-block {
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+}
+
+.report-block-head {
+  margin-bottom: var(--sp-3);
+}
+
+.report-block-head h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.report-tiles {
+  margin-bottom: 0;
+}
+
+.report-series-label {
+  margin: var(--sp-2) 0 var(--sp-1);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.report-chart {
+  min-height: 220px;
+  margin-bottom: var(--sp-2);
+}
+
+.report-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+/* Heatmap */
+.heatmap-block {
+  margin-bottom: var(--sp-3);
+}
+
+.heatmap-grid {
+  display: grid;
+  gap: 2px;
+}
+
+.heatmap-corner,
+.heatmap-hour,
+.heatmap-day {
+  font-size: 10px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+}
+
+.heatmap-hour {
+  justify-content: center;
+}
+
+.heatmap-day {
+  padding-right: var(--sp-2);
+  white-space: nowrap;
+}
+
+.heatmap-cell {
+  aspect-ratio: 1 / 1;
+  min-height: 14px;
+  border-radius: 2px;
+  background: var(--surface-strong);
+}
+
+.heatmap-cell.empty {
+  background: transparent;
+  border: 1px dashed var(--line);
+}
+
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.heatmap-scale {
+  flex: 1;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, hsl(210, 70%, 78%), hsl(120, 70%, 62%), hsl(30, 70%, 46%));
 }
 
 /* Diagnostics + weather */
