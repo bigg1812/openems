@@ -4,6 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mini EMS Leitstand</title>
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem("miniEmsTheme");
+        document.documentElement.setAttribute("data-theme", stored === "dark" ? "dark" : "light");
+      } catch (error) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="/vendor/uPlot.min.css">
   <link rel="stylesheet" href="/dashboard.css">
 </head>
 <body>
@@ -36,6 +47,10 @@
         </div>
         <div class="top-actions">
           <span class="timestamp" id="last-updated">-</span>
+          <div class="theme-toggle" role="group" aria-label="Darstellung">
+            <button type="button" id="theme-light" data-theme-value="light" aria-pressed="true">Hell</button>
+            <button type="button" id="theme-dark" data-theme-value="dark" aria-pressed="false">Dunkel</button>
+          </div>
           <button class="button primary" id="refresh-button" type="button">Aktualisieren</button>
         </div>
       </header>
@@ -288,6 +303,7 @@
       </section>
     </main>
   </div>
+  <script src="/vendor/uPlot.iife.min.js" defer></script>
   <script src="/dashboard.js" defer></script>
 </body>
 </html>

@@ -66,6 +66,8 @@ const SERIES_COLORS = ["#2563eb", "#16875a", "#b7791f", "#bf3f36", "#40556b", "#
 const DATE_TIME = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const TIME_ONLY = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
 
+const THEME_STORAGE_KEY = "miniEmsTheme";
+
 const appState = {
   availableChannels: DEFAULT_CHANNELS,
   selectedChannels: new Set(VIEW_PRESETS[0].channels),
@@ -75,7 +77,16 @@ const appState = {
   activeHistories: new Map(),
 };
 
+const priceChart = {
+  instance: null,
+  observer: null,
+  target: null,
+  points: [],
+  options: null,
+};
+
 document.addEventListener("DOMContentLoaded", () => {
+  initTheme();
   appState.savedViews = loadSavedViews();
   bindUi();
   setReportDefaults();
@@ -110,12 +121,41 @@ function bindUi() {
   document.getElementById("report-granularity").addEventListener("change", updateReportLinks);
   document.querySelectorAll("input[name='report-section']").forEach((input) => input.addEventListener("change", updateReportLinks));
   document.getElementById("diagnostic-read-button").addEventListener("click", runDiagnosticRead);
+  document.querySelectorAll(".theme-toggle button[data-theme-value]").forEach((button) => {
+    button.addEventListener("click", () => applyTheme(button.dataset.themeValue));
+  });
   document.querySelectorAll(".nav-link").forEach((link) => {
     link.addEventListener("click", () => {
       document.querySelectorAll(".nav-link").forEach((item) => item.classList.remove("active"));
       link.classList.add("active");
     });
   });
+}
+
+function initTheme() {
+  let stored = "light";
+  try {
+    stored = localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+  } catch (error) {
+    stored = "light";
+  }
+  applyTheme(stored, { persist: false });
+}
+
+function applyTheme(theme, options = {}) {
+  const resolved = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", resolved);
+  document.querySelectorAll(".theme-toggle button[data-theme-value]").forEach((button) => {
+    button.setAttribute("aria-pressed", button.dataset.themeValue === resolved ? "true" : "false");
+  });
+  if (options.persist !== false) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, resolved);
+    } catch (error) {
+      /* localStorage nicht verfügbar — Theme bleibt nur für diese Sitzung aktiv. */
+    }
+  }
+  rebuildPriceChart();
 }
 
 async function refreshDashboard() {
@@ -286,9 +326,8 @@ async function renderPriceOverview(payload) {
   const history = await fetchHistorySafe("tariff.current_price_ct_kwh", range.start, new Date(referenceNow.getTime() + 5 * 60 * 1000), "raw", 1800);
   const timeline = buildPriceTimeline(payload, history.rows || [], range, referenceNow);
   setText("price-chart-meta", timeline.points.length ? `${timeline.points.length} Werte` : "keine Werte");
-  renderLineChart(document.getElementById("price-chart"), timeline.points, {
+  renderPriceChart(document.getElementById("price-chart"), timeline.points, {
     unit: "ct/kWh",
-    color: "#2563eb",
     step: true,
     windows: timeline.windows,
     now: referenceNow.getTime(),
@@ -502,51 +541,183 @@ async function fetchHistorySafe(channelId, start, end, granularity, limit) {
   }
 }
 
-function renderLineChart(target, points, options = {}) {
+function renderPriceChart(target, points, options = {}) {
   const clean = points.filter(isFinitePoint).sort((a, b) => a.time - b.time);
+  destroyPriceChart();
+  target.innerHTML = "";
+  priceChart.target = target;
+  priceChart.points = clean;
+  priceChart.options = options;
   if (!clean.length) {
     target.innerHTML = `<div class="chart-empty">${escapeHtml(options.empty || "Keine Daten vorhanden.")}</div>`;
     return;
   }
-  const width = 1100;
-  const height = 300;
-  const margin = { top: 18, right: 22, bottom: 36, left: 58 };
-  const times = clean.map((point) => point.time);
-  const values = clean.map((point) => point.value);
-  const xMin = Math.min(...times);
-  const xMax = Math.max(...times);
-  const rawMin = Math.min(...values);
-  const rawMax = Math.max(...values);
-  const pad = Math.max((rawMax - rawMin) * 0.12, rawMax === rawMin ? 1 : 0.2);
-  const yMin = rawMin - pad;
-  const yMax = rawMax + pad;
-  const plotW = width - margin.left - margin.right;
-  const plotH = height - margin.top - margin.bottom;
-  const x = (time) => margin.left + ((time - xMin) / Math.max(xMax - xMin, 1)) * plotW;
-  const y = (value) => margin.top + plotH - ((value - yMin) / Math.max(yMax - yMin, 1e-9)) * plotH;
-  const path = options.step ? steppedPath(clean, x, y) : linePath(clean, x, y);
-  const areaPath = `${path} L ${x(clean[clean.length - 1].time).toFixed(1)} ${height - margin.bottom} L ${x(clean[0].time).toFixed(1)} ${height - margin.bottom} Z`;
-  const yTicks = Array.from({ length: 4 }, (_, index) => yMin + ((yMax - yMin) * index / 3));
-  const xTicks = Array.from({ length: 5 }, (_, index) => xMin + ((xMax - xMin) * index / 4));
-  const windows = (options.windows || []).map((window) => {
-    const left = Math.max(margin.left, x(window.start));
-    const right = Math.min(width - margin.right, x(window.end));
-    const windowWidth = Math.max(0, right - left);
-    return windowWidth ? `<rect class="chart-window" x="${left.toFixed(1)}" y="${margin.top}" width="${windowWidth.toFixed(1)}" height="${plotH}" rx="4"><title>${escapeHtml(window.label)}</title></rect>` : "";
-  }).join("");
-  const nowLine = Number.isFinite(options.now) && options.now >= xMin && options.now <= xMax
-    ? `<line class="chart-now" x1="${x(options.now).toFixed(1)}" y1="${margin.top}" x2="${x(options.now).toFixed(1)}" y2="${height - margin.bottom}"></line>`
-    : "";
-  target.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Zeitverlauf">
-      ${windows}
-      ${yTicks.map((tick) => `<line class="chart-grid-line" x1="${margin.left}" y1="${y(tick).toFixed(1)}" x2="${width - margin.right}" y2="${y(tick).toFixed(1)}"></line><text class="chart-axis-label" x="${margin.left - 8}" y="${(y(tick) + 4).toFixed(1)}" text-anchor="end">${escapeHtml(formatAxis(tick))}</text>`).join("")}
-      ${xTicks.map((tick) => `<text class="chart-axis-label" x="${x(tick).toFixed(1)}" y="${height - 12}" text-anchor="middle">${escapeHtml(DATE_TIME.format(new Date(tick)))}</text>`).join("")}
-      ${nowLine}
-      <path class="chart-area" d="${areaPath}" fill="${options.color || SERIES_COLORS[0]}"></path>
-      <path class="chart-line" d="${path}" stroke="${options.color || SERIES_COLORS[0]}"></path>
-    </svg>
-  `;
+  if (typeof uPlot === "undefined") {
+    target.innerHTML = '<div class="chart-empty">Diagramm-Bibliothek konnte nicht geladen werden.</div>';
+    return;
+  }
+
+  const css = getComputedStyle(document.documentElement);
+  const token = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
+  const accent = token("--accent", "#1769d6");
+  const gridColor = token("--line", "#e4eaf1");
+  const axisColor = token("--muted", "#5b6b7e");
+  const okColor = token("--ok", "#0f8a5f");
+  const neutral = token("--neutral", "#51647a");
+  const fontFamily = token("--font", "system-ui, sans-serif");
+
+  const xs = clean.map((point) => Math.round(point.time / 1000));
+  const ys = clean.map((point) => point.value);
+  const windows = options.windows || [];
+  const nowSec = Number.isFinite(options.now) ? Math.round(options.now / 1000) : null;
+  const ratio = window.devicePixelRatio || 1;
+
+  const tooltip = document.createElement("div");
+  tooltip.className = "ems-tooltip";
+
+  const drawWindows = (u) => {
+    if (!windows.length) {
+      return;
+    }
+    const { ctx } = u;
+    ctx.save();
+    ctx.fillStyle = hexToRgba(okColor, 0.16);
+    windows.forEach((band) => {
+      const xa = u.valToPos(band.start / 1000, "x", true);
+      const xb = u.valToPos(band.end / 1000, "x", true);
+      const left = Math.max(u.bbox.left, Math.min(xa, xb));
+      const right = Math.min(u.bbox.left + u.bbox.width, Math.max(xa, xb));
+      if (right > left) {
+        ctx.fillRect(left, u.bbox.top, right - left, u.bbox.height);
+      }
+    });
+    ctx.restore();
+  };
+
+  const drawNow = (u) => {
+    if (nowSec == null) {
+      return;
+    }
+    const x = u.valToPos(nowSec, "x", true);
+    if (x < u.bbox.left || x > u.bbox.left + u.bbox.width) {
+      return;
+    }
+    const { ctx } = u;
+    ctx.save();
+    ctx.strokeStyle = neutral;
+    ctx.lineWidth = Math.max(1, ratio);
+    ctx.setLineDash([5 * ratio, 5 * ratio]);
+    ctx.beginPath();
+    ctx.moveTo(x, u.bbox.top);
+    ctx.lineTo(x, u.bbox.top + u.bbox.height);
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  const updateTooltip = (u) => {
+    const idx = u.cursor.idx;
+    if (idx == null || u.cursor.left < 0) {
+      tooltip.style.display = "none";
+      return;
+    }
+    const value = u.data[1][idx];
+    if (!Number.isFinite(value)) {
+      tooltip.style.display = "none";
+      return;
+    }
+    tooltip.style.display = "block";
+    tooltip.innerHTML = `<b>${escapeHtml(DATE_TIME.format(new Date(u.data[0][idx] * 1000)))}</b>`
+      + `<span class="ems-tooltip-value">${escapeHtml(formatNumber(value, options.unit || "", 3))}</span>`;
+    let left = u.cursor.left + 14;
+    if (left + tooltip.offsetWidth > u.over.clientWidth) {
+      left = u.cursor.left - tooltip.offsetWidth - 14;
+    }
+    tooltip.style.left = `${Math.max(0, left)}px`;
+    tooltip.style.top = `${Math.max(0, u.cursor.top + 8)}px`;
+  };
+
+  const opts = {
+    width: target.clientWidth || 600,
+    height: target.clientHeight || 290,
+    padding: [12, 16, 4, 8],
+    legend: { show: false },
+    cursor: { y: false, points: { size: 7 } },
+    scales: { x: { time: true } },
+    axes: [
+      {
+        stroke: axisColor,
+        font: `12px ${fontFamily}`,
+        grid: { stroke: gridColor, width: 1 },
+        ticks: { stroke: gridColor, width: 1 },
+        values: (_u, splits) => splits.map((value) => TIME_ONLY.format(new Date(value * 1000))),
+      },
+      {
+        stroke: axisColor,
+        font: `12px ${fontFamily}`,
+        size: 56,
+        grid: { stroke: gridColor, width: 1 },
+        ticks: { stroke: gridColor, width: 1 },
+        values: (_u, splits) => splits.map((value) => formatAxis(value)),
+      },
+    ],
+    series: [
+      {},
+      {
+        label: options.unit || "Wert",
+        stroke: accent,
+        width: 2,
+        fill: hexToRgba(accent, 0.12),
+        paths: options.step ? uPlot.paths.stepped({ align: 1 }) : uPlot.paths.linear(),
+        points: { show: false },
+      },
+    ],
+    hooks: {
+      drawClear: [drawWindows],
+      draw: [drawNow],
+      setCursor: [updateTooltip],
+    },
+  };
+
+  priceChart.instance = new uPlot(opts, [xs, ys], target);
+  priceChart.instance.over.appendChild(tooltip);
+
+  if (typeof ResizeObserver !== "undefined") {
+    priceChart.observer = new ResizeObserver(() => {
+      if (priceChart.instance && target.clientWidth) {
+        priceChart.instance.setSize({ width: target.clientWidth, height: target.clientHeight || 290 });
+      }
+    });
+    priceChart.observer.observe(target);
+  }
+}
+
+function rebuildPriceChart() {
+  if (priceChart.target && priceChart.points.length && priceChart.options) {
+    renderPriceChart(priceChart.target, priceChart.points, priceChart.options);
+  }
+}
+
+function destroyPriceChart() {
+  if (priceChart.observer) {
+    priceChart.observer.disconnect();
+    priceChart.observer = null;
+  }
+  if (priceChart.instance) {
+    priceChart.instance.destroy();
+    priceChart.instance = null;
+  }
+}
+
+function hexToRgba(color, alpha) {
+  const hex = String(color).trim().replace("#", "");
+  if (hex.length !== 6 && hex.length !== 3) {
+    return color;
+  }
+  const full = hex.length === 3 ? hex.split("").map((char) => char + char).join("") : hex;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 function renderSparkline(points, color, unit) {
@@ -836,20 +1007,6 @@ function isFinitePoint(point) {
 
 function linePath(points, scaleX, scaleY) {
   return points.map((point, index) => `${index === 0 ? "M" : "L"} ${scaleX(point.time).toFixed(1)} ${scaleY(point.value).toFixed(1)}`).join(" ");
-}
-
-function steppedPath(points, scaleX, scaleY) {
-  if (!points.length) {
-    return "";
-  }
-  const path = [`M ${scaleX(points[0].time).toFixed(1)} ${scaleY(points[0].value).toFixed(1)}`];
-  for (let index = 1; index < points.length; index += 1) {
-    const previous = points[index - 1];
-    const current = points[index];
-    path.push(`L ${scaleX(current.time).toFixed(1)} ${scaleY(previous.value).toFixed(1)}`);
-    path.push(`L ${scaleX(current.time).toFixed(1)} ${scaleY(current.value).toFixed(1)}`);
-  }
-  return path.join(" ");
 }
 
 function buildSlotTime(dateIso, slotIndex) {

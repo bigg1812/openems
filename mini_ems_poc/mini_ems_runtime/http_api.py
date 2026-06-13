@@ -96,6 +96,9 @@ class MiniEmsApiServer:
                     if parsed.path == "/dashboard.js":
                         self._send_file(api_server.dashboard_dir / "dashboard.js", "application/javascript; charset=utf-8")
                         return
+                    if parsed.path.startswith("/vendor/"):
+                        self._send_vendor_asset(parsed.path[len("/vendor/"):])
+                        return
                     if parsed.path == "/api/status":
                         self._send_json(api_server._get_status_payload())
                         return
@@ -266,6 +269,19 @@ class MiniEmsApiServer:
                 self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
                 self.wfile.write(raw)
+
+            def _send_vendor_asset(self, relative: str) -> None:
+                content_types = {
+                    ".js": "application/javascript; charset=utf-8",
+                    ".css": "text/css; charset=utf-8",
+                    ".woff2": "font/woff2",
+                }
+                vendor_root = (api_server.dashboard_dir / "vendor").resolve()
+                target = (vendor_root / relative).resolve()
+                if vendor_root not in target.parents or target.suffix not in content_types:
+                    self._send_json({"error": "not_found", "path": relative}, status=HTTPStatus.NOT_FOUND)
+                    return
+                self._send_file(target, content_types[target.suffix])
 
             def _send_file(self, path: Path, content_type: str) -> None:
                 if not path.exists():
