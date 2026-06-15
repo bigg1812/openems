@@ -14,6 +14,7 @@ from .price_cache import SpotmarketPriceCacheService
 from .price_provider_smard import SmardPriceProvider
 from .read_diagnostics import ChannelReadDiagnosticsService
 from .runtime_db import RuntimeDatabase
+from .simulation import SimulatedBacnetAdapter, SimulatedSpotmarketPriceService
 from .spotmarket_plan import SpotmarketManualOverrideStore, SpotmarketPlanWriter
 from .state_store import StateStore
 
@@ -28,7 +29,7 @@ def main() -> int:
     runtime_db = RuntimeDatabase(config.database_path)
 
     try:
-        adapter = BacnetAdapter(config.network, logger)
+        adapter = _build_bacnet_adapter(config, logger)
     except BacnetCommunicationError as error:
         log_event(logger, logging.ERROR, "app.start_failed", error=str(error))
         return 1
@@ -50,10 +51,7 @@ def main() -> int:
         adapter=adapter,
         state_store=state_store,
         logger=logger,
-        price_service=SpotmarketPriceCacheService(
-            config.price_cache_path,
-            SmardPriceProvider(config.price_source),
-        ),
+        price_service=_build_price_service(config, logger),
         spotmarket_plan_writer=spotmarket_plan_writer,
         spotmarket_override_store=SpotmarketManualOverrideStore(
             config.spotmarket_override_path,
@@ -82,6 +80,9 @@ def main() -> int:
         "app.started",
         config_path=str(config_path),
         mode="once" if args.once else "loop",
+        environment=config.runtime.environment,
+        bacnet_mode=config.runtime.bacnet_mode,
+        real_writes_enabled=config.runtime.real_writes_enabled,
         cycle_seconds=config.timing.cycle_seconds,
     )
 
@@ -115,6 +116,33 @@ def main() -> int:
     finally:
         api_server.stop()
         adapter.close()
+
+
+def _build_bacnet_adapter(config, logger):
+    if config.runtime.bacnet_mode == "simulated":
+        log_event(
+            logger,
+            logging.INFO,
+            "app.simulation_enabled",
+            values_file=str(config.simulation_values_path),
+            real_writes_enabled=config.runtime.real_writes_enabled,
+        )
+        return SimulatedBacnetAdapter(config.simulation_values_path, logger)
+    return BacnetAdapter(config.network, logger)
+
+
+def _build_price_service(config, logger):
+    if config.runtime.bacnet_mode == "simulated":
+        return SimulatedSpotmarketPriceService(
+            cache_path=config.price_cache_path,
+            prices_path=config.simulation_prices_path,
+            resolution=config.price_source.resolution,
+            logger=logger,
+        )
+    return SpotmarketPriceCacheService(
+        config.price_cache_path,
+        SmardPriceProvider(config.price_source),
+    )
 
 
 def _parse_args() -> argparse.Namespace:

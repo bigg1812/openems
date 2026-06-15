@@ -104,6 +104,19 @@ class OutputPoliciesConfig:
 
 
 @dataclass(frozen=True)
+class RuntimeConfig:
+    environment: str = "ipc"
+    bacnet_mode: str = "real"
+    real_writes_enabled: bool = True
+
+
+@dataclass(frozen=True)
+class SimulationConfig:
+    values_file: str = "sim/sample_values.json"
+    prices_file: str = "sim/sample_prices.json"
+
+
+@dataclass(frozen=True)
 class DatabaseConfig:
     sqlite_file: str
 
@@ -161,6 +174,8 @@ class MiniEmsConfig:
         port=8090,
         history_default_limit=96,
     ))
+    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    simulation: SimulationConfig = field(default_factory=SimulationConfig)
 
     def resolve_path(self, value: str) -> Path:
         path = Path(value)
@@ -200,6 +215,14 @@ class MiniEmsConfig:
     def database_path(self) -> Path:
         return self.resolve_path(self.database.sqlite_file)
 
+    @property
+    def simulation_values_path(self) -> Path:
+        return self.resolve_path(self.simulation.values_file)
+
+    @property
+    def simulation_prices_path(self) -> Path:
+        return self.resolve_path(self.simulation.prices_file)
+
 
 def load_config(path: Path) -> MiniEmsConfig:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -216,6 +239,8 @@ def load_config(path: Path) -> MiniEmsConfig:
     outputs = _optional_dict(raw.get("outputs"))
     database = _optional_dict(raw.get("database"))
     api = _optional_dict(raw.get("api"))
+    runtime = _optional_dict(raw.get("runtime"))
+    simulation = _optional_dict(raw.get("simulation"))
     logging = _require_dict(raw, "logging")
 
     config = MiniEmsConfig(
@@ -302,6 +327,15 @@ def load_config(path: Path) -> MiniEmsConfig:
             host=str(api.get("host", "127.0.0.1")),
             port=int(api.get("port", 8090)),
             history_default_limit=int(api.get("history_default_limit", 96)),
+        ),
+        runtime=RuntimeConfig(
+            environment=str(runtime.get("environment", "ipc")).lower(),
+            bacnet_mode=str(runtime.get("bacnet_mode", "real")).lower(),
+            real_writes_enabled=bool(runtime.get("real_writes_enabled", runtime.get("writes_enabled", True))),
+        ),
+        simulation=SimulationConfig(
+            values_file=str(simulation.get("values_file", "sim/sample_values.json")),
+            prices_file=str(simulation.get("prices_file", "sim/sample_prices.json")),
         ),
         logging=LoggingConfig(
             directory=str(logging["directory"]),
@@ -407,6 +441,16 @@ def _optional_text(value: Any) -> Optional[str]:
 
 
 def _validate_config(config: MiniEmsConfig) -> None:
+    if config.runtime.environment not in ("ipc", "local", "test"):
+        raise ValueError("runtime.environment must be one of ['ipc', 'local', 'test']")
+    if config.runtime.bacnet_mode not in ("real", "simulated"):
+        raise ValueError("runtime.bacnet_mode must be one of ['real', 'simulated']")
+    if config.runtime.environment == "local" and config.runtime.bacnet_mode != "simulated":
+        raise ValueError("local environment must use simulated BACnet mode")
+    if config.runtime.bacnet_mode == "simulated" and config.runtime.real_writes_enabled:
+        raise ValueError("simulated BACnet mode requires real_writes_enabled=false")
+    if config.runtime.bacnet_mode == "real" and not config.runtime.real_writes_enabled:
+        raise ValueError("real_writes_enabled=false is only supported with simulated BACnet mode")
     if config.network.controller_port <= 0 or config.network.controller_port > 65535:
         raise ValueError("controller_port must be between 1 and 65535")
     if config.network.local_port <= 0 or config.network.local_port > 65535:

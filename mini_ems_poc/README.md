@@ -28,6 +28,22 @@ Aktuell macht Mini EMS PoC genau diese Dinge:
 - speichert Zyklen, Kanalwerte, Preisfenster und BACnet-Ereignisse lokal in SQLite
 - stellt einen lokalen Read-only-HTTP-API-Zugang und ein einfaches Dashboard bereit
 
+## Laptop-Entwicklung
+
+Der IPC-Betrieb bleibt auf `config.json`. Für Entwicklung auf dem Laptop gibt es zusätzlich `config.local.json`.
+Diese lokale Konfiguration nutzt keine echte BACnet-Kommunikation, sondern liest Beispielwerte aus `sim/sample_values.json`
+und Beispielpreise aus `sim/sample_prices.json`.
+
+Start im Projektordner:
+
+```bash
+python mini_ems.py --config config.local.json --once
+python mini_ems.py --config config.local.json --loop
+```
+
+Im lokalen Modus werden Schreibbefehle nicht an die echte Anlage gesendet. Sie werden nur als simulierte Writes bestätigt
+und in Log, State, Datenbank und Dashboard sichtbar gemacht.
+
 ## Wie es grob funktioniert
 
 Der Ablauf ist bewusst simpel:

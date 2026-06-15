@@ -39,6 +39,12 @@ Der aktuelle fachliche Scope ist:
 - BACnet/IP Transport
 - UDP-Socket, Read/Write, ACK- und Readback-Behandlung
 
+`mini_ems_runtime/simulation.py`
+- lokaler Simulationsmodus für Laptop-Entwicklung
+- ersetzt BACnet-Reads durch Werte aus `sim/sample_values.json`
+- bestätigt Writes als simulierte Writes, ohne echte BACnet-Schreibbefehle zu senden
+- erzeugt simulierte Spotmarktpreise aus `sim/sample_prices.json`
+
 `mini_ems_runtime/channels.py`
 - baut den Kanalraum fuer Standardpunkte und zusaetzliche Inputs auf
 
@@ -78,6 +84,7 @@ Der aktuelle fachliche Scope ist:
 ```text
 mini_ems_poc/
 |-- config.json
+|-- config.local.json
 |-- mini_ems.py
 |-- MINI_EMS_ANLEITUNG.md
 |-- run_mini_ems.cmd
@@ -115,10 +122,55 @@ mini_ems_poc/
 |-- runtime/
 |   |-- health.json
 |   `-- state.json
+|-- sim/
+|   |-- sample_prices.json
+|   `-- sample_values.json
 |-- tests/
 `-- windows/
     `-- install_task.ps1
 ```
+
+## Laptop-Entwicklung mit Simulation
+
+Die Grundregel ist:
+
+- `config.json` bleibt die IPC-Konfiguration für die echte Anlage.
+- `config.local.json` ist die Laptop-Konfiguration für ungefährliche Entwicklung.
+
+Im lokalen Modus wird nicht versucht, die komplette Anlage physikalisch nachzubauen.
+Es werden nur die Eingangswerte simuliert, die Mini EMS gerade braucht.
+
+Technischer Ablauf:
+
+1. `mini_ems.py` lädt `config.local.json`.
+2. `runtime.bacnet_mode` steht auf `simulated`.
+3. Die App verwendet `SimulatedBacnetAdapter` statt `BacnetAdapter`.
+4. BACnet-Reads kommen aus `sim/sample_values.json`.
+5. BACnet-Writes werden nur intern gespeichert und als `simulation.bacnet_write` geloggt.
+6. Spotmarktpreise kommen aus `sim/sample_prices.json`.
+7. Datenbank, Logs, State und Health werden getrennt unter lokalen Pfaden geschrieben.
+
+Start aus dem Ordner `mini_ems_poc`:
+
+```bash
+python mini_ems.py --config config.local.json --once
+python mini_ems.py --config config.local.json --loop
+```
+
+`--once` führt genau einen Zyklus aus.
+`--loop` startet den dauerhaften Betrieb mit wiederholten Zyklen und lokaler API.
+
+Die lokale API läuft mit `config.local.json` auf:
+
+```text
+http://127.0.0.1:8090
+```
+
+Der Sicherheitsmechanismus ist bewusst hart:
+
+- `environment=local` darf nur mit `bacnet_mode=simulated` starten.
+- `bacnet_mode=simulated` verlangt `real_writes_enabled=false`.
+- `real_writes_enabled=false` ist mit echtem BACnet nicht erlaubt, damit keine Scheinsicherheit entsteht.
 
 ## Konfiguration
 

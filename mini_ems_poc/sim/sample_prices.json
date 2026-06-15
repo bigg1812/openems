@@ -1,0 +1,19 @@
+{
+  "description": "Local development price pattern in ct/kWh. Slot 0 is 00:00-00:15.",
+  "default_today_ct_kwh": 12.0,
+  "default_tomorrow_ct_kwh": 10.5,
+  "today_windows": [
+    {
+      "start_slot": 44,
+      "length": 8,
+      "price_ct_kwh": -0.25
+    }
+  ],
+  "tomorrow_windows": [
+    {
+      "start_slot": 36,
+      "length": 12,
+      "price_ct_kwh": -0.5
+    }
+  ]
+}

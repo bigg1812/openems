@@ -39,6 +39,7 @@ from mini_ems_poc.mini_ems_runtime.price_cache import CachedDay, PriceCacheFile,
 from mini_ems_poc.mini_ems_runtime.price_provider_smard import PriceProviderError, RecentSlotMapScanResult, SmardPriceProvider, berlin_now
 from mini_ems_poc.mini_ems_runtime.read_diagnostics import ChannelReadDiagnosticsService
 from mini_ems_poc.mini_ems_runtime.runtime_db import RuntimeDatabase
+from mini_ems_poc.mini_ems_runtime.simulation import SimulatedBacnetAdapter, SimulatedSpotmarketPriceService
 from mini_ems_poc.mini_ems_runtime.spotmarket_plan import SpotmarketManualOverrideStore, SpotmarketPlanWriter
 from mini_ems_poc.mini_ems_runtime.state_store import StateStore
 
@@ -255,6 +256,82 @@ class BacnetAdapterTest(unittest.TestCase):
 
         self.assertEqual(value, 22.5)
         self.assertEqual(fake_socket.sent_packets[0][1], ("192.168.1.200", 47808))
+
+
+class SimulationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.logger = logging.getLogger("mini_ems.runtime.test.simulation")
+        self.logger.handlers.clear()
+        self.logger.addHandler(logging.NullHandler())
+        self.registry = ChannelRegistry.from_points_config(
+            PointsConfig(
+                grid_active_power_kw=300,
+                current_price_av=1000,
+                grid_lockout_bv=400,
+                spotmarket_lockout_bv=401,
+            )
+        )
+
+    def test_simulated_bacnet_reads_values_and_confirms_writes_without_ack(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            values_path = Path(temp_dir) / "sample_values.json"
+            values_path.write_text(
+                json.dumps(
+                    {
+                        "channels": {
+                            GRID_ACTIVE_POWER_CHANNEL: 4.2,
+                            CURRENT_PRICE_CHANNEL: 1.0,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            adapter = SimulatedBacnetAdapter(values_path, self.logger)
+
+            value = adapter.read_float(self.registry.get(GRID_ACTIVE_POWER_CHANNEL))
+            confirmation = adapter.write_with_confirmation(
+                self.registry.get(CURRENT_PRICE_CHANNEL),
+                -0.25,
+                "ack_or_readback",
+            )
+
+            self.assertEqual(value, 4.2)
+            self.assertTrue(confirmation.confirmed)
+            self.assertFalse(confirmation.ack_received)
+            self.assertEqual(confirmation.confirmation_source, "simulated")
+            self.assertEqual(adapter.read_float(self.registry.get(CURRENT_PRICE_CHANNEL)), -0.25)
+
+    def test_simulated_price_service_writes_dashboard_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            prices_path = temp_path / "sample_prices.json"
+            cache_path = temp_path / "spotmarket_price_cache.json"
+            prices_path.write_text(
+                json.dumps(
+                    {
+                        "default_today_ct_kwh": 12.0,
+                        "default_tomorrow_ct_kwh": 10.5,
+                        "today_windows": [
+                            {"start_slot": 44, "length": 8, "price_ct_kwh": -0.25}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = SimulatedSpotmarketPriceService(
+                cache_path=cache_path,
+                prices_path=prices_path,
+                resolution="quarterhour",
+                logger=self.logger,
+            )
+
+            snapshot = service.refresh()
+            cache = json.loads(cache_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(snapshot.price_source_status["provider"], "simulated")
+            self.assertEqual(len(snapshot.today_slots), 96)
+            self.assertEqual(snapshot.today_slots[44], -0.25)
+            self.assertEqual(cache["price_source_status"]["provider"], "simulated")
 
 
 class SmardPriceProviderTest(unittest.TestCase):

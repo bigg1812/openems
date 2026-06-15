@@ -3,5 +3,7 @@ logs/
 .venv/
 *.pyc
 runtime/*.json
+runtime/local/
 data/spotmarket/*.json
 data/runtime/*.sqlite
+data/local/

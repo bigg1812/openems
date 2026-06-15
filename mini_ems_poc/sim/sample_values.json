@@ -1,0 +1,23 @@
+{
+  "description": "Local development snapshot. These values replace BACnet reads on a laptop.",
+  "channels": {
+    "grid.active_power_kw": 42.5,
+    "site.outdoor_temperature_c": 8.4,
+    "site.buffer_1_top_temperature_c": 62.1,
+    "site.buffer_1_bottom_temperature_c": 48.7,
+    "site.buffer_2_top_temperature_c": 59.3,
+    "site.buffer_2_bottom_temperature_c": 46.2,
+    "site.heat_generation_flow_temperature_c": 71.4,
+    "site.heat_generation_return_temperature_c": 54.8,
+    "site.boiler_1_flow_temperature_c": 68.9,
+    "site.boiler_1_return_temperature_c": 51.6,
+    "site.boiler_2_flow_temperature_c": 73.2,
+    "site.boiler_2_return_temperature_c": 55.1,
+    "site.chp_flow_temperature_c": 76.5,
+    "site.chp_return_temperature_c": 58.4,
+    "site.chp_electric_energy_kwh": 18420.5,
+    "site.chp_thermal_energy_kwh": 54200.0,
+    "site.pellet_thermal_energy_kwh": 120300.0,
+    "site.gas_thermal_energy_kwh": 91200.0
+  }
+}

@@ -65,3 +65,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Write `ä`, `ö`, `ü`, `Ä`, `Ö`, `Ü` and `ß` directly.
 - Do not write `ae`, `oe`, `ue` or `ss` as replacements in German UI copy, documentation, or messages unless the target system technically requires ASCII.
 - Customer-facing UI must use plain business language. Do not show internal IDs such as `ems.lockout_spotmarket`, BACnet object names, or protocol terms unless the screen is explicitly technical diagnostics.
+
+## 6. Local vs IPC Safety
+
+**The laptop is for simulation. The IPC is for real plant operation.**
+
+- Keep `config.json` as the real IPC configuration unless the user explicitly asks to change plant operation.
+- Use `config.local.json` for laptop work.
+- Local development must use `runtime.bacnet_mode=simulated` and `runtime.real_writes_enabled=false`.
+- Do not add a code path that sends real BACnet writes from `environment=local`.
+- If you need test values, edit `sim/sample_values.json` or `sim/sample_prices.json` instead of changing real BACnet points.
