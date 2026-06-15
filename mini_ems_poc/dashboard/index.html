@@ -4,20 +4,39 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mini EMS Leitstand</title>
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem("miniEmsTheme");
+        document.documentElement.setAttribute("data-theme", stored === "dark" ? "dark" : "light");
+      } catch (error) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="/vendor/uPlot.min.css">
   <link rel="stylesheet" href="/dashboard.css">
 </head>
 <body>
   <div class="app-shell">
     <aside class="side-nav" aria-label="Hauptnavigation">
       <div class="brand-block">
-        <span class="brand-kicker">Mini EMS PoC</span>
+        <span class="brand-kicker">Mini EMS</span>
         <strong>Leitstand</strong>
       </div>
       <nav class="nav-list">
-        <a href="#operations" class="nav-link active">Betrieb</a>
-        <a href="#workspace" class="nav-link">Ansichten</a>
-        <a href="#reports" class="nav-link">Berichte</a>
-        <a href="#diagnostics" class="nav-link">System</a>
+        <a href="#/dashboard" class="nav-link" data-page="dashboard">
+          <span class="nav-icon" aria-hidden="true">▦</span>Dashboard
+        </a>
+        <a href="#/analyse" class="nav-link" data-page="analyse">
+          <span class="nav-icon" aria-hidden="true">▤</span>Analyse
+        </a>
+        <a href="#/berichte" class="nav-link" data-page="berichte">
+          <span class="nav-icon" aria-hidden="true">▣</span>Berichte
+        </a>
+        <a href="#/system" class="nav-link" data-page="system">
+          <span class="nav-icon" aria-hidden="true">◉</span>System
+        </a>
       </nav>
       <div class="nav-status">
         <span class="status-dot" id="global-status-dot"></span>
@@ -31,52 +50,36 @@
     <main class="main-shell">
       <header class="top-bar">
         <div>
-          <h1>Energiezentrale</h1>
+          <h1 id="page-title">Dashboard</h1>
           <p id="operator-message">Anlagenstatus wird geladen.</p>
         </div>
         <div class="top-actions">
           <span class="timestamp" id="last-updated">-</span>
+          <div class="theme-toggle" role="group" aria-label="Darstellung">
+            <button type="button" id="theme-light" data-theme-value="light" aria-pressed="true">Hell</button>
+            <button type="button" id="theme-dark" data-theme-value="dark" aria-pressed="false">Dunkel</button>
+          </div>
           <button class="button primary" id="refresh-button" type="button">Aktualisieren</button>
         </div>
       </header>
 
-      <section class="workspace-band" id="operations">
+      <!-- ============ DASHBOARD ============ -->
+      <section class="page" data-page="dashboard" aria-label="Dashboard">
         <div class="section-head">
           <div>
-            <span class="section-kicker">Live Betrieb</span>
-            <h2>Standortzustand</h2>
+            <span class="section-kicker">Übersicht</span>
+            <h2>Anlagenüberblick</h2>
           </div>
-          <div class="health-line" id="health-line">-</div>
+          <button class="button" id="dashboard-config-button" type="button">Dashboard anpassen</button>
         </div>
 
-        <div class="kpi-grid">
-          <article class="metric-card accent-blue">
-            <span>Aktueller Strompreis</span>
-            <strong id="kpi-price">-</strong>
-            <small id="kpi-slot">Zeitfenster -</small>
-          </article>
-          <article class="metric-card accent-green">
-            <span>Preissteuerung</span>
-            <strong id="kpi-spotmarket">-</strong>
-            <small id="kpi-spotmarket-source">-</small>
-          </article>
-          <article class="metric-card accent-amber">
-            <span>Netzschutz</span>
-            <strong id="kpi-grid-lockout">-</strong>
-            <small id="kpi-grid-state">-</small>
-          </article>
-          <article class="metric-card accent-slate">
-            <span>Netzleistung</span>
-            <strong id="kpi-grid-power">-</strong>
-            <small id="kpi-grid-read">-</small>
-          </article>
-        </div>
+        <div class="kpi-grid" id="kpi-grid"></div>
 
-        <div class="operations-layout">
-          <article class="tool-panel wide">
+        <div class="dashboard-layout">
+          <article class="tool-panel wide" data-widget="price">
             <div class="panel-head">
               <div>
-                <h3>Strompreis und Preissteuerung</h3>
+                <h3>Börsenstrompreis</h3>
                 <p id="spotmarket-summary">-</p>
               </div>
               <span class="panel-pill" id="price-chart-meta">-</span>
@@ -85,21 +88,21 @@
             <div class="chart-stats" id="price-chart-stats"></div>
           </article>
 
-          <article class="tool-panel">
+          <article class="tool-panel" data-widget="weather">
             <div class="panel-head">
               <div>
-                <h3>Signale</h3>
-                <p>Preisübergabe, Datenqualität und nächster Tag.</p>
+                <h3>Wetter</h3>
+                <p>Aktuelle Lage am Standort.</p>
               </div>
             </div>
-            <div class="signal-list" id="signal-list"></div>
+            <div class="weather-panel" id="weather-panel"></div>
           </article>
 
-          <article class="tool-panel">
+          <article class="tool-panel" data-widget="windows">
             <div class="panel-head">
               <div>
                 <h3>Geplante Preisfenster</h3>
-                <p>Heute und morgen aus den Preisdaten.</p>
+                <p>Günstige Zeiträume heute und morgen.</p>
               </div>
             </div>
             <div class="window-columns">
@@ -114,13 +117,16 @@
             </div>
           </article>
         </div>
+
+        <div class="dashboard-charts" id="dashboard-charts"></div>
       </section>
 
-      <section class="workspace-band" id="workspace">
+      <!-- ============ ANALYSE ============ -->
+      <section class="page" data-page="analyse" aria-label="Analyse">
         <div class="section-head">
           <div>
-            <span class="section-kicker">Flexible Visualisierung</span>
-            <h2>Ansichten und Datenpunkte</h2>
+            <span class="section-kicker">Datenpunkte</span>
+            <h2>Analyse und Visualisierung</h2>
           </div>
           <div class="view-actions">
             <select id="view-select" aria-label="Ansicht auswählen"></select>
@@ -186,11 +192,12 @@
         </div>
       </section>
 
-      <section class="workspace-band" id="reports">
+      <!-- ============ BERICHTE ============ -->
+      <section class="page" data-page="berichte" aria-label="Berichte">
         <div class="section-head">
           <div>
             <span class="section-kicker">Berichte</span>
-            <h2>Auswertung</h2>
+            <h2>Auswertung nach ISO 50001</h2>
           </div>
           <div class="export-actions">
             <a class="button" id="report-html-link" href="/api/report/html" target="_blank" rel="noreferrer">Bericht öffnen</a>
@@ -226,10 +233,17 @@
             <fieldset>
               <legend>Bausteine</legend>
               <label class="check"><input type="checkbox" name="report-section" value="summary" checked> Kennzahlen</label>
-              <label class="check"><input type="checkbox" name="report-section" value="line_chart" checked> Diagramme</label>
+              <label class="check"><input type="checkbox" name="report-section" value="line_chart" checked> Liniendiagramm</label>
+              <label class="check"><input type="checkbox" name="report-section" value="bar_chart"> Säulendiagramm</label>
+              <label class="check"><input type="checkbox" name="report-section" value="heatmap"> Heatmap</label>
               <label class="check"><input type="checkbox" name="report-section" value="table" checked> Datentabelle</label>
+              <label class="check"><input type="checkbox" name="report-section" value="text"> Textbaustein</label>
               <label class="check"><input type="checkbox" name="report-section" value="events" checked> Kommunikationshinweise</label>
             </fieldset>
+            <label>
+              Eigener Text
+              <textarea id="report-text" rows="3" placeholder="z. B. Bewertung des Berichtszeitraums, Maßnahmen, Auffälligkeiten."></textarea>
+            </label>
             <fieldset>
               <legend>Datenpunkte</legend>
               <div class="report-channel-list" id="report-channel-list"></div>
@@ -244,15 +258,30 @@
         </div>
       </section>
 
-      <section class="workspace-band" id="diagnostics">
+      <!-- ============ SYSTEM ============ -->
+      <section class="page" data-page="system" aria-label="System">
         <div class="section-head">
           <div>
-            <span class="section-kicker">System</span>
+            <span class="section-kicker">Kontrolle</span>
             <h2>Systemzustand</h2>
           </div>
+          <div class="export-actions">
+            <div class="health-line" id="health-line">-</div>
             <button class="button" id="diagnostic-read-button" type="button">Preis prüfen</button>
+          </div>
         </div>
-        <div class="diagnostic-grid">
+
+        <div class="system-layout">
+          <article class="tool-panel">
+            <div class="panel-head">
+              <div>
+                <h3>Signale</h3>
+                <p>Läuft alles? Preisübergabe, Datenqualität und Sicherheit.</p>
+              </div>
+            </div>
+            <div class="signal-list" id="signal-list"></div>
+          </article>
+
           <article class="tool-panel">
             <div class="panel-head">
               <h3>Letzte Läufe</h3>
@@ -272,12 +301,7 @@
               </table>
             </div>
           </article>
-          <article class="tool-panel">
-            <div class="panel-head">
-              <h3>Wetterkontext</h3>
-            </div>
-            <div class="weather-panel" id="weather-panel"></div>
-          </article>
+
           <article class="tool-panel">
             <div class="panel-head">
               <h3>Preisprüfung</h3>
@@ -288,6 +312,50 @@
       </section>
     </main>
   </div>
+
+  <!-- Konfigurationsdialog Dashboard -->
+  <div class="modal-overlay" id="dashboard-config-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dashboard-config-title">
+      <div class="modal-head">
+        <h3 id="dashboard-config-title">Dashboard anpassen</h3>
+        <button class="link-button" id="dashboard-config-close" type="button" aria-label="Schließen">Schließen</button>
+      </div>
+      <p class="modal-hint">Wähle, welche Kennzahlen und Bausteine auf dem Dashboard erscheinen.</p>
+      <div class="config-section">
+        <span class="micro-label">Kennzahlen</span>
+        <div class="config-list" id="kpi-config-list"></div>
+      </div>
+      <div class="config-section">
+        <span class="micro-label">Bausteine</span>
+        <div class="config-list" id="widget-config-list"></div>
+      </div>
+      <div class="config-section">
+        <span class="micro-label">Eigene Diagramme</span>
+        <p class="modal-hint">Erstelle eine Diagramm-Kachel für einen Datenpunkt. Sie zeigt die laufenden Werte und aktualisiert sich automatisch.</p>
+        <div class="chart-add-row">
+          <select id="chart-add-channel" aria-label="Datenpunkt für Diagramm"></select>
+          <select id="chart-add-type" aria-label="Diagrammtyp">
+            <option value="line">Linie</option>
+            <option value="bar">Säulen</option>
+          </select>
+          <select id="chart-add-range" aria-label="Zeitraum">
+            <option value="6h">6 Std</option>
+            <option value="24h" selected>24 Std</option>
+            <option value="48h">48 Std</option>
+            <option value="7d">7 Tage</option>
+          </select>
+          <button class="button" id="chart-add-button" type="button">Hinzufügen</button>
+        </div>
+        <div class="chart-config-list" id="chart-config-list"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="button" id="dashboard-config-reset" type="button">Zurücksetzen</button>
+        <button class="button primary" id="dashboard-config-save" type="button">Übernehmen</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/vendor/uPlot.iife.min.js" defer></script>
   <script src="/dashboard.js" defer></script>
 </body>
 </html>

@@ -66,6 +66,52 @@ const SERIES_COLORS = ["#2563eb", "#16875a", "#b7791f", "#bf3f36", "#40556b", "#
 const DATE_TIME = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const TIME_ONLY = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
 
+const THEME_STORAGE_KEY = "miniEmsTheme";
+const DASHBOARD_STORAGE_KEY = "miniEmsDashboard";
+
+const PAGES = {
+  dashboard: "Dashboard",
+  analyse: "Analyse",
+  berichte: "Berichte",
+  system: "System",
+};
+
+const KPI_CATALOG = [
+  { id: "price", label: "Aktueller Strompreis", accent: "accent-blue",
+    value: (h) => formatNumber(h.current_price_ct_kwh, "ct/kWh", 3),
+    sub: (h) => `Zeitfenster ${h.current_slot_label || "-"}` },
+  { id: "spotmarket", label: "Preissteuerung", accent: "accent-green",
+    value: (h) => formatBool(h.spotmarket_active_now),
+    sub: (h) => (h.spotmarket_active_now ? "Preissteuerung aktiv" : "Normalbetrieb") },
+  { id: "grid_lockout", label: "Netzschutz", accent: "accent-amber",
+    value: (h) => (h.grid_lockout_active === null || h.grid_lockout_active === undefined ? "deaktiviert" : formatBool(h.grid_lockout_active)),
+    sub: (h) => friendlyState(h.grid_lockout_state) },
+  { id: "grid_power", label: "Netzleistung", accent: "accent-slate",
+    value: (h) => formatNumber(h.grid_active_power_kw, "kW", 2),
+    sub: (h) => (h.grid_read_status ? friendlyState(h.grid_read_status) : "derzeit nicht aktiv") },
+  { id: "weather_temp", label: "Außentemperatur", accent: "accent-slate",
+    value: (_h, ctx) => formatNumber(ctx.weather?.current?.temperature_c, "C", 1),
+    sub: (_h, ctx) => ctx.weather?.current?.weather_label || "Wetter" },
+  { id: "price_min", label: "Günstigster Preis heute", accent: "accent-green",
+    value: (_h, ctx) => formatNumber(ctx.priceMin, "ct/kWh", 3), sub: () => "im Tagesverlauf" },
+  { id: "price_max", label: "Höchster Preis heute", accent: "accent-amber",
+    value: (_h, ctx) => formatNumber(ctx.priceMax, "ct/kWh", 3), sub: () => "im Tagesverlauf" },
+  { id: "tomorrow", label: "Preise morgen", accent: "accent-blue",
+    value: (h) => (h.tomorrow_prices_available ? "verfügbar" : "wartet"), sub: () => "Day-Ahead" },
+];
+
+const DASHBOARD_WIDGETS = [
+  { id: "price", label: "Börsenstrompreis" },
+  { id: "weather", label: "Wetter" },
+  { id: "windows", label: "Geplante Preisfenster" },
+];
+
+const DEFAULT_DASHBOARD = {
+  kpis: ["price", "spotmarket", "grid_lockout", "grid_power"],
+  widgets: { price: true, weather: true, windows: true },
+  charts: [],
+};
+
 const appState = {
   availableChannels: DEFAULT_CHANNELS,
   selectedChannels: new Set(VIEW_PRESETS[0].channels),
@@ -73,11 +119,33 @@ const appState = {
   statusPayload: null,
   reportStudio: null,
   activeHistories: new Map(),
+  weather: null,
+  priceStats: null,
+  dashboard: { ...DEFAULT_DASHBOARD },
 };
 
+const priceChart = {
+  instance: null,
+  observer: null,
+  target: null,
+  points: [],
+  options: null,
+};
+
+const BACKEND_REPORT_SECTIONS = ["summary", "line_chart", "table", "events"];
+let reportCharts = [];
+
+// Eigene Dashboard-Diagramme: laufende uPlot-Instanzen + zwischengespeicherte Daten.
+let dashboardCharts = [];
+const dashboardChartData = new Map();
+let modalChartDraft = [];
+
 document.addEventListener("DOMContentLoaded", () => {
+  initTheme();
+  appState.dashboard = loadDashboardConfig();
   appState.savedViews = loadSavedViews();
   bindUi();
+  initRouter();
   setReportDefaults();
   renderViewSelect();
   applyView(VIEW_PRESETS[0]);
@@ -110,12 +178,70 @@ function bindUi() {
   document.getElementById("report-granularity").addEventListener("change", updateReportLinks);
   document.querySelectorAll("input[name='report-section']").forEach((input) => input.addEventListener("change", updateReportLinks));
   document.getElementById("diagnostic-read-button").addEventListener("click", runDiagnosticRead);
-  document.querySelectorAll(".nav-link").forEach((link) => {
-    link.addEventListener("click", () => {
-      document.querySelectorAll(".nav-link").forEach((item) => item.classList.remove("active"));
-      link.classList.add("active");
-    });
+  document.querySelectorAll(".theme-toggle button[data-theme-value]").forEach((button) => {
+    button.addEventListener("click", () => applyTheme(button.dataset.themeValue));
   });
+  document.getElementById("dashboard-config-button").addEventListener("click", openDashboardConfig);
+  document.getElementById("chart-add-button").addEventListener("click", addModalChart);
+  document.getElementById("dashboard-config-close").addEventListener("click", closeDashboardConfig);
+  document.getElementById("dashboard-config-save").addEventListener("click", saveDashboardConfig);
+  document.getElementById("dashboard-config-reset").addEventListener("click", resetDashboardConfig);
+  document.getElementById("dashboard-config-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) {
+      closeDashboardConfig();
+    }
+  });
+}
+
+function initRouter() {
+  window.addEventListener("hashchange", () => showPage(currentPageFromHash()));
+  showPage(currentPageFromHash());
+}
+
+function currentPageFromHash() {
+  const raw = (location.hash || "").replace(/^#\/?/, "").trim();
+  return PAGES[raw] ? raw : "dashboard";
+}
+
+function showPage(page) {
+  document.querySelectorAll(".page").forEach((element) => {
+    element.classList.toggle("active", element.dataset.page === page);
+  });
+  document.querySelectorAll(".nav-link").forEach((link) => {
+    link.classList.toggle("active", link.dataset.page === page);
+  });
+  setText("page-title", PAGES[page] || "Dashboard");
+  if (page === "dashboard") {
+    rebuildPriceChart();
+    redrawDashboardCharts();
+  }
+}
+
+function initTheme() {
+  let stored = "light";
+  try {
+    stored = localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+  } catch (error) {
+    stored = "light";
+  }
+  applyTheme(stored, { persist: false });
+}
+
+function applyTheme(theme, options = {}) {
+  const resolved = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", resolved);
+  document.querySelectorAll(".theme-toggle button[data-theme-value]").forEach((button) => {
+    button.setAttribute("aria-pressed", button.dataset.themeValue === resolved ? "true" : "false");
+  });
+  if (options.persist !== false) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, resolved);
+    } catch (error) {
+      /* localStorage nicht verfügbar — Theme bleibt nur für diese Sitzung aktiv. */
+    }
+  }
+  rebuildPriceChart();
+  redrawDashboardCharts();
 }
 
 async function refreshDashboard() {
@@ -141,6 +267,9 @@ async function refreshDashboard() {
     renderChannelPicker();
     renderReportChannelList();
     await renderPriceOverview(statusPayload);
+    renderKpis(statusPayload);
+    applyDashboardWidgets();
+    await renderDashboardCharts();
     await refreshWorkbench();
     updateReportLinks();
   } catch (error) {
@@ -167,20 +296,6 @@ async function fetchOptionalJson(path, fallback) {
     }
     return { ...fallback, error: error.message };
   }
-}
-
-async function postJson(path, payload) {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    cache: "no-store",
-  });
-  const responsePayload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(responsePayload.message || `${path} returned ${response.status}`);
-  }
-  return responsePayload;
 }
 
 function normalizeChannels(rawChannels) {
@@ -211,15 +326,181 @@ function renderStatus(payload) {
     `Morgen: ${health.tomorrow_prices_available ? "Preise verfügbar" : "wartet"}`,
   ].join(" / "));
 
-  setText("kpi-price", formatNumber(health.current_price_ct_kwh, "ct/kWh", 3));
-  setText("kpi-slot", `Zeitfenster ${health.current_slot_label || "-"}`);
-  setText("kpi-spotmarket", formatBool(health.spotmarket_active_now));
-  setText("kpi-spotmarket-source", health.spotmarket_active_now ? "Preissteuerung aktiv" : "Normalbetrieb");
-  setText("kpi-grid-lockout", health.grid_lockout_active === null || health.grid_lockout_active === undefined ? "deaktiviert" : formatBool(health.grid_lockout_active));
-  setText("kpi-grid-state", friendlyState(health.grid_lockout_state || state.grid_lockout?.mode));
-  setText("kpi-grid-power", formatNumber(health.grid_active_power_kw, "kW", 2));
-  setText("kpi-grid-read", health.grid_read_status ? friendlyState(health.grid_read_status) : "derzeit nicht aktiv");
   setText("spotmarket-summary", buildPriceWindowSummary(health, appState.statusPayload?.spotmarket_plan || {}));
+}
+
+function renderKpis(payload) {
+  const target = document.getElementById("kpi-grid");
+  if (!target) {
+    return;
+  }
+  const health = payload.health || {};
+  const ctx = {
+    weather: appState.weather,
+    priceMin: appState.priceStats ? appState.priceStats.min : null,
+    priceMax: appState.priceStats ? appState.priceStats.max : null,
+  };
+  const enabled = appState.dashboard.kpis.length ? appState.dashboard.kpis : DEFAULT_DASHBOARD.kpis;
+  const cards = enabled
+    .map((id) => KPI_CATALOG.find((kpi) => kpi.id === id))
+    .filter(Boolean)
+    .map((kpi) => `
+      <article class="metric-card ${kpi.accent}">
+        <span>${escapeHtml(kpi.label)}</span>
+        <strong>${escapeHtml(kpi.value(health, ctx))}</strong>
+        <small>${escapeHtml(kpi.sub(health, ctx))}</small>
+      </article>
+    `);
+  target.innerHTML = cards.join("") || '<div class="empty-state">Keine Kennzahlen ausgewählt. Über „Dashboard anpassen“ hinzufügen.</div>';
+}
+
+function applyDashboardWidgets() {
+  document.querySelectorAll("[data-widget]").forEach((element) => {
+    element.hidden = appState.dashboard.widgets[element.dataset.widget] === false;
+  });
+  rebuildPriceChart();
+}
+
+function rangeToHours(range) {
+  return range === "6h" ? 6 : range === "48h" ? 48 : range === "7d" ? 24 * 7 : 24;
+}
+
+async function renderDashboardCharts() {
+  destroyDashboardCharts();
+  const container = document.getElementById("dashboard-charts");
+  if (!container) {
+    return;
+  }
+  const charts = appState.dashboard.charts || [];
+  if (!charts.length) {
+    container.innerHTML = "";
+    return;
+  }
+  container.innerHTML = charts.map((chart) => {
+    const meta = channelMeta(chart.channel);
+    const typeLabel = chart.type === "bar" ? "Säulen" : "Linie";
+    return `
+      <article class="tool-panel dashboard-chart-tile">
+        <div class="panel-head">
+          <div>
+            <h3>${escapeHtml(meta.label || chart.channel)}</h3>
+            <p>${escapeHtml([meta.unit, typeLabel].filter(Boolean).join(" · "))}</p>
+          </div>
+        </div>
+        <div class="chart-frame report-chart" data-chart-frame="${escapeHtml(chart.id)}"></div>
+      </article>
+    `;
+  }).join("");
+
+  const referenceNow = getReferenceNow(appState.statusPayload || {});
+  await Promise.all(charts.map(async (chart) => {
+    const hours = rangeToHours(chart.range);
+    const start = new Date(referenceNow.getTime() - hours * 3600 * 1000);
+    const granularity = hours > 48 ? "1h" : "5m";
+    const payload = await fetchHistorySafe(chart.channel, start, referenceNow, granularity, historyLimit(granularity));
+    const points = normalizeHistoryRows(payload.rows || [])
+      .map((row) => ({ time: parseTime(row.timestamp), value: historyValue(row) }))
+      .filter(isFinitePoint);
+    dashboardChartData.set(chart.id, { points, error: payload.error });
+  }));
+
+  charts.forEach((chart, index) => drawDashboardChart(chart, index));
+}
+
+function redrawDashboardCharts() {
+  (appState.dashboard.charts || []).forEach((chart, index) => drawDashboardChart(chart, index));
+}
+
+function destroyDashboardChart(id) {
+  dashboardCharts = dashboardCharts.filter((entry) => {
+    if (entry.id !== id) {
+      return true;
+    }
+    try {
+      if (entry.observer) {
+        entry.observer.disconnect();
+      }
+      entry.instance.destroy();
+    } catch (error) {
+      /* Instanz bereits entfernt. */
+    }
+    return false;
+  });
+}
+
+function destroyDashboardCharts() {
+  dashboardCharts.forEach((entry) => {
+    try {
+      if (entry.observer) {
+        entry.observer.disconnect();
+      }
+      entry.instance.destroy();
+    } catch (error) {
+      /* Instanz bereits entfernt. */
+    }
+  });
+  dashboardCharts = [];
+}
+
+function drawDashboardChart(chart, index) {
+  const frame = document.querySelector(`[data-chart-frame="${chart.id}"]`);
+  if (!frame) {
+    return;
+  }
+  destroyDashboardChart(chart.id);
+  frame.innerHTML = "";
+  const data = dashboardChartData.get(chart.id);
+  if (!data || !data.points.length) {
+    frame.innerHTML = `<div class="chart-empty">${escapeHtml(data && data.error ? data.error : "Keine Daten im Zeitraum.")}</div>`;
+    return;
+  }
+  if (typeof uPlot === "undefined") {
+    frame.innerHTML = '<div class="chart-empty">Diagramm-Bibliothek nicht geladen.</div>';
+    return;
+  }
+  const colors = reportChartColors();
+  const color = SERIES_COLORS[index % SERIES_COLORS.length];
+  let xs;
+  let ys;
+  let seriesOptions;
+  if (chart.type === "bar") {
+    const span = data.points[data.points.length - 1].time - data.points[0].time;
+    const bucketMs = span > 3 * 24 * 3600 * 1000 ? 24 * 3600 * 1000 : 3600 * 1000;
+    const buckets = aggregateBuckets(data.points, bucketMs);
+    xs = buckets.map((bucket) => Math.round(bucket.time / 1000));
+    ys = buckets.map((bucket) => bucket.value);
+    seriesOptions = { stroke: color, fill: hexToRgba(color, 0.55), width: 1, paths: uPlot.paths.bars({ size: [0.7, 40] }), points: { show: false } };
+  } else {
+    xs = data.points.map((point) => Math.round(point.time / 1000));
+    ys = data.points.map((point) => point.value);
+    seriesOptions = { stroke: color, width: 2, fill: hexToRgba(color, 0.1), points: { show: false } };
+  }
+  const instance = new uPlot({
+    width: frame.clientWidth || 520,
+    height: 200,
+    padding: [12, 14, 4, 8],
+    legend: { show: false },
+    cursor: { y: false },
+    scales: { x: { time: true } },
+    axes: [
+      { stroke: colors.axis, font: `12px ${colors.font}`, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
+        values: (_u, splits) => splits.map((value) => TIME_ONLY.format(new Date(value * 1000))) },
+      { stroke: colors.axis, font: `12px ${colors.font}`, size: 52, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
+        values: (_u, splits) => splits.map((value) => formatAxis(value)) },
+    ],
+    series: [{}, seriesOptions],
+  }, [xs, ys], frame);
+
+  let observer = null;
+  if (typeof ResizeObserver !== "undefined") {
+    observer = new ResizeObserver(() => {
+      if (frame.clientWidth) {
+        instance.setSize({ width: frame.clientWidth, height: 200 });
+      }
+    });
+    observer.observe(frame);
+  }
+  dashboardCharts.push({ id: chart.id, instance, observer });
 }
 
 function renderSignals(payload) {
@@ -285,10 +566,10 @@ async function renderPriceOverview(payload) {
   const range = { start: new Date(referenceNow.getTime() - 12 * 60 * 60 * 1000), end: new Date(referenceNow.getTime() + 36 * 60 * 60 * 1000) };
   const history = await fetchHistorySafe("tariff.current_price_ct_kwh", range.start, new Date(referenceNow.getTime() + 5 * 60 * 1000), "raw", 1800);
   const timeline = buildPriceTimeline(payload, history.rows || [], range, referenceNow);
+  appState.priceStats = { min: timeline.min, max: timeline.max, current: timeline.current };
   setText("price-chart-meta", timeline.points.length ? `${timeline.points.length} Werte` : "keine Werte");
-  renderLineChart(document.getElementById("price-chart"), timeline.points, {
+  renderPriceChart(document.getElementById("price-chart"), timeline.points, {
     unit: "ct/kWh",
-    color: "#2563eb",
     step: true,
     windows: timeline.windows,
     now: referenceNow.getTime(),
@@ -502,51 +783,183 @@ async function fetchHistorySafe(channelId, start, end, granularity, limit) {
   }
 }
 
-function renderLineChart(target, points, options = {}) {
+function renderPriceChart(target, points, options = {}) {
   const clean = points.filter(isFinitePoint).sort((a, b) => a.time - b.time);
+  destroyPriceChart();
+  target.innerHTML = "";
+  priceChart.target = target;
+  priceChart.points = clean;
+  priceChart.options = options;
   if (!clean.length) {
     target.innerHTML = `<div class="chart-empty">${escapeHtml(options.empty || "Keine Daten vorhanden.")}</div>`;
     return;
   }
-  const width = 1100;
-  const height = 300;
-  const margin = { top: 18, right: 22, bottom: 36, left: 58 };
-  const times = clean.map((point) => point.time);
-  const values = clean.map((point) => point.value);
-  const xMin = Math.min(...times);
-  const xMax = Math.max(...times);
-  const rawMin = Math.min(...values);
-  const rawMax = Math.max(...values);
-  const pad = Math.max((rawMax - rawMin) * 0.12, rawMax === rawMin ? 1 : 0.2);
-  const yMin = rawMin - pad;
-  const yMax = rawMax + pad;
-  const plotW = width - margin.left - margin.right;
-  const plotH = height - margin.top - margin.bottom;
-  const x = (time) => margin.left + ((time - xMin) / Math.max(xMax - xMin, 1)) * plotW;
-  const y = (value) => margin.top + plotH - ((value - yMin) / Math.max(yMax - yMin, 1e-9)) * plotH;
-  const path = options.step ? steppedPath(clean, x, y) : linePath(clean, x, y);
-  const areaPath = `${path} L ${x(clean[clean.length - 1].time).toFixed(1)} ${height - margin.bottom} L ${x(clean[0].time).toFixed(1)} ${height - margin.bottom} Z`;
-  const yTicks = Array.from({ length: 4 }, (_, index) => yMin + ((yMax - yMin) * index / 3));
-  const xTicks = Array.from({ length: 5 }, (_, index) => xMin + ((xMax - xMin) * index / 4));
-  const windows = (options.windows || []).map((window) => {
-    const left = Math.max(margin.left, x(window.start));
-    const right = Math.min(width - margin.right, x(window.end));
-    const windowWidth = Math.max(0, right - left);
-    return windowWidth ? `<rect class="chart-window" x="${left.toFixed(1)}" y="${margin.top}" width="${windowWidth.toFixed(1)}" height="${plotH}" rx="4"><title>${escapeHtml(window.label)}</title></rect>` : "";
-  }).join("");
-  const nowLine = Number.isFinite(options.now) && options.now >= xMin && options.now <= xMax
-    ? `<line class="chart-now" x1="${x(options.now).toFixed(1)}" y1="${margin.top}" x2="${x(options.now).toFixed(1)}" y2="${height - margin.bottom}"></line>`
-    : "";
-  target.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Zeitverlauf">
-      ${windows}
-      ${yTicks.map((tick) => `<line class="chart-grid-line" x1="${margin.left}" y1="${y(tick).toFixed(1)}" x2="${width - margin.right}" y2="${y(tick).toFixed(1)}"></line><text class="chart-axis-label" x="${margin.left - 8}" y="${(y(tick) + 4).toFixed(1)}" text-anchor="end">${escapeHtml(formatAxis(tick))}</text>`).join("")}
-      ${xTicks.map((tick) => `<text class="chart-axis-label" x="${x(tick).toFixed(1)}" y="${height - 12}" text-anchor="middle">${escapeHtml(DATE_TIME.format(new Date(tick)))}</text>`).join("")}
-      ${nowLine}
-      <path class="chart-area" d="${areaPath}" fill="${options.color || SERIES_COLORS[0]}"></path>
-      <path class="chart-line" d="${path}" stroke="${options.color || SERIES_COLORS[0]}"></path>
-    </svg>
-  `;
+  if (typeof uPlot === "undefined") {
+    target.innerHTML = '<div class="chart-empty">Diagramm-Bibliothek konnte nicht geladen werden.</div>';
+    return;
+  }
+
+  const css = getComputedStyle(document.documentElement);
+  const token = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
+  const accent = token("--accent", "#1769d6");
+  const gridColor = token("--line", "#e4eaf1");
+  const axisColor = token("--muted", "#5b6b7e");
+  const okColor = token("--ok", "#0f8a5f");
+  const neutral = token("--neutral", "#51647a");
+  const fontFamily = token("--font", "system-ui, sans-serif");
+
+  const xs = clean.map((point) => Math.round(point.time / 1000));
+  const ys = clean.map((point) => point.value);
+  const windows = options.windows || [];
+  const nowSec = Number.isFinite(options.now) ? Math.round(options.now / 1000) : null;
+  const ratio = window.devicePixelRatio || 1;
+
+  const tooltip = document.createElement("div");
+  tooltip.className = "ems-tooltip";
+
+  const drawWindows = (u) => {
+    if (!windows.length) {
+      return;
+    }
+    const { ctx } = u;
+    ctx.save();
+    ctx.fillStyle = hexToRgba(okColor, 0.16);
+    windows.forEach((band) => {
+      const xa = u.valToPos(band.start / 1000, "x", true);
+      const xb = u.valToPos(band.end / 1000, "x", true);
+      const left = Math.max(u.bbox.left, Math.min(xa, xb));
+      const right = Math.min(u.bbox.left + u.bbox.width, Math.max(xa, xb));
+      if (right > left) {
+        ctx.fillRect(left, u.bbox.top, right - left, u.bbox.height);
+      }
+    });
+    ctx.restore();
+  };
+
+  const drawNow = (u) => {
+    if (nowSec == null) {
+      return;
+    }
+    const x = u.valToPos(nowSec, "x", true);
+    if (x < u.bbox.left || x > u.bbox.left + u.bbox.width) {
+      return;
+    }
+    const { ctx } = u;
+    ctx.save();
+    ctx.strokeStyle = neutral;
+    ctx.lineWidth = Math.max(1, ratio);
+    ctx.setLineDash([5 * ratio, 5 * ratio]);
+    ctx.beginPath();
+    ctx.moveTo(x, u.bbox.top);
+    ctx.lineTo(x, u.bbox.top + u.bbox.height);
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  const updateTooltip = (u) => {
+    const idx = u.cursor.idx;
+    if (idx == null || u.cursor.left < 0) {
+      tooltip.style.display = "none";
+      return;
+    }
+    const value = u.data[1][idx];
+    if (!Number.isFinite(value)) {
+      tooltip.style.display = "none";
+      return;
+    }
+    tooltip.style.display = "block";
+    tooltip.innerHTML = `<b>${escapeHtml(DATE_TIME.format(new Date(u.data[0][idx] * 1000)))}</b>`
+      + `<span class="ems-tooltip-value">${escapeHtml(formatNumber(value, options.unit || "", 3))}</span>`;
+    let left = u.cursor.left + 14;
+    if (left + tooltip.offsetWidth > u.over.clientWidth) {
+      left = u.cursor.left - tooltip.offsetWidth - 14;
+    }
+    tooltip.style.left = `${Math.max(0, left)}px`;
+    tooltip.style.top = `${Math.max(0, u.cursor.top + 8)}px`;
+  };
+
+  const opts = {
+    width: target.clientWidth || 600,
+    height: target.clientHeight || 290,
+    padding: [12, 16, 4, 8],
+    legend: { show: false },
+    cursor: { y: false, points: { size: 7 } },
+    scales: { x: { time: true } },
+    axes: [
+      {
+        stroke: axisColor,
+        font: `12px ${fontFamily}`,
+        grid: { stroke: gridColor, width: 1 },
+        ticks: { stroke: gridColor, width: 1 },
+        values: (_u, splits) => splits.map((value) => TIME_ONLY.format(new Date(value * 1000))),
+      },
+      {
+        stroke: axisColor,
+        font: `12px ${fontFamily}`,
+        size: 56,
+        grid: { stroke: gridColor, width: 1 },
+        ticks: { stroke: gridColor, width: 1 },
+        values: (_u, splits) => splits.map((value) => formatAxis(value)),
+      },
+    ],
+    series: [
+      {},
+      {
+        label: options.unit || "Wert",
+        stroke: accent,
+        width: 2,
+        fill: hexToRgba(accent, 0.12),
+        paths: options.step ? uPlot.paths.stepped({ align: 1 }) : uPlot.paths.linear(),
+        points: { show: false },
+      },
+    ],
+    hooks: {
+      drawClear: [drawWindows],
+      draw: [drawNow],
+      setCursor: [updateTooltip],
+    },
+  };
+
+  priceChart.instance = new uPlot(opts, [xs, ys], target);
+  priceChart.instance.over.appendChild(tooltip);
+
+  if (typeof ResizeObserver !== "undefined") {
+    priceChart.observer = new ResizeObserver(() => {
+      if (priceChart.instance && target.clientWidth) {
+        priceChart.instance.setSize({ width: target.clientWidth, height: target.clientHeight || 290 });
+      }
+    });
+    priceChart.observer.observe(target);
+  }
+}
+
+function rebuildPriceChart() {
+  if (priceChart.target && priceChart.points.length && priceChart.options) {
+    renderPriceChart(priceChart.target, priceChart.points, priceChart.options);
+  }
+}
+
+function destroyPriceChart() {
+  if (priceChart.observer) {
+    priceChart.observer.disconnect();
+    priceChart.observer = null;
+  }
+  if (priceChart.instance) {
+    priceChart.instance.destroy();
+    priceChart.instance = null;
+  }
+}
+
+function hexToRgba(color, alpha) {
+  const hex = String(color).trim().replace("#", "");
+  if (hex.length !== 6 && hex.length !== 3) {
+    return color;
+  }
+  const full = hex.length === 3 ? hex.split("").map((char) => char + char).join("") : hex;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 function renderSparkline(points, color, unit) {
@@ -632,6 +1045,145 @@ function loadSavedViews() {
   }
 }
 
+function loadDashboardConfig() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DASHBOARD_STORAGE_KEY) || "null");
+    if (!parsed || typeof parsed !== "object") {
+      return { kpis: [...DEFAULT_DASHBOARD.kpis], widgets: { ...DEFAULT_DASHBOARD.widgets } };
+    }
+    const validIds = new Set(KPI_CATALOG.map((kpi) => kpi.id));
+    const kpis = Array.isArray(parsed.kpis) ? parsed.kpis.filter((id) => validIds.has(id)) : [...DEFAULT_DASHBOARD.kpis];
+    const widgets = { ...DEFAULT_DASHBOARD.widgets };
+    if (parsed.widgets && typeof parsed.widgets === "object") {
+      DASHBOARD_WIDGETS.forEach((widget) => {
+        if (typeof parsed.widgets[widget.id] === "boolean") {
+          widgets[widget.id] = parsed.widgets[widget.id];
+        }
+      });
+    }
+    const charts = Array.isArray(parsed.charts)
+      ? parsed.charts
+        .filter((chart) => chart && typeof chart.channel === "string")
+        .map((chart) => ({
+          id: String(chart.id || `chart-${chart.channel}`),
+          channel: chart.channel,
+          type: chart.type === "bar" ? "bar" : "line",
+          range: ["6h", "24h", "48h", "7d"].includes(chart.range) ? chart.range : "24h",
+        }))
+      : [];
+    return { kpis, widgets, charts };
+  } catch {
+    return { kpis: [...DEFAULT_DASHBOARD.kpis], widgets: { ...DEFAULT_DASHBOARD.widgets }, charts: [] };
+  }
+}
+
+function persistDashboardConfig() {
+  try {
+    localStorage.setItem(DASHBOARD_STORAGE_KEY, JSON.stringify(appState.dashboard));
+  } catch (error) {
+    /* localStorage nicht verfügbar — Konfiguration bleibt nur für diese Sitzung aktiv. */
+  }
+}
+
+function openDashboardConfig() {
+  const kpiList = document.getElementById("kpi-config-list");
+  kpiList.innerHTML = KPI_CATALOG.map((kpi) => `
+    <label class="check">
+      <input type="checkbox" name="config-kpi" value="${escapeHtml(kpi.id)}" ${appState.dashboard.kpis.includes(kpi.id) ? "checked" : ""}>
+      <span>${escapeHtml(kpi.label)}</span>
+    </label>
+  `).join("");
+  const widgetList = document.getElementById("widget-config-list");
+  widgetList.innerHTML = DASHBOARD_WIDGETS.map((widget) => `
+    <label class="check">
+      <input type="checkbox" name="config-widget" value="${escapeHtml(widget.id)}" ${appState.dashboard.widgets[widget.id] !== false ? "checked" : ""}>
+      <span>${escapeHtml(widget.label)}</span>
+    </label>
+  `).join("");
+
+  const channelSelect = document.getElementById("chart-add-channel");
+  channelSelect.innerHTML = appState.availableChannels.map((channel) => `
+    <option value="${escapeHtml(channel.id)}">${escapeHtml(channel.label || channel.id)}${channel.unit ? ` (${escapeHtml(channel.unit)})` : ""}</option>
+  `).join("");
+  modalChartDraft = appState.dashboard.charts.map((chart) => ({ ...chart }));
+  renderChartConfigList();
+
+  document.getElementById("dashboard-config-modal").hidden = false;
+}
+
+function renderChartConfigList() {
+  const list = document.getElementById("chart-config-list");
+  if (!modalChartDraft.length) {
+    list.innerHTML = '<div class="empty-state compact">Noch keine eigenen Diagramme.</div>';
+    return;
+  }
+  const typeLabel = { line: "Linie", bar: "Säulen" };
+  const rangeLabel = { "6h": "6 Std", "24h": "24 Std", "48h": "48 Std", "7d": "7 Tage" };
+  list.innerHTML = modalChartDraft.map((chart) => {
+    const meta = channelMeta(chart.channel);
+    return `
+      <div class="chart-config-item">
+        <span>${escapeHtml(meta.label || chart.channel)} · ${escapeHtml(typeLabel[chart.type] || chart.type)} · ${escapeHtml(rangeLabel[chart.range] || chart.range)}</span>
+        <button type="button" class="link-button" data-remove-chart="${escapeHtml(chart.id)}">Entfernen</button>
+      </div>
+    `;
+  }).join("");
+  list.querySelectorAll("button[data-remove-chart]").forEach((button) => {
+    button.addEventListener("click", () => {
+      modalChartDraft = modalChartDraft.filter((chart) => chart.id !== button.dataset.removeChart);
+      renderChartConfigList();
+    });
+  });
+}
+
+function addModalChart() {
+  const channel = document.getElementById("chart-add-channel").value;
+  if (!channel) {
+    return;
+  }
+  modalChartDraft.push({
+    id: `chart-${Date.now()}-${modalChartDraft.length}`,
+    channel,
+    type: document.getElementById("chart-add-type").value === "bar" ? "bar" : "line",
+    range: document.getElementById("chart-add-range").value,
+  });
+  renderChartConfigList();
+}
+
+function closeDashboardConfig() {
+  document.getElementById("dashboard-config-modal").hidden = true;
+}
+
+function saveDashboardConfig() {
+  const selectedKpis = [...document.querySelectorAll("input[name='config-kpi']:checked")].map((input) => input.value);
+  // Reihenfolge aus dem Katalog beibehalten, damit das Layout stabil bleibt.
+  appState.dashboard.kpis = KPI_CATALOG.map((kpi) => kpi.id).filter((id) => selectedKpis.includes(id));
+  const widgets = { ...DEFAULT_DASHBOARD.widgets };
+  DASHBOARD_WIDGETS.forEach((widget) => {
+    widgets[widget.id] = document.querySelector(`input[name='config-widget'][value='${widget.id}']`)?.checked ?? true;
+  });
+  appState.dashboard.widgets = widgets;
+  appState.dashboard.charts = modalChartDraft.map((chart) => ({ ...chart }));
+  persistDashboardConfig();
+  if (appState.statusPayload) {
+    renderKpis(appState.statusPayload);
+  }
+  applyDashboardWidgets();
+  renderDashboardCharts();
+  closeDashboardConfig();
+}
+
+function resetDashboardConfig() {
+  appState.dashboard = { kpis: [...DEFAULT_DASHBOARD.kpis], widgets: { ...DEFAULT_DASHBOARD.widgets }, charts: [] };
+  persistDashboardConfig();
+  openDashboardConfig();
+  if (appState.statusPayload) {
+    renderKpis(appState.statusPayload);
+  }
+  applyDashboardWidgets();
+  renderDashboardCharts();
+}
+
 function selectedChannelMeta() {
   const byId = new Map(appState.availableChannels.map((channel) => [channel.id, channel]));
   return [...appState.selectedChannels].map((id) => byId.get(id) || { id, label: "Datenpunkt", unit: "", group: "EMS" });
@@ -666,17 +1218,321 @@ async function previewReport(event) {
   const button = document.getElementById("report-preview-button");
   const target = document.getElementById("report-preview");
   button.disabled = true;
-  target.innerHTML = '<article class="preview-card">Bericht wird berechnet.</article>';
+  target.innerHTML = '<article class="preview-card">Bericht wird erstellt …</article>';
   try {
-    const config = buildReportConfig();
-    const payload = await postJson("/api/report/preview", config);
-    target.innerHTML = renderReportPreview(payload);
+    await renderReportBuilderPreview(target, buildReportConfig());
     updateReportLinks();
   } catch (error) {
     target.innerHTML = `<article class="preview-card error"><strong>Fehler</strong><span>${escapeHtml(error.message)}</span></article>`;
   } finally {
     button.disabled = false;
   }
+}
+
+function destroyReportCharts() {
+  reportCharts.forEach((chart) => {
+    try {
+      chart.destroy();
+    } catch (error) {
+      /* Instanz bereits entfernt. */
+    }
+  });
+  reportCharts = [];
+}
+
+async function renderReportBuilderPreview(target, config) {
+  destroyReportCharts();
+  const start = new Date(config.start);
+  const end = new Date(config.end);
+  const components = config.sections.map((section) => section.component);
+  if (!components.length) {
+    target.innerHTML = '<article class="preview-card">Keine Bausteine gewählt. Links Bausteine und Datenpunkte auswählen.</article>';
+    return;
+  }
+  const channels = config.channels.length ? config.channels : ["tariff.current_price_ct_kwh"];
+  const needsData = components.some((component) => ["summary", "line_chart", "bar_chart", "heatmap", "table"].includes(component));
+  const histories = needsData
+    ? await Promise.all(channels.map(async (id) => {
+      const meta = channelMeta(id);
+      const payload = await fetchHistorySafe(id, start, end, config.granularity, historyLimit(config.granularity));
+      const points = normalizeHistoryRows(payload.rows || [])
+        .map((row) => ({ time: parseTime(row.timestamp), value: historyValue(row) }))
+        .filter(isFinitePoint);
+      return { id, meta, points, error: payload.error };
+    }))
+    : [];
+
+  target.innerHTML = reportPreviewHeader(config)
+    + components.map((component) => `<article class="report-block" data-block="${escapeHtml(component)}"></article>`).join("");
+
+  const blockEls = target.querySelectorAll(".report-block");
+  components.forEach((component, index) => {
+    renderReportBlock(blockEls[index], component, config, histories);
+  });
+}
+
+function reportPreviewHeader(config) {
+  const range = `${formatTimestamp(config.start)} – ${formatTimestamp(config.end)}`;
+  return `
+    <div class="report-doc-head">
+      <strong>${escapeHtml(config.title)}</strong>
+      <span>Berichtszeitraum ${escapeHtml(range)}</span>
+    </div>
+  `;
+}
+
+function renderReportBlock(el, component, config, histories) {
+  const title = reportSectionLabel(component);
+  el.innerHTML = `<div class="report-block-head"><h4>${escapeHtml(title)}</h4></div><div class="report-block-body"></div>`;
+  const body = el.querySelector(".report-block-body");
+
+  if (component === "text") {
+    const text = (config.text || "").trim();
+    body.innerHTML = text
+      ? `<p class="report-text">${escapeHtml(text).replace(/\n/g, "<br>")}</p>`
+      : '<div class="empty-state compact">Kein Text hinterlegt. Links unter „Eigener Text“ ergänzen.</div>';
+    return;
+  }
+
+  if (component === "events") {
+    body.innerHTML = '<div class="empty-state compact">Kommunikationshinweise werden im PDF-/HTML-Export ergänzt.</div>';
+    return;
+  }
+
+  if (!histories.length) {
+    body.innerHTML = '<div class="empty-state compact">Keine Datenpunkte ausgewählt.</div>';
+    return;
+  }
+
+  if (component === "summary") {
+    body.innerHTML = `<div class="daily-report report-tiles">${histories.map((item) => {
+      const stats = seriesStats(item.points);
+      const avg = item.points.length ? item.points.reduce((sum, point) => sum + point.value, 0) / item.points.length : null;
+      return reportTile(item.meta.label || item.id, `${formatNumber(stats.last, item.meta.unit)} · Ø ${formatNumber(avg, item.meta.unit)}`);
+    }).join("")}</div>`;
+    return;
+  }
+
+  if (component === "table") {
+    body.innerHTML = `<div class="table-wrap"><table><thead><tr>
+        <th>Datenpunkt</th><th>Letzter</th><th>Min</th><th>Max</th><th>Ø</th><th>Messpunkte</th>
+      </tr></thead><tbody>${histories.map((item) => {
+        const stats = seriesStats(item.points);
+        const avg = item.points.length ? item.points.reduce((sum, point) => sum + point.value, 0) / item.points.length : null;
+        return `<tr>
+          <td>${escapeHtml(item.meta.label || item.id)}</td>
+          <td>${escapeHtml(formatNumber(stats.last, item.meta.unit))}</td>
+          <td>${escapeHtml(formatNumber(stats.min, item.meta.unit))}</td>
+          <td>${escapeHtml(formatNumber(stats.max, item.meta.unit))}</td>
+          <td>${escapeHtml(formatNumber(avg, item.meta.unit))}</td>
+          <td>${escapeHtml(item.points.length)}</td>
+        </tr>`;
+      }).join("")}</tbody></table></div>`;
+    return;
+  }
+
+  if (component === "heatmap") {
+    histories.forEach((item) => body.appendChild(buildHeatmapBlock(item)));
+    return;
+  }
+
+  // line_chart / bar_chart: ein Diagramm je Datenpunkt
+  histories.forEach((item, index) => {
+    const frame = document.createElement("div");
+    frame.className = "chart-frame report-chart";
+    body.appendChild(document.createElement("div")).className = "report-series-label";
+    body.lastChild.textContent = item.meta.label || item.id;
+    body.appendChild(frame);
+    const color = SERIES_COLORS[index % SERIES_COLORS.length];
+    if (item.error || !item.points.length) {
+      frame.innerHTML = `<div class="chart-empty">${escapeHtml(item.error || "Keine Daten im Zeitraum.")}</div>`;
+      return;
+    }
+    if (component === "bar_chart") {
+      buildReportBars(frame, item, color);
+    } else {
+      buildReportLine(frame, item, color);
+    }
+  });
+}
+
+function reportChartColors() {
+  const css = getComputedStyle(document.documentElement);
+  const token = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
+  return {
+    grid: token("--line", "#e4eaf1"),
+    axis: token("--muted", "#5b6b7e"),
+    font: token("--font", "Inter, sans-serif"),
+  };
+}
+
+function buildReportLine(frame, item, color) {
+  const colors = reportChartColors();
+  const xs = item.points.map((point) => Math.round(point.time / 1000));
+  const ys = item.points.map((point) => point.value);
+  const chart = new uPlot({
+    width: frame.clientWidth || 520,
+    height: 220,
+    padding: [12, 14, 4, 8],
+    legend: { show: false },
+    cursor: { y: false },
+    scales: { x: { time: true } },
+    axes: [
+      { stroke: colors.axis, font: `12px ${colors.font}`, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
+        values: (_u, splits) => splits.map((value) => TIME_ONLY.format(new Date(value * 1000))) },
+      { stroke: colors.axis, font: `12px ${colors.font}`, size: 52, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
+        values: (_u, splits) => splits.map((value) => formatAxis(value)) },
+    ],
+    series: [{}, { stroke: color, width: 2, fill: hexToRgba(color, 0.1), points: { show: false } }],
+  }, [xs, ys], frame);
+  reportCharts.push(chart);
+  observeReportChart(frame, chart);
+}
+
+function buildReportBars(frame, item, color) {
+  const colors = reportChartColors();
+  const range = item.points[item.points.length - 1].time - item.points[0].time;
+  const bucketMs = range > 3 * 24 * 3600 * 1000 ? 24 * 3600 * 1000 : 3600 * 1000;
+  const buckets = aggregateBuckets(item.points, bucketMs);
+  const xs = buckets.map((bucket) => Math.round(bucket.time / 1000));
+  const ys = buckets.map((bucket) => bucket.value);
+  const perDay = bucketMs >= 24 * 3600 * 1000;
+  const chart = new uPlot({
+    width: frame.clientWidth || 520,
+    height: 220,
+    padding: [12, 14, 4, 8],
+    legend: { show: false },
+    cursor: { y: false },
+    scales: { x: { time: true } },
+    axes: [
+      { stroke: colors.axis, font: `12px ${colors.font}`, grid: { show: false }, ticks: { stroke: colors.grid },
+        values: (_u, splits) => splits.map((value) => (perDay ? DATE_TIME.format(new Date(value * 1000)).slice(0, 5) : TIME_ONLY.format(new Date(value * 1000)))) },
+      { stroke: colors.axis, font: `12px ${colors.font}`, size: 52, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
+        values: (_u, splits) => splits.map((value) => formatAxis(value)) },
+    ],
+    series: [{}, { stroke: color, fill: hexToRgba(color, 0.55), width: 1, paths: uPlot.paths.bars({ size: [0.7, 40] }), points: { show: false } }],
+  }, [xs, ys], frame);
+  reportCharts.push(chart);
+  observeReportChart(frame, chart);
+}
+
+function observeReportChart(frame, chart) {
+  if (typeof ResizeObserver === "undefined") {
+    return;
+  }
+  const observer = new ResizeObserver(() => {
+    if (frame.clientWidth) {
+      chart.setSize({ width: frame.clientWidth, height: 220 });
+    }
+  });
+  observer.observe(frame);
+}
+
+function aggregateBuckets(points, bucketMs) {
+  const map = new Map();
+  points.forEach((point) => {
+    const key = Math.floor(point.time / bucketMs) * bucketMs;
+    const entry = map.get(key) || { sum: 0, count: 0 };
+    entry.sum += point.value;
+    entry.count += 1;
+    map.set(key, entry);
+  });
+  return [...map.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([time, entry]) => ({ time, value: entry.sum / entry.count }));
+}
+
+function buildHeatmapBlock(item) {
+  const wrap = document.createElement("div");
+  wrap.className = "heatmap-block";
+  const label = document.createElement("div");
+  label.className = "report-series-label";
+  label.textContent = item.meta.label || item.id;
+  wrap.appendChild(label);
+
+  if (!item.points.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state compact";
+    empty.textContent = "Keine Daten im Zeitraum.";
+    wrap.appendChild(empty);
+    return wrap;
+  }
+
+  // Raster: Zeilen = Tage, Spalten = Stunde des Tages (0–23), Wert = Mittel.
+  const days = [];
+  const cells = new Map();
+  let min = Infinity;
+  let max = -Infinity;
+  item.points.forEach((point) => {
+    const date = new Date(point.time);
+    const dayKey = date.toISOString().slice(0, 10);
+    if (!cells.has(dayKey)) {
+      cells.set(dayKey, new Array(24).fill(null).map(() => ({ sum: 0, count: 0 })));
+      days.push(dayKey);
+    }
+    const cell = cells.get(dayKey)[date.getHours()];
+    cell.sum += point.value;
+    cell.count += 1;
+  });
+  const valueAt = (dayKey, hour) => {
+    const cell = cells.get(dayKey)[hour];
+    return cell.count ? cell.sum / cell.count : null;
+  };
+  days.forEach((dayKey) => {
+    for (let hour = 0; hour < 24; hour += 1) {
+      const value = valueAt(dayKey, hour);
+      if (value !== null) {
+        min = Math.min(min, value);
+        max = Math.max(max, value);
+      }
+    }
+  });
+
+  const grid = document.createElement("div");
+  grid.className = "heatmap-grid";
+  grid.style.gridTemplateColumns = `auto repeat(24, 1fr)`;
+  grid.appendChild(heatmapCell("", "heatmap-corner"));
+  for (let hour = 0; hour < 24; hour += 1) {
+    grid.appendChild(heatmapCell(hour % 6 === 0 ? String(hour) : "", "heatmap-hour"));
+  }
+  days.forEach((dayKey) => {
+    grid.appendChild(heatmapCell(dayKey.slice(8, 10) + "." + dayKey.slice(5, 7), "heatmap-day"));
+    for (let hour = 0; hour < 24; hour += 1) {
+      const value = valueAt(dayKey, hour);
+      const cell = heatmapCell("", "heatmap-cell");
+      if (value === null) {
+        cell.classList.add("empty");
+      } else {
+        cell.style.background = heatmapColor(value, min, max);
+        cell.title = `${dayKey} ${String(hour).padStart(2, "0")}:00 — ${formatNumber(value, item.meta.unit)}`;
+      }
+      grid.appendChild(cell);
+    }
+  });
+  wrap.appendChild(grid);
+
+  const legend = document.createElement("div");
+  legend.className = "heatmap-legend";
+  legend.innerHTML = `<span>${escapeHtml(formatNumber(min, item.meta.unit))}</span><div class="heatmap-scale"></div><span>${escapeHtml(formatNumber(max, item.meta.unit))}</span>`;
+  wrap.appendChild(legend);
+  return wrap;
+}
+
+function heatmapCell(text, className) {
+  const cell = document.createElement("div");
+  cell.className = className;
+  if (text) {
+    cell.textContent = text;
+  }
+  return cell;
+}
+
+function heatmapColor(value, min, max) {
+  const ratio = max > min ? (value - min) / (max - min) : 0.5;
+  // Blau (niedrig) → Amber (hoch), gut lesbar in beiden Themes.
+  const hue = 210 - ratio * 180;
+  const light = 78 - ratio * 32;
+  return `hsl(${hue.toFixed(0)}, 70%, ${light.toFixed(0)}%)`;
 }
 
 function buildReportConfig() {
@@ -687,36 +1543,25 @@ function buildReportConfig() {
     start: datetimeLocalToIso(document.getElementById("report-start").value),
     end: datetimeLocalToIso(document.getElementById("report-end").value),
     granularity: document.getElementById("report-granularity").value,
+    text: document.getElementById("report-text") ? document.getElementById("report-text").value : "",
     channels,
     sections,
   };
 }
 
-function renderReportPreview(report) {
-  const sections = Array.isArray(report.sections) ? report.sections : [];
-  if (!sections.length) {
-    return '<article class="preview-card">Keine Berichtsbausteine vorhanden.</article>';
-  }
-  return sections.map((section) => {
-    const count = section.cards?.length || section.rows?.length || section.series?.reduce((sum, serie) => sum + (serie.points?.length || 0), 0) || 0;
-    return `
-      <article class="preview-card ready">
-        <strong>${escapeHtml(section.title || reportSectionLabel(section.component))}</strong>
-        <span>${escapeHtml(reportSectionLabel(section.component))} / ${escapeHtml(count)} Elemente</span>
-      </article>
-    `;
-  }).join("");
-}
-
 function updateReportLinks() {
   const config = buildReportConfig();
+  // Export laeuft ueber das Backend — nur dort unterstuetzte Bausteine uebergeben.
+  const exportSections = config.sections
+    .map((section) => section.component)
+    .filter((component) => BACKEND_REPORT_SECTIONS.includes(component));
   const query = new URLSearchParams({
     title: config.title,
     start: config.start,
     end: config.end,
     granularity: config.granularity,
     channels: config.channels.join(","),
-    sections: config.sections.map((section) => section.component).join(","),
+    sections: exportSections.join(","),
   });
   document.getElementById("report-html-link").href = `/api/report/html?${query.toString()}`;
   document.getElementById("report-pdf-link").href = `/api/report/pdf?${query.toString()}`;
@@ -753,6 +1598,7 @@ function renderRecentCycles(rows) {
 }
 
 function renderWeather(payload) {
+  appState.weather = payload;
   const target = document.getElementById("weather-panel");
   if (!payload || payload.status !== "ok") {
     target.innerHTML = `<div class="empty-state">Wetter nicht verfügbar${payload?.error ? `: ${escapeHtml(payload.error)}` : ""}</div>`;
@@ -836,20 +1682,6 @@ function isFinitePoint(point) {
 
 function linePath(points, scaleX, scaleY) {
   return points.map((point, index) => `${index === 0 ? "M" : "L"} ${scaleX(point.time).toFixed(1)} ${scaleY(point.value).toFixed(1)}`).join(" ");
-}
-
-function steppedPath(points, scaleX, scaleY) {
-  if (!points.length) {
-    return "";
-  }
-  const path = [`M ${scaleX(points[0].time).toFixed(1)} ${scaleY(points[0].value).toFixed(1)}`];
-  for (let index = 1; index < points.length; index += 1) {
-    const previous = points[index - 1];
-    const current = points[index];
-    path.push(`L ${scaleX(current.time).toFixed(1)} ${scaleY(previous.value).toFixed(1)}`);
-    path.push(`L ${scaleX(current.time).toFixed(1)} ${scaleY(current.value).toFixed(1)}`);
-  }
-  return path.join(" ");
 }
 
 function buildSlotTime(dateIso, slotIndex) {
@@ -979,8 +1811,11 @@ function valueKindLabel(kind) {
 function reportSectionLabel(component) {
   return {
     summary: "Kennzahlen",
-    line_chart: "Diagramme",
+    line_chart: "Liniendiagramm",
+    bar_chart: "Säulendiagramm",
+    heatmap: "Heatmap",
     table: "Datentabelle",
+    text: "Textbaustein",
     events: "Kommunikationshinweise",
   }[component] || "Abschnitt";
 }
