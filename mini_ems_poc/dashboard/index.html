@@ -117,6 +117,8 @@
             </div>
           </article>
         </div>
+
+        <div class="dashboard-charts" id="dashboard-charts"></div>
       </section>
 
       <!-- ============ ANALYSE ============ -->
@@ -326,6 +328,25 @@
       <div class="config-section">
         <span class="micro-label">Bausteine</span>
         <div class="config-list" id="widget-config-list"></div>
+      </div>
+      <div class="config-section">
+        <span class="micro-label">Eigene Diagramme</span>
+        <p class="modal-hint">Erstelle eine Diagramm-Kachel für einen Datenpunkt. Sie zeigt die laufenden Werte und aktualisiert sich automatisch.</p>
+        <div class="chart-add-row">
+          <select id="chart-add-channel" aria-label="Datenpunkt für Diagramm"></select>
+          <select id="chart-add-type" aria-label="Diagrammtyp">
+            <option value="line">Linie</option>
+            <option value="bar">Säulen</option>
+          </select>
+          <select id="chart-add-range" aria-label="Zeitraum">
+            <option value="6h">6 Std</option>
+            <option value="24h" selected>24 Std</option>
+            <option value="48h">48 Std</option>
+            <option value="7d">7 Tage</option>
+          </select>
+          <button class="button" id="chart-add-button" type="button">Hinzufügen</button>
+        </div>
+        <div class="chart-config-list" id="chart-config-list"></div>
       </div>
       <div class="modal-actions">
         <button class="button" id="dashboard-config-reset" type="button">Zurücksetzen</button>

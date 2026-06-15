@@ -553,6 +553,58 @@ h3 {
   grid-column: 1 / -1;
 }
 
+/* Eigene Dashboard-Diagramme */
+.dashboard-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+
+.dashboard-chart-tile .chart-frame {
+  min-height: 200px;
+}
+
+.chart-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+.chart-add-row select {
+  flex: 1 1 110px;
+}
+
+.chart-add-row #chart-add-channel {
+  flex: 2 1 180px;
+}
+
+.chart-add-row .button {
+  flex: 0 0 auto;
+}
+
+.chart-config-list {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.chart-config-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  font-size: 13px;
+}
+
+.chart-config-item .link-button {
+  color: var(--alert);
+}
+
 .tool-panel {
   min-width: 0;
   padding: var(--sp-4);

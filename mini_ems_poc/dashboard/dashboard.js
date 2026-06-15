@@ -109,6 +109,7 @@ const DASHBOARD_WIDGETS = [
 const DEFAULT_DASHBOARD = {
   kpis: ["price", "spotmarket", "grid_lockout", "grid_power"],
   widgets: { price: true, weather: true, windows: true },
+  charts: [],
 };
 
 const appState = {
@@ -133,6 +134,11 @@ const priceChart = {
 
 const BACKEND_REPORT_SECTIONS = ["summary", "line_chart", "table", "events"];
 let reportCharts = [];
+
+// Eigene Dashboard-Diagramme: laufende uPlot-Instanzen + zwischengespeicherte Daten.
+let dashboardCharts = [];
+const dashboardChartData = new Map();
+let modalChartDraft = [];
 
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
@@ -176,6 +182,7 @@ function bindUi() {
     button.addEventListener("click", () => applyTheme(button.dataset.themeValue));
   });
   document.getElementById("dashboard-config-button").addEventListener("click", openDashboardConfig);
+  document.getElementById("chart-add-button").addEventListener("click", addModalChart);
   document.getElementById("dashboard-config-close").addEventListener("click", closeDashboardConfig);
   document.getElementById("dashboard-config-save").addEventListener("click", saveDashboardConfig);
   document.getElementById("dashboard-config-reset").addEventListener("click", resetDashboardConfig);
@@ -206,6 +213,7 @@ function showPage(page) {
   setText("page-title", PAGES[page] || "Dashboard");
   if (page === "dashboard") {
     rebuildPriceChart();
+    redrawDashboardCharts();
   }
 }
 
@@ -233,6 +241,7 @@ function applyTheme(theme, options = {}) {
     }
   }
   rebuildPriceChart();
+  redrawDashboardCharts();
 }
 
 async function refreshDashboard() {
@@ -260,6 +269,7 @@ async function refreshDashboard() {
     await renderPriceOverview(statusPayload);
     renderKpis(statusPayload);
     applyDashboardWidgets();
+    await renderDashboardCharts();
     await refreshWorkbench();
     updateReportLinks();
   } catch (error) {
@@ -349,6 +359,148 @@ function applyDashboardWidgets() {
     element.hidden = appState.dashboard.widgets[element.dataset.widget] === false;
   });
   rebuildPriceChart();
+}
+
+function rangeToHours(range) {
+  return range === "6h" ? 6 : range === "48h" ? 48 : range === "7d" ? 24 * 7 : 24;
+}
+
+async function renderDashboardCharts() {
+  destroyDashboardCharts();
+  const container = document.getElementById("dashboard-charts");
+  if (!container) {
+    return;
+  }
+  const charts = appState.dashboard.charts || [];
+  if (!charts.length) {
+    container.innerHTML = "";
+    return;
+  }
+  container.innerHTML = charts.map((chart) => {
+    const meta = channelMeta(chart.channel);
+    const typeLabel = chart.type === "bar" ? "Säulen" : "Linie";
+    return `
+      <article class="tool-panel dashboard-chart-tile">
+        <div class="panel-head">
+          <div>
+            <h3>${escapeHtml(meta.label || chart.channel)}</h3>
+            <p>${escapeHtml([meta.unit, typeLabel].filter(Boolean).join(" · "))}</p>
+          </div>
+        </div>
+        <div class="chart-frame report-chart" data-chart-frame="${escapeHtml(chart.id)}"></div>
+      </article>
+    `;
+  }).join("");
+
+  const referenceNow = getReferenceNow(appState.statusPayload || {});
+  await Promise.all(charts.map(async (chart) => {
+    const hours = rangeToHours(chart.range);
+    const start = new Date(referenceNow.getTime() - hours * 3600 * 1000);
+    const granularity = hours > 48 ? "1h" : "5m";
+    const payload = await fetchHistorySafe(chart.channel, start, referenceNow, granularity, historyLimit(granularity));
+    const points = normalizeHistoryRows(payload.rows || [])
+      .map((row) => ({ time: parseTime(row.timestamp), value: historyValue(row) }))
+      .filter(isFinitePoint);
+    dashboardChartData.set(chart.id, { points, error: payload.error });
+  }));
+
+  charts.forEach((chart, index) => drawDashboardChart(chart, index));
+}
+
+function redrawDashboardCharts() {
+  (appState.dashboard.charts || []).forEach((chart, index) => drawDashboardChart(chart, index));
+}
+
+function destroyDashboardChart(id) {
+  dashboardCharts = dashboardCharts.filter((entry) => {
+    if (entry.id !== id) {
+      return true;
+    }
+    try {
+      if (entry.observer) {
+        entry.observer.disconnect();
+      }
+      entry.instance.destroy();
+    } catch (error) {
+      /* Instanz bereits entfernt. */
+    }
+    return false;
+  });
+}
+
+function destroyDashboardCharts() {
+  dashboardCharts.forEach((entry) => {
+    try {
+      if (entry.observer) {
+        entry.observer.disconnect();
+      }
+      entry.instance.destroy();
+    } catch (error) {
+      /* Instanz bereits entfernt. */
+    }
+  });
+  dashboardCharts = [];
+}
+
+function drawDashboardChart(chart, index) {
+  const frame = document.querySelector(`[data-chart-frame="${chart.id}"]`);
+  if (!frame) {
+    return;
+  }
+  destroyDashboardChart(chart.id);
+  frame.innerHTML = "";
+  const data = dashboardChartData.get(chart.id);
+  if (!data || !data.points.length) {
+    frame.innerHTML = `<div class="chart-empty">${escapeHtml(data && data.error ? data.error : "Keine Daten im Zeitraum.")}</div>`;
+    return;
+  }
+  if (typeof uPlot === "undefined") {
+    frame.innerHTML = '<div class="chart-empty">Diagramm-Bibliothek nicht geladen.</div>';
+    return;
+  }
+  const colors = reportChartColors();
+  const color = SERIES_COLORS[index % SERIES_COLORS.length];
+  let xs;
+  let ys;
+  let seriesOptions;
+  if (chart.type === "bar") {
+    const span = data.points[data.points.length - 1].time - data.points[0].time;
+    const bucketMs = span > 3 * 24 * 3600 * 1000 ? 24 * 3600 * 1000 : 3600 * 1000;
+    const buckets = aggregateBuckets(data.points, bucketMs);
+    xs = buckets.map((bucket) => Math.round(bucket.time / 1000));
+    ys = buckets.map((bucket) => bucket.value);
+    seriesOptions = { stroke: color, fill: hexToRgba(color, 0.55), width: 1, paths: uPlot.paths.bars({ size: [0.7, 40] }), points: { show: false } };
+  } else {
+    xs = data.points.map((point) => Math.round(point.time / 1000));
+    ys = data.points.map((point) => point.value);
+    seriesOptions = { stroke: color, width: 2, fill: hexToRgba(color, 0.1), points: { show: false } };
+  }
+  const instance = new uPlot({
+    width: frame.clientWidth || 520,
+    height: 200,
+    padding: [12, 14, 4, 8],
+    legend: { show: false },
+    cursor: { y: false },
+    scales: { x: { time: true } },
+    axes: [
+      { stroke: colors.axis, font: `12px ${colors.font}`, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
+        values: (_u, splits) => splits.map((value) => TIME_ONLY.format(new Date(value * 1000))) },
+      { stroke: colors.axis, font: `12px ${colors.font}`, size: 52, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
+        values: (_u, splits) => splits.map((value) => formatAxis(value)) },
+    ],
+    series: [{}, seriesOptions],
+  }, [xs, ys], frame);
+
+  let observer = null;
+  if (typeof ResizeObserver !== "undefined") {
+    observer = new ResizeObserver(() => {
+      if (frame.clientWidth) {
+        instance.setSize({ width: frame.clientWidth, height: 200 });
+      }
+    });
+    observer.observe(frame);
+  }
+  dashboardCharts.push({ id: chart.id, instance, observer });
 }
 
 function renderSignals(payload) {
@@ -909,9 +1061,19 @@ function loadDashboardConfig() {
         }
       });
     }
-    return { kpis, widgets };
+    const charts = Array.isArray(parsed.charts)
+      ? parsed.charts
+        .filter((chart) => chart && typeof chart.channel === "string")
+        .map((chart) => ({
+          id: String(chart.id || `chart-${chart.channel}`),
+          channel: chart.channel,
+          type: chart.type === "bar" ? "bar" : "line",
+          range: ["6h", "24h", "48h", "7d"].includes(chart.range) ? chart.range : "24h",
+        }))
+      : [];
+    return { kpis, widgets, charts };
   } catch {
-    return { kpis: [...DEFAULT_DASHBOARD.kpis], widgets: { ...DEFAULT_DASHBOARD.widgets } };
+    return { kpis: [...DEFAULT_DASHBOARD.kpis], widgets: { ...DEFAULT_DASHBOARD.widgets }, charts: [] };
   }
 }
 
@@ -938,7 +1100,54 @@ function openDashboardConfig() {
       <span>${escapeHtml(widget.label)}</span>
     </label>
   `).join("");
+
+  const channelSelect = document.getElementById("chart-add-channel");
+  channelSelect.innerHTML = appState.availableChannels.map((channel) => `
+    <option value="${escapeHtml(channel.id)}">${escapeHtml(channel.label || channel.id)}${channel.unit ? ` (${escapeHtml(channel.unit)})` : ""}</option>
+  `).join("");
+  modalChartDraft = appState.dashboard.charts.map((chart) => ({ ...chart }));
+  renderChartConfigList();
+
   document.getElementById("dashboard-config-modal").hidden = false;
+}
+
+function renderChartConfigList() {
+  const list = document.getElementById("chart-config-list");
+  if (!modalChartDraft.length) {
+    list.innerHTML = '<div class="empty-state compact">Noch keine eigenen Diagramme.</div>';
+    return;
+  }
+  const typeLabel = { line: "Linie", bar: "Säulen" };
+  const rangeLabel = { "6h": "6 Std", "24h": "24 Std", "48h": "48 Std", "7d": "7 Tage" };
+  list.innerHTML = modalChartDraft.map((chart) => {
+    const meta = channelMeta(chart.channel);
+    return `
+      <div class="chart-config-item">
+        <span>${escapeHtml(meta.label || chart.channel)} · ${escapeHtml(typeLabel[chart.type] || chart.type)} · ${escapeHtml(rangeLabel[chart.range] || chart.range)}</span>
+        <button type="button" class="link-button" data-remove-chart="${escapeHtml(chart.id)}">Entfernen</button>
+      </div>
+    `;
+  }).join("");
+  list.querySelectorAll("button[data-remove-chart]").forEach((button) => {
+    button.addEventListener("click", () => {
+      modalChartDraft = modalChartDraft.filter((chart) => chart.id !== button.dataset.removeChart);
+      renderChartConfigList();
+    });
+  });
+}
+
+function addModalChart() {
+  const channel = document.getElementById("chart-add-channel").value;
+  if (!channel) {
+    return;
+  }
+  modalChartDraft.push({
+    id: `chart-${Date.now()}-${modalChartDraft.length}`,
+    channel,
+    type: document.getElementById("chart-add-type").value === "bar" ? "bar" : "line",
+    range: document.getElementById("chart-add-range").value,
+  });
+  renderChartConfigList();
 }
 
 function closeDashboardConfig() {
@@ -954,22 +1163,25 @@ function saveDashboardConfig() {
     widgets[widget.id] = document.querySelector(`input[name='config-widget'][value='${widget.id}']`)?.checked ?? true;
   });
   appState.dashboard.widgets = widgets;
+  appState.dashboard.charts = modalChartDraft.map((chart) => ({ ...chart }));
   persistDashboardConfig();
   if (appState.statusPayload) {
     renderKpis(appState.statusPayload);
   }
   applyDashboardWidgets();
+  renderDashboardCharts();
   closeDashboardConfig();
 }
 
 function resetDashboardConfig() {
-  appState.dashboard = { kpis: [...DEFAULT_DASHBOARD.kpis], widgets: { ...DEFAULT_DASHBOARD.widgets } };
+  appState.dashboard = { kpis: [...DEFAULT_DASHBOARD.kpis], widgets: { ...DEFAULT_DASHBOARD.widgets }, charts: [] };
   persistDashboardConfig();
   openDashboardConfig();
   if (appState.statusPayload) {
     renderKpis(appState.statusPayload);
   }
   applyDashboardWidgets();
+  renderDashboardCharts();
 }
 
 function selectedChannelMeta() {
