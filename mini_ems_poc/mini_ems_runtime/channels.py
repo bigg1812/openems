@@ -57,6 +57,8 @@ class ChannelRegistry:
                 instance=points.grid_active_power_kw,
                 access="read",
                 description="Grid active power in kW",
+                plausible_min=-1_000_000.0,
+                plausible_max=1_000_000.0,
             ),
             CURRENT_PRICE_CHANNEL: PointConfig(
                 channel_id=CURRENT_PRICE_CHANNEL,

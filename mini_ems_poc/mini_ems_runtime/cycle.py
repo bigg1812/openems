@@ -94,12 +94,13 @@ class CycleRunner:
             return snapshot
 
         if self.config.controllers.grid_lockout.enabled:
+            grid_point = self.registry.get(GRID_ACTIVE_POWER_CHANNEL)
             grid_read = self.read_diagnostics.read_float_channel(
                 GRID_ACTIVE_POWER_CHANNEL,
                 samples=1,
                 delay_seconds=self.config.timing.inter_read_delay_seconds,
-                plausible_min=-1_000_000.0,
-                plausible_max=1_000_000.0,
+                plausible_min=grid_point.plausible_min,
+                plausible_max=grid_point.plausible_max,
             )
             input_reads[GRID_ACTIVE_POWER_CHANNEL] = grid_read.to_dict()
             if grid_read.status != "ok" or grid_read.value is None:
