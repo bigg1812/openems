@@ -2,12 +2,15 @@ import logging
 import socket
 import struct
 import time
-from dataclasses import dataclass
 from typing import Optional
 
 from .channels import BACNET_AV, BACNET_BV, PointConfig
 from .config import NetworkConfig
 from .logging_utils import log_event
+from .protocol import WriteConfirmation
+
+# Backwards-compatible alias: the confirmation type is now protocol-neutral.
+BacnetWriteConfirmation = WriteConfirmation
 
 PROP_PRESENT_VALUE = 85
 WRITE_PRIORITY = 14
@@ -29,32 +32,6 @@ class BacnetCommunicationError(BacnetError):
 
 class BacnetProtocolError(BacnetError):
     """Raised when the controller returns an unexpected BACnet frame."""
-
-
-@dataclass(frozen=True)
-class BacnetWriteConfirmation:
-    channel_id: str
-    confirmed: bool
-    ack_received: bool
-    confirmation_mode: str
-    confirmation_source: Optional[str]
-    desired_value: object
-    attempts: int
-    readback_value: Optional[float] = None
-    error: Optional[str] = None
-
-    def to_dict(self) -> dict:
-        return {
-            "channel_id": self.channel_id,
-            "confirmed": self.confirmed,
-            "ack_received": self.ack_received,
-            "confirmation_mode": self.confirmation_mode,
-            "confirmation_source": self.confirmation_source,
-            "desired_value": self.desired_value,
-            "attempts": self.attempts,
-            "readback_value": self.readback_value,
-            "error": self.error,
-        }
 
 
 class BacnetAdapter:
@@ -156,7 +133,7 @@ class BacnetAdapter:
         point: PointConfig,
         desired_value: object,
         confirmation_mode: str,
-    ) -> BacnetWriteConfirmation:
+    ) -> WriteConfirmation:
         if not point.can_write():
             raise BacnetPermissionError("Write access denied for channel {0}".format(point.channel_id))
 
@@ -172,7 +149,7 @@ class BacnetAdapter:
 
         try:
             attempts = self._write_with_ack(point.channel_id, desired_value, payload, invoke_id, point)
-            return BacnetWriteConfirmation(
+            return WriteConfirmation(
                 channel_id=point.channel_id,
                 confirmed=True,
                 ack_received=True,
@@ -186,7 +163,7 @@ class BacnetAdapter:
                 try:
                     readback_value = self.read_float(point)
                 except BacnetError as readback_error:
-                    return BacnetWriteConfirmation(
+                    return WriteConfirmation(
                         channel_id=point.channel_id,
                         confirmed=False,
                         ack_received=False,
@@ -198,7 +175,7 @@ class BacnetAdapter:
                     )
 
                 if _float_values_match(float(desired_value), readback_value):
-                    return BacnetWriteConfirmation(
+                    return WriteConfirmation(
                         channel_id=point.channel_id,
                         confirmed=True,
                         ack_received=False,
@@ -209,7 +186,7 @@ class BacnetAdapter:
                         readback_value=readback_value,
                     )
 
-                return BacnetWriteConfirmation(
+                return WriteConfirmation(
                     channel_id=point.channel_id,
                     confirmed=False,
                     ack_received=False,
@@ -227,7 +204,7 @@ class BacnetAdapter:
                     ),
                 )
 
-            return BacnetWriteConfirmation(
+            return WriteConfirmation(
                 channel_id=point.channel_id,
                 confirmed=False,
                 ack_received=False,
