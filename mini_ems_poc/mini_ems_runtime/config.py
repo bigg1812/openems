@@ -520,6 +520,17 @@ def _validate_config(config: MiniEmsConfig) -> None:
         "ems.lockout_grid",
         "ems.lockout_spotmarket",
     }
+    from .channels import ChannelRegistry, GRID_ACTIVE_POWER_CHANNEL
+
+    grid_point = ChannelRegistry.from_points_config(config.points).get(GRID_ACTIVE_POWER_CHANNEL)
+    if (
+        grid_point.plausible_min is not None
+        and grid_point.plausible_max is not None
+        and grid_point.plausible_min > grid_point.plausible_max
+    ):
+        raise ValueError(
+            "core channel plausible_min must be <= plausible_max for {0}".format(GRID_ACTIVE_POWER_CHANNEL)
+        )
     for channel_id, input_config in config.additional_inputs.items():
         if channel_id in core_channels:
             raise ValueError("additional_inputs channel_id duplicates a core channel: {0}".format(channel_id))

@@ -480,6 +480,26 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertIn("write_failure", snapshot["safe_mode_reason"])
         self.assertIn("ems.lockout_grid", snapshot["desired_outputs"])
 
+    def test_implausible_grid_read_triggers_safe_mode_via_point_bounds(self) -> None:
+        grid_point = self.registry.get(GRID_ACTIVE_POWER_CHANNEL)
+        self.assertIsNotNone(grid_point.plausible_max)
+        out_of_range = grid_point.plausible_max + 1.0
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(out_of_range, invoke_id=1, instance=300),
+            ]
+        )
+        runner = self._build_runner(fake_socket)
+
+        snapshot = runner.run_cycle()
+
+        self.assertEqual(snapshot["status"], "safe_mode")
+        self.assertIn("grid_read", snapshot["safe_mode_reason"])
+        self.assertEqual(
+            snapshot["input_reads"][GRID_ACTIVE_POWER_CHANNEL]["status"], "warning"
+        )
+        self.assertFalse(snapshot["input_reads"][GRID_ACTIVE_POWER_CHANNEL]["plausible"])
+
     def test_spotmarket_bv_is_written_even_if_price_write_fails(self) -> None:
         override_path = self.config.spotmarket_override_path
         override_path.parent.mkdir(parents=True, exist_ok=True)
