@@ -7,10 +7,10 @@ from typing import Dict, List, Optional
 from .bacnet import (
     BacnetCommunicationError,
     BacnetPermissionError,
-    BacnetWriteConfirmation,
 )
 from .channels import BACNET_AV, BACNET_BV, PointConfig
 from .logging_utils import log_event
+from .protocol import WriteConfirmation
 from .price_cache import CachedDay, PriceCacheFile, PublishedPriceSnapshot
 from .price_provider_smard import PriceProviderError, berlin_now
 from .state_store import write_json_atomic
@@ -59,10 +59,10 @@ class SimulatedBacnetAdapter:
         point: PointConfig,
         desired_value: object,
         confirmation_mode: str,
-    ) -> BacnetWriteConfirmation:
+    ) -> WriteConfirmation:
         normalized_value = self._normalize_write_value(point, desired_value)
         self._store_write(point, normalized_value)
-        return BacnetWriteConfirmation(
+        return WriteConfirmation(
             channel_id=point.channel_id,
             confirmed=True,
             ack_received=False,

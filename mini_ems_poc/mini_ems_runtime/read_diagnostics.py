@@ -3,9 +3,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from .bacnet import BacnetAdapter, BacnetError
+from .bacnet import BacnetError
 from .channels import ChannelRegistry
 from .logging_utils import log_event, utcnow_iso
+from .protocol import ProtocolAdapter
 
 
 @dataclass(frozen=True)
@@ -56,7 +57,7 @@ class ChannelReadDiagnosticsService:
     def __init__(
         self,
         registry: ChannelRegistry,
-        adapter: BacnetAdapter,
+        adapter: ProtocolAdapter,
         logger: logging.Logger,
     ):
         self.registry = registry

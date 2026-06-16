@@ -1,7 +1,6 @@
 import logging
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from .bacnet import BacnetAdapter
 from .channels import (
     CURRENT_PRICE_CHANNEL,
     GRID_ACTIVE_POWER_CHANNEL,
@@ -15,6 +14,7 @@ from .logging_utils import log_event, utcnow_iso
 from .operator_status import build_operator_message
 from .price_cache import PublishedPriceSnapshot, SpotmarketPriceCacheService
 from .price_provider_smard import PriceProviderError
+from .protocol import ProtocolAdapter
 from .read_diagnostics import ChannelReadDiagnostic, ChannelReadDiagnosticsService
 from .runtime_db import RuntimeDatabase
 from .spotmarket_plan import SpotmarketManualOverrideStore, SpotmarketPlanWriter
@@ -26,7 +26,7 @@ class CycleRunner:
         self,
         config: MiniEmsConfig,
         registry: ChannelRegistry,
-        adapter: BacnetAdapter,
+        adapter: ProtocolAdapter,
         state_store: StateStore,
         logger: logging.Logger,
         price_service: SpotmarketPriceCacheService,
