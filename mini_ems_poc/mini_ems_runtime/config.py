@@ -34,6 +34,7 @@ class AdditionalInputConfig:
     plausible_max: Optional[float] = None
     include_in_health: bool = False
     read_interval_cycles: int = 1
+    max_age_seconds: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -404,6 +405,7 @@ def _load_additional_inputs(
             plausible_max=_optional_float(entry.get("plausible_max")),
             include_in_health=bool(entry.get("include_in_health", False)),
             read_interval_cycles=int(entry.get("read_interval_cycles", 1)),
+            max_age_seconds=_optional_float(entry.get("max_age_seconds")),
         )
     return additional_inputs
 
@@ -540,4 +542,8 @@ def _validate_config(config: MiniEmsConfig) -> None:
         if input_config.read_interval_cycles <= 0:
             raise ValueError(
                 "additional_inputs read_interval_cycles must be > 0 for {0}".format(channel_id)
+            )
+        if input_config.max_age_seconds is not None and input_config.max_age_seconds <= 0:
+            raise ValueError(
+                "additional_inputs max_age_seconds must be > 0 for {0}".format(channel_id)
             )
