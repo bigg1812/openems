@@ -101,8 +101,11 @@ class CycleRunner:
                 delay_seconds=self.config.timing.inter_read_delay_seconds,
                 plausible_min=grid_point.plausible_min,
                 plausible_max=grid_point.plausible_max,
+                max_age_seconds=grid_point.max_age_seconds,
             )
             input_reads[GRID_ACTIVE_POWER_CHANNEL] = grid_read.to_dict()
+            # Conservative policy: a stale grid read demotes status to "warning"
+            # (see read_diagnostics) and is treated exactly like a read error -> safe_mode.
             if grid_read.status != "ok" or grid_read.value is None:
                 self.state.health.consecutive_comm_errors += 1
                 snapshot = self._handle_safe_mode(
@@ -168,8 +171,12 @@ class CycleRunner:
                 delay_seconds=self.config.timing.inter_read_delay_seconds,
                 plausible_min=point.plausible_min,
                 plausible_max=point.plausible_max,
+                max_age_seconds=point.max_age_seconds,
             )
             input_reads[channel_id] = diagnostic.to_dict()
+            # Conservative policy: a stale additional input is surfaced as a warning
+            # (and as quality=stale in the input_reads/health payload) but is NOT
+            # escalated to full safe_mode, mirroring existing additional-input handling.
             if diagnostic.status != "ok":
                 log_event(
                     self.logger,
@@ -178,6 +185,9 @@ class CycleRunner:
                     cycle_id=cycle_id,
                     channel_id=channel_id,
                     status=diagnostic.status,
+                    quality=diagnostic.quality,
+                    age_seconds=diagnostic.age_seconds,
+                    max_age_seconds=diagnostic.max_age_seconds,
                     error=diagnostic.error,
                 )
 
@@ -729,6 +739,9 @@ class CycleRunner:
                 "value": diagnostic.get("value"),
                 "status": diagnostic.get("status"),
                 "error": diagnostic.get("error"),
+                "quality": diagnostic.get("quality"),
+                "age_seconds": diagnostic.get("age_seconds"),
+                "max_age_seconds": diagnostic.get("max_age_seconds"),
             }
         return additional_inputs
 

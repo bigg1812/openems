@@ -4,6 +4,7 @@ import socket
 import struct
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -37,7 +38,12 @@ from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
 from mini_ems_poc.mini_ems_runtime.objectlist_import import import_objectlist_snapshot
 from mini_ems_poc.mini_ems_runtime.price_cache import CachedDay, PriceCacheFile, PublishedPriceSnapshot, SpotmarketPriceCacheService
 from mini_ems_poc.mini_ems_runtime.price_provider_smard import PriceProviderError, RecentSlotMapScanResult, SmardPriceProvider, berlin_now
-from mini_ems_poc.mini_ems_runtime.read_diagnostics import ChannelReadDiagnosticsService
+from mini_ems_poc.mini_ems_runtime.read_diagnostics import (
+    QUALITY_BAD,
+    QUALITY_GOOD,
+    QUALITY_STALE,
+    ChannelReadDiagnosticsService,
+)
 from mini_ems_poc.mini_ems_runtime.runtime_db import RuntimeDatabase
 from mini_ems_poc.mini_ems_runtime.simulation import SimulatedBacnetAdapter, SimulatedSpotmarketPriceService
 from mini_ems_poc.mini_ems_runtime.spotmarket_plan import SpotmarketManualOverrideStore, SpotmarketPlanWriter
@@ -87,6 +93,24 @@ class FakePriceService:
         if not self.snapshots:
             raise AssertionError("No fake price snapshot configured")
         return self.snapshots.pop(0)
+
+
+class ScriptedClock:
+    """Injectable UTC clock returning successive moments from a queue.
+
+    The diagnostics service calls now() once per captured sample and once more
+    when computing age, so a script of two timestamps lets a test simulate a
+    valid value that is already older than max_age_seconds at evaluation time.
+    """
+
+    def __init__(self, moments):
+        self._moments = list(moments)
+        self._last = self._moments[-1] if self._moments else datetime.now(timezone.utc)
+
+    def __call__(self):
+        if self._moments:
+            self._last = self._moments.pop(0)
+        return self._last
 
 
 class FakeHTTPHeaders:
@@ -1035,7 +1059,133 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertEqual(rollup_history[0]["average_value"], 14.5)
         self.assertEqual(rollup_history[0]["last_value"], 14.5)
 
-    def _build_runner(self, fake_socket: FakeSocket, price_service=None) -> CycleRunner:
+    def test_value_past_max_age_seconds_is_flagged_stale(self) -> None:
+        # A valid read whose timestamp is older than max_age_seconds must become
+        # quality=stale and lose its "ok" status (demoted to "warning").
+        registry = ChannelRegistry.from_points_config(self.config.points, self.config.additional_inputs)
+        fake_socket = FakeSocket(
+            [make_read_response_for_point(7.2, invoke_id=1, instance=300)]
+        )
+        adapter = BacnetAdapter(self.config.network, self.logger, sock=fake_socket)
+        captured_at = datetime(2026, 4, 1, 9, 30, 0, tzinfo=timezone.utc)
+        # Sample captured at 09:30:00, evaluated 120s later -> older than max_age=60.
+        clock = ScriptedClock([captured_at, captured_at + timedelta(seconds=120)])
+        service = ChannelReadDiagnosticsService(
+            registry=registry,
+            adapter=adapter,
+            logger=self.logger,
+            now=clock,
+        )
+
+        diagnostic = service.read_float_channel(
+            GRID_ACTIVE_POWER_CHANNEL,
+            samples=1,
+            max_age_seconds=60.0,
+        )
+
+        self.assertEqual(diagnostic.quality, QUALITY_STALE)
+        self.assertEqual(diagnostic.status, "warning")
+        self.assertEqual(diagnostic.value, 7.2)
+        self.assertAlmostEqual(diagnostic.age_seconds, 120.0)
+        self.assertEqual(diagnostic.max_age_seconds, 60.0)
+        self.assertEqual(diagnostic.to_dict()["quality"], QUALITY_STALE)
+
+    def test_fresh_value_within_max_age_seconds_is_good(self) -> None:
+        registry = ChannelRegistry.from_points_config(self.config.points, self.config.additional_inputs)
+        fake_socket = FakeSocket(
+            [make_read_response_for_point(7.2, invoke_id=1, instance=300)]
+        )
+        adapter = BacnetAdapter(self.config.network, self.logger, sock=fake_socket)
+        captured_at = datetime(2026, 4, 1, 9, 30, 0, tzinfo=timezone.utc)
+        clock = ScriptedClock([captured_at, captured_at + timedelta(seconds=5)])
+        service = ChannelReadDiagnosticsService(
+            registry=registry,
+            adapter=adapter,
+            logger=self.logger,
+            now=clock,
+        )
+
+        diagnostic = service.read_float_channel(
+            GRID_ACTIVE_POWER_CHANNEL,
+            samples=1,
+            max_age_seconds=60.0,
+        )
+
+        self.assertEqual(diagnostic.quality, QUALITY_GOOD)
+        self.assertEqual(diagnostic.status, "ok")
+
+    def test_failed_read_quality_is_bad(self) -> None:
+        registry = ChannelRegistry.from_points_config(self.config.points, self.config.additional_inputs)
+        fake_socket = FakeSocket([socket.timeout()])
+        adapter = BacnetAdapter(self.config.network, self.logger, sock=fake_socket)
+        service = ChannelReadDiagnosticsService(
+            registry=registry,
+            adapter=adapter,
+            logger=self.logger,
+        )
+
+        diagnostic = service.read_float_channel(
+            GRID_ACTIVE_POWER_CHANNEL,
+            samples=1,
+            max_age_seconds=60.0,
+        )
+
+        self.assertEqual(diagnostic.quality, QUALITY_BAD)
+        self.assertEqual(diagnostic.status, "error")
+        self.assertIsNone(diagnostic.age_seconds)
+
+    def test_stale_additional_input_is_warned_but_not_safe_mode(self) -> None:
+        # Documented policy: a stale ADDITIONAL input surfaces as quality=stale in
+        # health/input_reads but does NOT escalate the cycle to safe_mode.
+        self.config.additional_inputs["site.outdoor_temperature_c"] = AdditionalInputConfig(
+            channel_id="site.outdoor_temperature_c",
+            object_type=0,
+            instance=1801,
+            description="Outdoor temperature",
+            controller_ip="192.168.1.200",
+            controller_port=47808,
+            plausible_min=-50.0,
+            plausible_max=60.0,
+            include_in_health=True,
+            max_age_seconds=30.0,
+        )
+        fake_socket = FakeSocket(
+            [
+                make_read_response_for_point(7.2, invoke_id=1, instance=300),
+                make_read_response_for_point(
+                    14.5,
+                    invoke_id=2,
+                    instance=1801,
+                    object_type=0,
+                    sender_ip="192.168.1.200",
+                ),
+                make_ack_response(invoke_id=3),
+                make_ack_response(invoke_id=4),
+                make_ack_response(invoke_id=5),
+            ]
+        )
+        base = datetime(2026, 4, 1, 9, 30, 0, tzinfo=timezone.utc)
+        # The clock advances by 90s on every call; the additional input is read
+        # second, so by the time its age is evaluated it is well past max_age=30.
+        clock = ScriptedClock([base + timedelta(seconds=90 * i) for i in range(8)])
+        runner = self._build_runner(fake_socket, now=clock)
+
+        snapshot = runner.run_cycle()
+        health = json.loads(self.config.health_path.read_text(encoding="utf-8"))
+        additional = health["additional_inputs"]["site.outdoor_temperature_c"]
+
+        # Not escalated to safe_mode (additional input policy).
+        self.assertNotEqual(snapshot["status"], "safe_mode")
+        # But observably stale in both the snapshot input_reads and health payload.
+        self.assertEqual(
+            snapshot["input_reads"]["site.outdoor_temperature_c"]["quality"],
+            QUALITY_STALE,
+        )
+        self.assertEqual(additional["quality"], QUALITY_STALE)
+        self.assertEqual(additional["max_age_seconds"], 30.0)
+        self.assertEqual(additional["status"], "warning")
+
+    def _build_runner(self, fake_socket: FakeSocket, price_service=None, now=None) -> CycleRunner:
         registry = ChannelRegistry.from_points_config(self.config.points, self.config.additional_inputs)
         adapter = BacnetAdapter(self.config.network, self.logger, sock=fake_socket)
         state_store = StateStore(self.config.state_path, registry.output_channel_ids())
@@ -1058,6 +1208,7 @@ class CycleRunnerTest(unittest.TestCase):
                 registry=registry,
                 adapter=adapter,
                 logger=self.logger,
+                now=now,
             ),
             runtime_db=RuntimeDatabase(self.config.database_path),
         )
