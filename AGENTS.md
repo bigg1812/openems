@@ -30,3 +30,5 @@ History uses concise imperative subjects, sometimes with prefixes such as `feat:
 ## Security & Configuration Tips
 
 Do not commit logs, runtime databases, secrets, or plant-specific credentials. Treat `mini_ems_poc/config.json` as real IPC operation and `mini_ems_poc/config.local.json` as laptop simulation. Never add a local-development path that can send real BACnet writes.
+
+For Mini EMS IPC restart and Secomea access, follow `mini_ems_poc/AGENTS.md` section "IPC Restart / Secomea Runbook". The supported production start path is the scheduled task (`windows/install_task.ps1` + `run_mini_ems.cmd`), not the legacy `MiniEmsPoC` Windows service.

@@ -3,64 +3,64 @@
   "site": "Stuttgart",
   "source": "Open-Meteo",
   "current": {
-    "time": "2026-06-01T21:45",
-    "temperature_c": 21.6,
-    "apparent_temperature_c": 21.5,
-    "humidity_percent": 50,
+    "time": "2026-06-17T15:15",
+    "temperature_c": 29.9,
+    "apparent_temperature_c": 28.5,
+    "humidity_percent": 24,
     "precipitation_mm": 0.0,
-    "wind_speed_kmh": 1.8,
+    "wind_speed_kmh": 13.0,
     "weather_code": 2,
     "weather_label": "teilweise bew\u00f6lkt"
   },
   "next_hours": [
     {
-      "time": "2026-06-01T00:00",
-      "temperature_c": 18.3,
-      "precipitation_probability_percent": 50,
+      "time": "2026-06-17T00:00",
+      "temperature_c": 21.8,
+      "precipitation_probability_percent": 0,
+      "cloud_cover_percent": 99
+    },
+    {
+      "time": "2026-06-17T01:00",
+      "temperature_c": 21.4,
+      "precipitation_probability_percent": 0,
       "cloud_cover_percent": 100
     },
     {
-      "time": "2026-06-01T01:00",
-      "temperature_c": 18.1,
-      "precipitation_probability_percent": 13,
-      "cloud_cover_percent": 79
-    },
-    {
-      "time": "2026-06-01T02:00",
-      "temperature_c": 17.6,
+      "time": "2026-06-17T02:00",
+      "temperature_c": 20.9,
       "precipitation_probability_percent": 0,
-      "cloud_cover_percent": 79
+      "cloud_cover_percent": 50
     },
     {
-      "time": "2026-06-01T03:00",
+      "time": "2026-06-17T03:00",
+      "temperature_c": 20.0,
+      "precipitation_probability_percent": 0,
+      "cloud_cover_percent": 87
+    },
+    {
+      "time": "2026-06-17T04:00",
+      "temperature_c": 19.6,
+      "precipitation_probability_percent": 0,
+      "cloud_cover_percent": 55
+    },
+    {
+      "time": "2026-06-17T05:00",
+      "temperature_c": 18.0,
+      "precipitation_probability_percent": 0,
+      "cloud_cover_percent": 0
+    },
+    {
+      "time": "2026-06-17T06:00",
       "temperature_c": 17.3,
       "precipitation_probability_percent": 0,
-      "cloud_cover_percent": 100
+      "cloud_cover_percent": 12
     },
     {
-      "time": "2026-06-01T04:00",
-      "temperature_c": 16.6,
-      "precipitation_probability_percent": 8,
-      "cloud_cover_percent": 96
-    },
-    {
-      "time": "2026-06-01T05:00",
-      "temperature_c": 16.3,
-      "precipitation_probability_percent": 35,
-      "cloud_cover_percent": 98
-    },
-    {
-      "time": "2026-06-01T06:00",
-      "temperature_c": 16.1,
-      "precipitation_probability_percent": 45,
-      "cloud_cover_percent": 89
-    },
-    {
-      "time": "2026-06-01T07:00",
-      "temperature_c": 16.5,
-      "precipitation_probability_percent": 25,
-      "cloud_cover_percent": 48
+      "time": "2026-06-17T07:00",
+      "temperature_c": 18.2,
+      "precipitation_probability_percent": 0,
+      "cloud_cover_percent": 82
     }
   ],
-  "fetched_at": "2026-06-01T19:58:23.346207Z"
+  "fetched_at": "2026-06-17T13:24:09.401236Z"
 }

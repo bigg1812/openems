@@ -610,6 +610,42 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertTrue(snapshot.price_source_status["stale"])
         self.assertEqual(snapshot.price_source_status["fallback"], "cache")
 
+    def test_price_cache_promotes_cached_tomorrow_after_midnight_when_smard_is_unavailable(self) -> None:
+        today = berlin_now().date()
+        yesterday = today.fromordinal(today.toordinal() - 1)
+
+        class ProviderStub:
+            def __init__(self):
+                self.config = type("Config", (), {"resolution": "quarterhour", "provider": "smard"})()
+
+            def current_slot_index(self, _now_local):
+                return 43
+
+            def slot_label(self, slot_index):
+                hour = slot_index // 4
+                minute = (slot_index % 4) * 15
+                return f"{hour:02d}:{minute:02d}"
+
+            def scan_recent_slot_maps(self, _target_dates):
+                raise PriceProviderError("vpn offline")
+
+        cache_path = self.base_dir / "spotmarket_price_cache.json"
+        cache = PriceCacheFile(
+            last_update_at="2026-04-01T23:55:31+02:00",
+            today=CachedDay(date_iso=yesterday.isoformat(), slots=[10.0] * 96),
+            tomorrow=CachedDay(date_iso=today.isoformat(), slots=[12.5] * 96),
+        )
+        cache_path.write_text(json.dumps(cache.to_dict(), indent=2), encoding="utf-8")
+
+        service = SpotmarketPriceCacheService(cache_path, ProviderStub())
+        snapshot = service.refresh()
+
+        self.assertEqual(snapshot.today_date_iso, today.isoformat())
+        self.assertEqual(snapshot.current_slot_label, "10:45")
+        self.assertEqual(snapshot.current_price_ct_kwh, 12.5)
+        self.assertTrue(snapshot.price_source_status["stale"])
+        self.assertEqual(snapshot.price_source_status["fallback"], "cache")
+
     def test_cache_file_name_is_operator_readable(self) -> None:
         self.assertEqual(self.config.price_cache_path.name, "spotmarket_price_cache.json")
         self.assertEqual(self.config.spotmarket_plan_path.name, "spotmarket_tomorrow_windows.json")

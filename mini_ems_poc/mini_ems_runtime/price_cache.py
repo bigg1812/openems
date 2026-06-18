@@ -169,6 +169,12 @@ class SpotmarketPriceCacheService:
     ) -> Optional[PublishedPriceSnapshot]:
         today_entry = cache.today
         if today_entry is None or today_entry.date_iso != today.isoformat():
+            if cache.tomorrow is not None and cache.tomorrow.date_iso == today.isoformat():
+                today_entry = cache.tomorrow
+            else:
+                return None
+
+        if today_entry.date_iso != today.isoformat():
             return None
 
         slot_index = self.provider.current_slot_index(now_local)
