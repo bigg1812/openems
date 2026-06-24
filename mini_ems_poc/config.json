@@ -24,7 +24,8 @@
       "plausible_min": -50.0,
       "plausible_max": 60.0,
       "include_in_health": true,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.buffer_1_top_temperature_c",
@@ -34,7 +35,8 @@
       "plausible_min": -20.0,
       "plausible_max": 120.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.buffer_1_bottom_temperature_c",
@@ -44,7 +46,8 @@
       "plausible_min": -20.0,
       "plausible_max": 120.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.buffer_2_top_temperature_c",
@@ -54,7 +57,8 @@
       "plausible_min": -20.0,
       "plausible_max": 120.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.buffer_2_bottom_temperature_c",
@@ -64,7 +68,8 @@
       "plausible_min": -20.0,
       "plausible_max": 120.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.heat_generation_flow_temperature_c",
@@ -74,7 +79,8 @@
       "plausible_min": -20.0,
       "plausible_max": 120.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.heat_generation_return_temperature_c",
@@ -84,7 +90,8 @@
       "plausible_min": -20.0,
       "plausible_max": 120.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.boiler_1_flow_temperature_c",
@@ -94,7 +101,8 @@
       "plausible_min": -20.0,
       "plausible_max": 120.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.boiler_1_return_temperature_c",
@@ -104,7 +112,8 @@
       "plausible_min": -20.0,
       "plausible_max": 120.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.boiler_2_flow_temperature_c",
@@ -114,7 +123,8 @@
       "plausible_min": -20.0,
       "plausible_max": 120.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.boiler_2_return_temperature_c",
@@ -124,7 +134,8 @@
       "plausible_min": -20.0,
       "plausible_max": 120.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.chp_flow_temperature_c",
@@ -134,7 +145,8 @@
       "plausible_min": -20.0,
       "plausible_max": 120.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.chp_return_temperature_c",
@@ -144,7 +156,8 @@
       "plausible_min": -20.0,
       "plausible_max": 120.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.chp_electric_energy_kwh",
@@ -156,7 +169,8 @@
       "plausible_min": 0.0,
       "plausible_max": 1000000000.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.chp_thermal_energy_kwh",
@@ -168,7 +182,8 @@
       "plausible_min": 0.0,
       "plausible_max": 1000000000.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.pellet_thermal_energy_kwh",
@@ -180,7 +195,8 @@
       "plausible_min": 0.0,
       "plausible_max": 1000000000.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     },
     {
       "channel_id": "site.gas_thermal_energy_kwh",
@@ -192,7 +208,8 @@
       "plausible_min": 0.0,
       "plausible_max": 1000000000.0,
       "include_in_health": false,
-      "read_interval_cycles": 5
+      "read_interval_cycles": 5,
+      "max_age_seconds": 600
     }
   ],
   "timing": {
