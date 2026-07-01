@@ -1,3 +1,14 @@
+## 0. Python-Version
+
+**Mini EMS braucht Python >= 3.10. Verwende `python3.12` bzw. die Projekt-`.venv`.**
+
+- Der Code nutzt PEP-604-Syntax (`X | None`). Der Standard-`python3` vieler Laptops (z. B. macOS-System-Python)
+  ist 3.9 und scheitert damit tief im Import mit einem kryptischen `TypeError`, nicht mit einer klaren Meldung.
+- `mini_ems.py` prüft die Version deshalb selbst ganz am Anfang und bricht bei < 3.10 mit einer eindeutigen
+  deutschen Fehlermeldung und Exit-Code `1` ab.
+- Exakter Interpreter: `python3.12` oder `/Users/gabriel/dev/openems/.venv/bin/python`.
+- Tests: `/Users/gabriel/dev/openems/.venv/bin/python -m unittest discover -s mini_ems_poc/tests -v`.
+
 ## 1. Think Before Coding
 
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
