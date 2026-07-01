@@ -386,6 +386,7 @@ async function renderDashboardCharts() {
             <h3>${escapeHtml(meta.label || chart.channel)}</h3>
             <p>${escapeHtml([meta.unit, typeLabel].filter(Boolean).join(" · "))}</p>
           </div>
+          ${qualityBadgeHtml(chart.channel)}
         </div>
         <div class="chart-frame report-chart" data-chart-frame="${escapeHtml(chart.id)}"></div>
       </article>
@@ -729,6 +730,7 @@ function renderSeriesGrid(histories) {
           <div>
             <strong>${escapeHtml(item.channel.label || "Datenpunkt")}</strong>
             <span>${escapeHtml([item.channel.group, item.channel.unit || valueKindLabel(item.channel.kind)].filter(Boolean).join(" / "))}</span>
+            ${qualityBadgeHtml(item.channel.id)}
           </div>
           <span class="badge">${escapeHtml(item.channel.unit || item.channel.kind || "")}</span>
         </div>
@@ -1773,6 +1775,54 @@ function channelMeta(channelId) {
 
 function windowLabel(window) {
   return `${window.start_label || "-"} bis ${window.end_label_exclusive || "-"}`;
+}
+
+function channelQuality(channelId) {
+  const inputs = appState.statusPayload?.health?.additional_inputs;
+  if (!inputs || typeof inputs !== "object") {
+    return null;
+  }
+  const entry = inputs[channelId];
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  const quality = typeof entry.quality === "string" ? entry.quality.toLowerCase() : null;
+  const ageSeconds = toNumber(entry.age_seconds);
+  return { quality, ageSeconds: Number.isFinite(ageSeconds) ? ageSeconds : null };
+}
+
+function qualityBadgeHtml(channelId) {
+  const info = channelQuality(channelId);
+  if (!info || info.quality === "good" || info.quality === null) {
+    return "";
+  }
+  if (info.quality === "stale") {
+    const age = Number.isFinite(info.ageSeconds) ? ` (${escapeHtml(formatAgeSeconds(info.ageSeconds))})` : "";
+    return `<span class="quality-badge stale" title="Der Messwert wurde länger nicht aktualisiert.">Wert veraltet${age}</span>`;
+  }
+  if (info.quality === "bad") {
+    return '<span class="quality-badge bad" title="Für diesen Messpunkt liegt kein gültiger Wert vor. Bitte die Verbindung zur Anlage prüfen.">Messwert gestört</span>';
+  }
+  return "";
+}
+
+function formatAgeSeconds(seconds) {
+  const value = toNumber(seconds);
+  if (!Number.isFinite(value) || value < 0) {
+    return "";
+  }
+  if (value < 90) {
+    return "seit unter 1 Min";
+  }
+  const minutes = Math.round(value / 60);
+  if (minutes < 90) {
+    return `seit ${minutes} Min`;
+  }
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) {
+    return `seit ${hours} Std`;
+  }
+  return `seit ${Math.round(hours / 24)} Tagen`;
 }
 
 function friendlyState(value) {

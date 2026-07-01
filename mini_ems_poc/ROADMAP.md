@@ -187,7 +187,7 @@ Leitentscheidungen:
     relevanten `additional_inputs`; `config.py`-Validierung (`> 0`) bleibt erfuellt; Tests bleiben gruen
     (`python3.12 -m unittest discover -s mini_ems_poc/tests -v`).
 
-- [ ] **2. Quality/Freshness im Dashboard sichtbar machen**
+- [x] **2. Quality/Freshness im Dashboard sichtbar machen**
   - **Was:** Im Dashboard die `quality`/`age_seconds`/`status`-Flags der Inputs anzeigen (z. B. dezenter Stale-/Bad-Badge
     an der jeweiligen Kachel). Daten liegen in `health.json` (`additional_inputs`) und in `/api/status` bereits vor.
   - **Nutzen:** Der Operator sieht heute keinen Hinweis auf veraltete Messwerte; `dashboard.js` rendert weder
