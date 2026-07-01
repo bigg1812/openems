@@ -34,11 +34,17 @@ Der IPC-Betrieb bleibt auf `config.json`. Für Entwicklung auf dem Laptop gibt e
 Diese lokale Konfiguration nutzt keine echte BACnet-Kommunikation, sondern liest Beispielwerte aus `sim/sample_values.json`
 und Beispielpreise aus `sim/sample_prices.json`.
 
+**Python-Version:** Mini EMS benötigt Python >= 3.10 (PEP-604-Syntax wie `X | None`). Der System-`python3`
+auf macOS-Laptops ist häufig 3.9 und scheitert dann tief im Import mit einem `TypeError` statt einer klaren Meldung.
+`mini_ems.py` prüft die Version deshalb selbst und bricht bei < 3.10 sofort mit einer verständlichen deutschen
+Fehlermeldung ab. Nutze den exakten Interpreter: `python3.12` bzw. die Projekt-`.venv`
+(`/Users/gabriel/dev/openems/.venv/bin/python`).
+
 Start im Projektordner:
 
 ```bash
-python mini_ems.py --config config.local.json --once
-python mini_ems.py --config config.local.json --loop
+python3.12 mini_ems.py --config config.local.json --once
+python3.12 mini_ems.py --config config.local.json --loop
 ```
 
 Im lokalen Modus werden Schreibbefehle nicht an die echte Anlage gesendet. Sie werden nur als simulierte Writes bestätigt

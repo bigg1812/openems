@@ -173,7 +173,7 @@ Leitentscheidungen:
 
 ## Priorisierte To-do-Liste
 
-- [ ] **1. Freshness-Gate scharf schalten (Config statt totem Code)**
+- [x] **1. Freshness-Gate scharf schalten (Config statt totem Code)**
   - **Was:** In `config.json` und `config.local.json` fuer die Temperatur-/Zaehler-Inputs sinnvolle
     `max_age_seconds`-Werte setzen (aktuell 0 von 17 `additional_inputs` gesetzt -> Gate ist implementiert, aber inaktiv).
   - **Nutzen:** Der bereits gebaute Quality-Gate (`stale`/`bad`) wirkt erst, wenn `max_age_seconds` konfiguriert ist.
@@ -229,7 +229,7 @@ Leitentscheidungen:
   - **Definition of Done:** Neuer Unit-Test reproduziert einen veralteten Heartbeat und erwartet ein Stale-/Alarm-Feld in der
     Health-Payload; alle Tests gruen; Standardverhalten ohne Konfiguration unveraendert.
 
-- [ ] **5. Python-Versions-Footgun entschaerfen (Toolchain/Doku)**
+- [x] **5. Python-Versions-Footgun entschaerfen (Toolchain/Doku)**
   - **Was:** Sicherstellen, dass die dokumentierten Befehle nur mit Python >= 3.10 laufen: in `README.md`/`AGENTS.md` den
     Versions-Hinweis prominenter machen bzw. einen `python_requires`/Versions-Check ergaenzen (z. B. fruehe Pruefung in `mini_ems.py`).
   - **Nutzen:** `python3 -m unittest ...` schlaegt auf Maschinen mit `python3` = 3.9 hart fehl (PEP-604 `X | None`),
@@ -240,7 +240,7 @@ Leitentscheidungen:
   - **Definition of Done:** Ein Aufruf mit Python < 3.10 liefert eine klare Fehlermeldung statt eines `TypeError` tief im Import;
     Doku nennt den exakten Interpreter (z. B. `python3.12`); Tests unter 3.10+ bleiben gruen.
 
-- [ ] **6. Doku-Pfade an Ist-Konfiguration angleichen**
+- [x] **6. Doku-Pfade an Ist-Konfiguration angleichen**
   - **Was:** In `MINI_EMS_ANLEITUNG.md` die Pfade fuer SQLite/Log konsistent machen: Doku nennt `data/runtime/mini_ems.sqlite`
     und `logs/mini_ems.log`, die lokale Konfiguration nutzt `data/local/...` bzw. `data/runtime/...` je nach Umgebung.
   - **Nutzen:** Vermeidet falsche Pfadannahmen bei Betrieb/Debugging; rein redaktionell, kein Code-Risiko.

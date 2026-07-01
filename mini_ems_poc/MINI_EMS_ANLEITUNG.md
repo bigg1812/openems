@@ -81,6 +81,10 @@ Der aktuelle fachliche Scope ist:
 
 ## Aktuelle Ordnerstruktur
 
+Die folgende Struktur zeigt die IPC-Pfade aus `config.json`. Der lokale Simulationsbetrieb mit
+`config.local.json` schreibt in eigene Unterordner (`data/local/`, `logs/local/`, `runtime/local/`) -
+siehe Abschnitt "Konfiguration" und "Wichtige Laufzeitdateien" fuer die genauen lokalen Pfade.
+
 ```text
 mini_ems_poc/
 |-- config.json
@@ -95,6 +99,11 @@ mini_ems_poc/
 |-- data/
 |   |-- runtime/
 |   |   `-- mini_ems.sqlite
+|   |-- local/
+|   |   |-- mini_ems.local.sqlite
+|   |   |-- spotmarket_price_cache.json
+|   |   |-- spotmarket_tomorrow_windows.json
+|   |   `-- spotmarket_manual_override.json
 |   `-- spotmarket/
 |       |-- spotmarket_manual_override.json
 |       |-- spotmarket_manual_override.example.json
@@ -102,7 +111,9 @@ mini_ems_poc/
 |       `-- spotmarket_tomorrow_windows.json
 |-- logs/
 |   |-- mini_ems.log
-|   `-- mini_ems_stdout.log
+|   |-- mini_ems_stdout.log
+|   `-- local/
+|       `-- mini_ems.local.log
 |-- mini_ems_runtime/
 |   |-- app.py
 |   |-- bacnet.py
@@ -121,7 +132,10 @@ mini_ems_poc/
 |   `-- state_store.py
 |-- runtime/
 |   |-- health.json
-|   `-- state.json
+|   |-- state.json
+|   `-- local/
+|       |-- health.json
+|       `-- state.json
 |-- sim/
 |   |-- sample_prices.json
 |   `-- sample_values.json
@@ -307,9 +321,25 @@ Das bedeutet:
 
 ### Datenbank und API
 
+IPC (`config.json`):
+
 ```json
 "database": {
   "sqlite_file": "data/runtime/mini_ems.sqlite"
+},
+"api": {
+  "enabled": true,
+  "host": "192.168.244.10",
+  "port": 8090,
+  "history_default_limit": 96
+}
+```
+
+Lokal (`config.local.json`):
+
+```json
+"database": {
+  "sqlite_file": "data/local/mini_ems.local.sqlite"
 },
 "api": {
   "enabled": true,
@@ -354,7 +384,8 @@ Wichtig:
 
 Die manuelle Testdatei ist:
 
-[spotmarket_manual_override.json](C:/dev/openems/mini_ems_poc/data/spotmarket/spotmarket_manual_override.json)
+- IPC (`config.json`): [spotmarket_manual_override.json](C:/dev/openems/mini_ems_poc/data/spotmarket/spotmarket_manual_override.json)
+- Lokal (`config.local.json`): `data/local/spotmarket_manual_override.json`
 
 Beispiel:
 
@@ -386,7 +417,10 @@ Wichtig:
 
 ### `runtime/health.json`
 
-[health.json](C:/dev/openems/mini_ems_poc/runtime/health.json) ist der kompakte Operator-Snapshot. Sie zeigt nur den aktuellen Zustand und keine vollstaendige Historie.
+IPC (`config.json`): [health.json](C:/dev/openems/mini_ems_poc/runtime/health.json)
+Lokal (`config.local.json`): `runtime/local/health.json`
+
+Diese Datei ist der kompakte Operator-Snapshot. Sie zeigt nur den aktuellen Zustand und keine vollstaendige Historie.
 
 Wichtige Felder:
 
@@ -439,15 +473,21 @@ Beispiel fuer Output-Status:
 
 ### `runtime/state.json`
 
-[state.json](C:/dev/openems/mini_ems_poc/runtime/state.json) ist der technische Persistenzzustand der Runtime. Diese Datei ist fuer Debugging und Neustart-Wiederaufnahme wichtig, aber nicht als schlanke Bedienoberflaeche gedacht.
+IPC (`config.json`): [state.json](C:/dev/openems/mini_ems_poc/runtime/state.json)
+Lokal (`config.local.json`): `runtime/local/state.json`
+
+Diese Datei ist der technische Persistenzzustand der Runtime. Sie ist fuer Debugging und Neustart-Wiederaufnahme wichtig, aber nicht als schlanke Bedienoberflaeche gedacht.
 
 ### `logs/mini_ems.log`
 
-[mini_ems.log](C:/dev/openems/mini_ems_poc/logs/mini_ems.log) ist die technische Referenzdatei. Sie ist bei Zeit-, Schalt- und Kommunikationsfragen wichtiger als GUI oder Excel, weil dort die echten App-Zeitstempel und Fehlerdetails stehen.
+IPC (`config.json`): [mini_ems.log](C:/dev/openems/mini_ems_poc/logs/mini_ems.log)
+Lokal (`config.local.json`): `logs/local/mini_ems.local.log`
+
+Diese Datei ist die technische Referenzdatei. Sie ist bei Zeit-, Schalt- und Kommunikationsfragen wichtiger als GUI oder Excel, weil dort die echten App-Zeitstempel und Fehlerdetails stehen.
 
 ## Spotmarkt-Dateien
 
-### `data/spotmarket/spotmarket_price_cache.json`
+### `data/spotmarket/spotmarket_price_cache.json` (IPC) / `data/local/spotmarket_price_cache.json` (lokal)
 
 Enthaelt:
 
@@ -456,7 +496,7 @@ Enthaelt:
 - pro Tag 96 Slots
 - `slots_by_label` fuer lesbare Uhrzeiten
 
-### `data/spotmarket/spotmarket_tomorrow_windows.json`
+### `data/spotmarket/spotmarket_tomorrow_windows.json` (IPC) / `data/local/spotmarket_tomorrow_windows.json` (lokal)
 
 Enthaelt die erkannten negativen Preisfenster fuer `today` und `tomorrow`, jeweils mit Start, Ende, Laenge und Preisbereich. Diese Datei wird sowohl fuer Betrieb als auch fuer API und Dashboard genutzt.
 
@@ -464,7 +504,8 @@ Enthaelt die erkannten negativen Preisfenster fuer `today` und `tomorrow`, jewei
 
 Die Laufzeitdatenbank ist:
 
-- [mini_ems.sqlite](C:/dev/openems/mini_ems_poc/data/runtime/mini_ems.sqlite)
+- IPC (`config.json`): [mini_ems.sqlite](C:/dev/openems/mini_ems_poc/data/runtime/mini_ems.sqlite)
+- Lokal (`config.local.json`): `data/local/mini_ems.local.sqlite`
 
 Sie ist eine lokale SQLite-Datei. Mini-EMS schreibt dort bei jedem Zyklus Rohdaten hinein und erzeugt zusaetzlich Rollups fuer spaetere Reports.
 
@@ -605,7 +646,8 @@ Wichtig:
 
 ### Beobachtungshinweise
 
-Fuer den Betrieb sind diese drei Sichtweisen am wichtigsten:
+Fuer den Betrieb sind diese drei Sichtweisen am wichtigsten (IPC-Pfade aus `config.json`;
+lokal mit `config.local.json` liegen die gleichen Dateien unter `runtime/local/`, `logs/local/` und `data/local/`):
 
 1. [health.json](C:/dev/openems/mini_ems_poc/runtime/health.json)
 2. [mini_ems.log](C:/dev/openems/mini_ems_poc/logs/mini_ems.log)
