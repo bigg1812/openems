@@ -76,6 +76,8 @@ Die Energiezaehler AV48 bis AV51 werden read-only von Controller 192.168.244.30 
 Mini EMS PoC ist absichtlich kein vollwertiges EMS.
 Es ist auch nicht gedacht als generische Plattform fuer beliebige Standorte.
 Der Fokus liegt auf einem klaren, kleinen MVP mit nachvollziehbarer Logik und realem Betriebskontext.
+Innerhalb des großen OpenEMS-Repos wird `mini_ems_poc/` wie ein eigenständiges Teilprojekt geführt.
+OpenEMS bleibt Referenz für professionelle Struktur, Begriffe und Muster; produktive Änderungen sollen aber eng auf Mini EMS begrenzt bleiben.
 
 Das Projekt will zeigen:
 
@@ -93,23 +95,35 @@ Es will nicht sofort alles abdecken:
 ## Dokumentation
 
 - [Technische Anleitung](./MINI_EMS_ANLEITUNG.md)
+- [Technische Roadmap](./ROADMAP.md)
+- [Product & UX Roadmap](./PRODUCT_UX_ROADMAP.md)
 
 Die Anleitung ist bewusst tiefer und beschreibt Architektur, Konfiguration und Betrieb im Detail.
+Die technische Roadmap hält Betriebs-, Architektur-, Sicherheits- und Deployment-Schritte fest.
+Die Product & UX Roadmap behandelt Reporting, Bedienbarkeit, moderne UI-Richtung, Sprache und Demo-Fähigkeit.
 Diese README ist der Einstieg fuer das schnelle Gesamtverstaendnis.
 
 ## Ordnerstruktur
 
 ```text
 mini_ems_poc/
+|-- AGENTS.md
+|-- EMS-Mapping.md
 |-- README.md
 |-- MINI_EMS_ANLEITUNG.md
+|-- ROADMAP.md
+|-- PRODUCT_UX_ROADMAP.md
 |-- config.json
+|-- config.local.json
 |-- mini_ems.py
+|-- dashboard_proxy.py
+|-- run_mini_ems.cmd
 |-- mini_ems_runtime/
 |-- dashboard/
 |-- data/
 |-- logs/
 |-- runtime/
+|-- sim/
 |-- tests/
 `-- windows/
 ```
@@ -118,4 +132,4 @@ mini_ems_poc/
 
 1. Mini EMS PoC ist ein lokaler Prototyp fuer Energie-Logik auf einem IPC.
 2. Die Kernidee ist: messen, bewerten, schreiben, speichern.
-3. Die Anleitung beschreibt die Technik, diese README beschreibt Zweck und Vision.
+3. README, technische Roadmap und Product & UX Roadmap trennen Zweck, Betriebstechnik und Nutzererlebnis bewusst.

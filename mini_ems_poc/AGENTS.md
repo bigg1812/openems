@@ -58,7 +58,22 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
-## 5. German UI Language
+## 5. Mini EMS File Overview
+
+**Keep technical roadmap, product UX, and runtime docs separate.**
+
+- `README.md` is the short project entry point: purpose, MVP scope, core files, and documentation links.
+- `MINI_EMS_ANLEITUNG.md` is the operational and technical runbook: configuration, runtime behavior, API, dashboard, IPC operation, and troubleshooting.
+- `ROADMAP.md` is the technical roadmap: architecture, data quality, safety, deployment, protected customer hosting, and operational hardening.
+- `PRODUCT_UX_ROADMAP.md` is the product and UX roadmap: reporting quality, easier user flows, modern minimal UI direction, wording, roles, and demo readiness.
+- `EMS-Mapping.md` is the protocol and channel mapping reference: how external points become Mini EMS channels and how future protocol adapters should stay aligned.
+- `config.json` is the real IPC/site configuration. Treat it as plant operation.
+- `config.local.json` is the local simulation configuration. Use it for laptop development.
+- `dashboard/` contains the browser UI. Customer-facing UI text must use clear German and hide internal IDs unless the view is explicitly technical diagnostics.
+- `mini_ems_runtime/` contains runtime code. Keep business logic, protocol access, API, persistence, and reporting changes scoped to the relevant module.
+- `windows/`, `run_mini_ems.cmd`, logs, data, and runtime state belong to deployment and operation, not product UX.
+
+## 6. German UI Language
 
 **Use real German umlauts in user-facing German text.**
 
@@ -66,7 +81,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Do not write `ae`, `oe`, `ue` or `ss` as replacements in German UI copy, documentation, or messages unless the target system technically requires ASCII.
 - Customer-facing UI must use plain business language. Do not show internal IDs such as `ems.lockout_spotmarket`, BACnet object names, or protocol terms unless the screen is explicitly technical diagnostics.
 
-## 6. Local vs IPC Safety
+## 7. Local vs IPC Safety
 
 **The laptop is for simulation. The IPC is for real plant operation.**
 
@@ -76,7 +91,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Do not add a code path that sends real BACnet writes from `environment=local`.
 - If you need test values, edit `sim/sample_values.json` or `sim/sample_prices.json` instead of changing real BACnet points.
 
-## 7. IPC Restart / Secomea Runbook
+## 8. IPC Restart / Secomea Runbook
 
 **Use the scheduled task, not the legacy Windows service.**
 
