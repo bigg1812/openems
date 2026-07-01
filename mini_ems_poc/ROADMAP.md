@@ -171,6 +171,28 @@ Leitentscheidungen:
   - **Risiken:** Audit-Logs dürfen keine Geheimnisse oder unnötigen personenbezogenen Daten enthalten.
   - **Definition of Done:** Betriebslog und Zugriffskonzept sind für einen Pilotkunden erklärbar.
 
+- [ ] **H9. Konfigurations-UI als geschützten Entwurfs- und Speicherpfad bauen**
+  - **Was:** Die UI ersetzt `config.json` nicht blind und schreibt nicht direkt aus einem Formular in die aktive
+    Standortkonfiguration. Ziel ist ein kontrollierter Ablauf: aktive Konfiguration lesen, erlaubte Felder als
+    Entwurf bearbeiten, denselben fachlichen und technischen Regeln wie beim Runtime-Start validieren, Entwurf
+    speichern, aktive Konfiguration vor Änderung sichern, Änderung mit Admin-Recht bzw. Token übernehmen und
+    den Vorgang auditierbar protokollieren. Änderungen, die nur beim Start geladen werden, bleiben bis zum
+    geplanten Mini-EMS-Neustart als "Neustart erforderlich" markiert.
+  - **Nutzen:** Betreiber bekommen eine verständliche Konfigurationsoberfläche, ohne die Schutzwirkung der
+    getrennten IPC-/Laptop-Konfiguration, Validierung und geplanten Betriebsfreigabe zu verlieren.
+  - **Betroffen:** HTTP-API, künftige Auth-/Token-Schicht, Config-Validierung, Backup-/Rollback-Ablage,
+    Audit-Log, `MINI_EMS_ANLEITUNG.md`, Windows-Task-Neustartprozess.
+  - **Aufwand:** M/L
+  - **Risiken:** Der erste Netzwerkzugriff bleibt read-only. Schreibende Konfigurations-Endpunkte dürfen nicht
+    über den Viewer-/Remote-Pfad erreichbar sein, brauchen Admin-Recht bzw. ein kurzlebiges Token und dürfen nie
+    direkt ins Internet freigegeben werden. Der lokale Simulationspfad (`config.local.json`, `127.0.0.1`,
+    `runtime.bacnet_mode=simulated`, `runtime.real_writes_enabled=false`) darf keinen Weg bekommen, echte
+    BACnet-Writes auszulösen. Safety-Flags und Anlagen-Schreibfreigaben bleiben lokale Admin-/IPC-Arbeit.
+  - **Definition of Done:** Ungültige Entwürfe können die aktive Konfiguration nicht überschreiben; jede
+    Übernahme erzeugt ein Backup und einen Audit-Eintrag ohne Geheimnisse; Admin-/Token-Prüfung ist dokumentiert;
+    read-only Netzwerkbetrieb blockiert schreibende Endpunkte; Neustartbedarf und Rollback-Pfad sind in Betrieb
+    und UI sichtbar.
+
 ## Priorisierte To-do-Liste
 
 - [x] **1. Freshness-Gate scharf schalten (Config statt totem Code)**
