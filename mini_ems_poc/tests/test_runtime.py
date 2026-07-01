@@ -4,6 +4,7 @@ import socket
 import struct
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -32,6 +33,7 @@ from mini_ems_poc.mini_ems_runtime.config import (
     SafetyConfig,
     SpotMarketLockoutConfig,
     TimingConfig,
+    WatchdogConfig,
 )
 from mini_ems_poc.mini_ems_runtime.cycle import CycleRunner
 from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
@@ -1220,6 +1222,54 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertEqual(additional["quality"], QUALITY_STALE)
         self.assertEqual(additional["max_age_seconds"], 30.0)
         self.assertEqual(additional["status"], "warning")
+
+    def test_stale_heartbeat_flags_stale_runtime_when_watchdog_configured(self) -> None:
+        # A configured watchdog turns an old heartbeat into an explicit stale_runtime
+        # alarm in the health payload, without touching safe_mode/control logic.
+        self.config = replace(
+            self.config,
+            watchdog=WatchdogConfig(max_cycle_age_seconds=120.0),
+        )
+        fake_socket = FakeSocket([])
+        runner = self._build_runner(fake_socket)
+        # Baseline: runtime is not in safe_mode. The watchdog must not change this.
+        runner.state.health.safe_mode_active = False
+        runner.state.health.safe_mode_reason = None
+        # Simulate a hung runtime: the persisted heartbeat is far older than "now".
+        runner.state.health.last_cycle_at = "2026-04-01T09:30:00Z"
+        runner.state.health.last_healthy_at = "2026-04-01T09:30:00Z"
+        # Evaluate 5 minutes later -> well past the 120s liveness threshold.
+        runner.read_diagnostics._now = lambda: datetime(2026, 4, 1, 9, 35, 0, tzinfo=timezone.utc)
+
+        watchdog = runner._watchdog_snapshot()
+        health = runner._build_health_payload({"watchdog": watchdog})
+
+        self.assertTrue(watchdog["stale_runtime"])
+        self.assertEqual(watchdog["runtime_status"], "stale_runtime")
+        self.assertAlmostEqual(watchdog["last_cycle_age_seconds"], 300.0)
+        self.assertEqual(health["runtime_status"], "stale_runtime")
+        self.assertTrue(health["stale_runtime"])
+        self.assertEqual(health["max_cycle_age_seconds"], 120.0)
+        # The watchdog only reports; it must not flip the runtime into safe_mode.
+        self.assertFalse(runner.state.health.safe_mode_active)
+
+    def test_stale_heartbeat_without_watchdog_config_does_not_alarm(self) -> None:
+        # Default behaviour is unchanged: without max_cycle_age_seconds the watchdog
+        # stays observational and never emits a stale_runtime alarm, even if old.
+        fake_socket = FakeSocket([])
+        runner = self._build_runner(fake_socket)
+        self.assertIsNone(self.config.watchdog.max_cycle_age_seconds)
+        runner.state.health.last_cycle_at = "2026-04-01T09:30:00Z"
+        runner.state.health.last_healthy_at = "2026-04-01T09:30:00Z"
+        runner.read_diagnostics._now = lambda: datetime(2026, 4, 1, 10, 30, 0, tzinfo=timezone.utc)
+
+        watchdog = runner._watchdog_snapshot()
+        health = runner._build_health_payload({"watchdog": watchdog})
+
+        self.assertFalse(watchdog["stale_runtime"])
+        self.assertEqual(watchdog["runtime_status"], "live")
+        self.assertFalse(health["stale_runtime"])
+        self.assertEqual(health["runtime_status"], "live")
 
     def _build_runner(self, fake_socket: FakeSocket, price_service=None, now=None) -> CycleRunner:
         registry = ChannelRegistry.from_points_config(self.config.points, self.config.additional_inputs)

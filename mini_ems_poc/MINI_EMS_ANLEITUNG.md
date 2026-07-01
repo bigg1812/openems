@@ -615,7 +615,10 @@ Fuer den Betrieb sind diese drei Sichtweisen am wichtigsten:
 
 1. `BV:400` weiter fachlich verifizieren
 2. Controller- und GUI-Zeitbasis sauber im Feld nachhalten
-3. Watchdog fuer echten Betriebsalarm bei haengender Runtime ergaenzen
+3. Watchdog fuer echten Betriebsalarm bei haengender Runtime: umgesetzt. Ist der letzte Zyklus- bzw.
+   Healthy-Zeitstempel aelter als `watchdog.max_cycle_age_seconds`, meldet `health.json` den Status
+   `stale_runtime` (Felder `stale_runtime`, `runtime_status`). Ohne konfigurierten Schwellwert bleibt der
+   Watchdog rein beobachtend; der Watchdog meldet nur "kein Zyklus mehr" und loest keine Safe-Mode-/Steuerlogik aus.
 4. UI spaeter weiter in Richtung OpenEMS-inspirierte Bedienoberflaeche ausbauen
 
 ## Meine aktuelle Empfehlung

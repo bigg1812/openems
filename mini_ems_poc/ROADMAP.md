@@ -216,7 +216,7 @@ Leitentscheidungen:
     auf das bestehende Dashboard oder ein read-only Cloud-Export mit Login; der Pfad zeigt echte IPC-Daten auf einem zweiten
     Rechner; Schreibfunktionen bleiben gesperrt oder explizit außerhalb des Online-UI.
 
-- [ ] **4. Runtime-Watchdog mit echtem Alarm (Offene Punkte #3)**
+- [x] **4. Runtime-Watchdog mit echtem Alarm (Offene Punkte #3)**
   - **Was:** Aus dem reinen Beobachtungs-Snapshot (`_watchdog_snapshot`, `last_healthy_at`) eine echte Liveness-Bewertung
     machen: bei zu altem `last_cycle_at`/`last_healthy_at` einen klaren `stale_runtime`-Status in `health.json` ausgeben.
   - **Nutzen:** Heute wird die Watchdog-Info nur protokolliert, aber nie ausgewertet; eine haengende Runtime faellt nicht auf.
