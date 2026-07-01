@@ -549,6 +549,8 @@ Wenn `api.enabled = true`, startet die Runtime einen HTTP-Server auf der in `api
 
 Für reinen Lokalbetrieb bleibt `127.0.0.1` die sichere Wahl. Wenn Secomea oder ein anderes Remote-Tool zugreifen soll, binde die API an die konkrete EMS-LAN-IP, zum Beispiel `192.168.244.10`. Das ist sauberer und sicherer als `0.0.0.0`, weil der Dienst nur auf dem vorgesehenen Interface erreichbar ist.
 
+Wer, welche Rolle und welcher Netzzugang UI, Konfiguration, Logs und Betriebsdaten sehen darf, sowie die Minimalvariante für ein erstes read-only Online-Hosting (Secomea/VPN vs. externer Hosting-Punkt, freizugebende und zu sperrende Endpunkte, Leitplanken) sind in [HOSTING_SICHERHEIT.md](./HOSTING_SICHERHEIT.md) beschrieben.
+
 Wichtige Endpunkte:
 
 - `/`
