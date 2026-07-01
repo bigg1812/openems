@@ -81,6 +81,14 @@ class SafetyConfig:
 
 
 @dataclass(frozen=True)
+class WatchdogConfig:
+    # Liveness gate for the runtime heartbeat. When max_cycle_age_seconds is None
+    # the watchdog stays purely observational (unchanged default behaviour),
+    # mirroring the max_age_seconds pattern used for additional inputs.
+    max_cycle_age_seconds: Optional[float] = None
+
+
+@dataclass(frozen=True)
 class OutputPolicyConfig:
     confirmation_mode: str
     criticality: str
@@ -153,6 +161,7 @@ class MiniEmsConfig:
     controllers: ControllersConfig
     safety: SafetyConfig
     logging: LoggingConfig
+    watchdog: WatchdogConfig = field(default_factory=WatchdogConfig)
     additional_inputs: Dict[str, AdditionalInputConfig] = field(default_factory=dict)
     output_policies: OutputPoliciesConfig = field(default_factory=lambda: OutputPoliciesConfig(
         current_price=OutputPolicyConfig(
@@ -237,6 +246,7 @@ def load_config(path: Path) -> MiniEmsConfig:
     grid_lockout = _require_dict(controllers, "grid_lockout")
     spotmarket_lockout = _require_dict(controllers, "spotmarket_lockout")
     safety = _require_dict(raw, "safety")
+    watchdog = _optional_dict(raw.get("watchdog"))
     outputs = _optional_dict(raw.get("outputs"))
     database = _optional_dict(raw.get("database"))
     api = _optional_dict(raw.get("api"))
@@ -302,6 +312,9 @@ def load_config(path: Path) -> MiniEmsConfig:
         safety=SafetyConfig(
             fail_safe_output=bool(safety["fail_safe_output"]),
             comm_error_safe_mode_threshold=int(safety["comm_error_safe_mode_threshold"]),
+        ),
+        watchdog=WatchdogConfig(
+            max_cycle_age_seconds=_optional_float(watchdog.get("max_cycle_age_seconds")),
         ),
         output_policies=OutputPoliciesConfig(
             current_price=_load_output_policy(
@@ -490,6 +503,11 @@ def _validate_config(config: MiniEmsConfig) -> None:
         raise ValueError("min_valid_quarters must be <= 24 for hourly resolution")
     if config.safety.comm_error_safe_mode_threshold <= 0:
         raise ValueError("comm_error_safe_mode_threshold must be > 0")
+    if (
+        config.watchdog.max_cycle_age_seconds is not None
+        and config.watchdog.max_cycle_age_seconds <= 0
+    ):
+        raise ValueError("watchdog.max_cycle_age_seconds must be > 0")
     allowed_confirmation_modes = {"ack_only", "ack_or_readback"}
     allowed_criticalities = {"critical", "noncritical"}
     for channel_id in (

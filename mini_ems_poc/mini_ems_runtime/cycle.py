@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .channels import (
@@ -679,6 +680,11 @@ class CycleRunner:
             "spotmarket_summary": snapshot.get("spotmarket_summary"),
             "spotmarket_next_window": snapshot.get("spotmarket_next_window"),
             "last_healthy_at": watchdog.get("last_healthy_at"),
+            "runtime_status": watchdog.get("runtime_status"),
+            "stale_runtime": watchdog.get("stale_runtime"),
+            "max_cycle_age_seconds": watchdog.get("max_cycle_age_seconds"),
+            "last_cycle_age_seconds": watchdog.get("last_cycle_age_seconds"),
+            "last_healthy_age_seconds": watchdog.get("last_healthy_age_seconds"),
             "last_price_handoff_at": watchdog.get("last_price_handoff_at"),
             "last_price_handoff_slot_label": watchdog.get("last_price_handoff_slot_label"),
             "last_price_handoff_value_ct_kwh": watchdog.get("last_price_handoff_value_ct_kwh"),
@@ -768,6 +774,7 @@ class CycleRunner:
         return days
 
     def _watchdog_snapshot(self) -> Dict[str, object]:
+        liveness = self._watchdog_liveness()
         return {
             "last_cycle_id": self.state.health.last_cycle_id,
             "last_cycle_at": self.state.health.last_cycle_at,
@@ -782,6 +789,41 @@ class CycleRunner:
             "last_price_handoff_slot_label": self.state.health.last_price_handoff_slot_label,
             "last_price_handoff_key": self.state.health.last_price_handoff_key,
             "last_price_handoff_value_ct_kwh": self.state.health.last_price_handoff_value_ct_kwh,
+            "max_cycle_age_seconds": self.config.watchdog.max_cycle_age_seconds,
+            "last_cycle_age_seconds": liveness["last_cycle_age_seconds"],
+            "last_healthy_age_seconds": liveness["last_healthy_age_seconds"],
+            "runtime_status": liveness["runtime_status"],
+            "stale_runtime": liveness["stale_runtime"],
+        }
+
+    def _watchdog_liveness(self) -> Dict[str, object]:
+        # Liveness assessment of the runtime heartbeat. Distinct from safe_mode:
+        # the watchdog only asks "did a cycle still run recently", never "was the
+        # cycle faulty" -> it reports status, it never triggers control/safety logic.
+        max_cycle_age_seconds = self.config.watchdog.max_cycle_age_seconds
+        now = self.read_diagnostics.now()
+        last_cycle_age_seconds = _age_seconds_since(self.state.health.last_cycle_at, now)
+        last_healthy_age_seconds = _age_seconds_since(self.state.health.last_healthy_at, now)
+
+        # Without a configured threshold the gate stays inactive and the watchdog
+        # remains a pure observation snapshot (unchanged default behaviour).
+        if max_cycle_age_seconds is None:
+            return {
+                "last_cycle_age_seconds": last_cycle_age_seconds,
+                "last_healthy_age_seconds": last_healthy_age_seconds,
+                "runtime_status": "live",
+                "stale_runtime": False,
+            }
+
+        stale_runtime = (
+            (last_cycle_age_seconds is not None and last_cycle_age_seconds > max_cycle_age_seconds)
+            or (last_healthy_age_seconds is not None and last_healthy_age_seconds > max_cycle_age_seconds)
+        )
+        return {
+            "last_cycle_age_seconds": last_cycle_age_seconds,
+            "last_healthy_age_seconds": last_healthy_age_seconds,
+            "runtime_status": "stale_runtime" if stale_runtime else "live",
+            "stale_runtime": stale_runtime,
         }
 
     def _next_cycle_id(self) -> str:
@@ -791,3 +833,18 @@ class CycleRunner:
 
 def _price_handoff_key(price_snapshot: PublishedPriceSnapshot) -> str:
     return "{0}/{1}".format(price_snapshot.today_date_iso, price_snapshot.current_slot_label)
+
+
+def _age_seconds_since(timestamp: Optional[str], now: datetime) -> Optional[float]:
+    # Age in seconds of an ISO heartbeat timestamp against the (injectable) clock.
+    # Returns None when the timestamp is missing or unparseable, so the watchdog
+    # never fabricates an alarm from absent history.
+    if not timestamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return max(0.0, round((now - parsed).total_seconds(), 3))

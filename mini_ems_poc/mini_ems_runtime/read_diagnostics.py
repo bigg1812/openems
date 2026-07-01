@@ -89,6 +89,11 @@ class ChannelReadDiagnosticsService:
         # without monkeypatching; defaults to the real wall clock.
         self._now = now or _real_now
 
+    def now(self) -> datetime:
+        # Public accessor for the injectable clock so other components (e.g. the
+        # runtime watchdog) share the same testable time source.
+        return self._now()
+
     def read_float_channel(
         self,
         channel_id: str,
