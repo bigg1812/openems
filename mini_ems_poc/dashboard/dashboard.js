@@ -1801,7 +1801,7 @@ function qualityBadgeHtml(channelId) {
     return `<span class="quality-badge stale" title="Der Messwert wurde länger nicht aktualisiert.">Wert veraltet${age}</span>`;
   }
   if (info.quality === "bad") {
-    return '<span class="quality-badge bad" title="Der gemeldete Messwert liegt außerhalb des plausiblen Bereichs.">Messwert unplausibel</span>';
+    return '<span class="quality-badge bad" title="Für diesen Messpunkt liegt kein gültiger Wert vor. Bitte die Verbindung zur Anlage prüfen.">Messwert gestört</span>';
   }
   return "";
 }
