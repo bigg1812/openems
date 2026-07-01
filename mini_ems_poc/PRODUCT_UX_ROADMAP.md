@@ -25,7 +25,7 @@ Leitentscheidungen:
 
 ## Strategische To-do-Linie: Reporting und Auswertung
 
-- [ ] **UX1. Reporting-Zielbild definieren**
+- [x] **UX1. Reporting-Zielbild definieren** — erledigt, siehe `PRODUCT_UX_KONZEPT.md`, Abschnitt 1.
   - **Was:** Festlegen, welche Reports Mini EMS für einen ersten Kunden wirklich braucht: Tagesbericht,
     Wochenübersicht, Anlagenstatus, Auffälligkeiten, Einsparpotenzial und Betriebsnotizen.
   - **Nutzen:** Reporting wird nicht nur Datenexport, sondern ein sichtbarer Kundennutzen.
@@ -112,7 +112,7 @@ Leitentscheidungen:
 
 ## Strategische To-do-Linie: Produktwirkung und Vertrauen
 
-- [ ] **UX10. Kundentaugliche Sprache und Begriffe festlegen**
+- [x] **UX10. Kundentaugliche Sprache und Begriffe festlegen** — erledigt, siehe `PRODUCT_UX_KONZEPT.md`, Abschnitt 2.
   - **Was:** Ein kleines Wording-Set erstellen: Statusbegriffe, Warnungen, Reporttitel, KPI-Namen und Erklärtexte.
   - **Nutzen:** Die Oberfläche klingt konsistent und verständlich, nicht wie ein interner Technikmonitor.
   - **Betroffen:** Dashboard, Reports, Fehlermeldungen, README-/Pilotdoku.
@@ -120,7 +120,7 @@ Leitentscheidungen:
   - **Risiken:** Begriffe müssen fachlich korrekt bleiben.
   - **Definition of Done:** Die wichtigsten UI-Texte sind in klarer deutscher Betreiber-Sprache formuliert.
 
-- [ ] **UX11. Rollenbasierte Ansichten vorbereiten**
+- [x] **UX11. Rollenbasierte Ansichten vorbereiten** — erledigt, siehe `PRODUCT_UX_KONZEPT.md`, Abschnitt 3.
   - **Was:** Fachlich definieren, was Viewer, Operator und Admin jeweils sehen oder tun dürfen.
   - **Nutzen:** Die spätere Login-/Hosting-Logik bekommt ein klares Bedienmodell.
   - **Betroffen:** UI-Struktur, geschütztes Hosting, read-only Netzwerkmodus, Admin-/Systemansicht.
