@@ -101,10 +101,12 @@ Es will nicht sofort alles abdecken:
 ## Dokumentation
 
 - [Technische Anleitung](./MINI_EMS_ANLEITUNG.md)
+- [Edge Integration Contract](./EDGE_INTEGRATION_CONTRACT.md)
 - [Technische Roadmap](./ROADMAP.md)
 - [Product & UX Roadmap](./PRODUCT_UX_ROADMAP.md)
 
 Die Anleitung ist bewusst tiefer und beschreibt Architektur, Konfiguration und Betrieb im Detail.
+Der Edge Integration Contract definiert verbindlich, was die Edge garantiert: gültige Messwerte, Qualität, Lese-/Schreibrechte und Ausfallverhalten.
 Die technische Roadmap hält Betriebs-, Architektur-, Sicherheits- und Deployment-Schritte fest.
 Die Product & UX Roadmap behandelt Reporting, Bedienbarkeit, moderne UI-Richtung, Sprache und Demo-Fähigkeit.
 Diese README ist der Einstieg fuer das schnelle Gesamtverstaendnis.

@@ -44,7 +44,7 @@ Leitentscheidungen:
 
 ## Strategische To-do-Linie: Edge-Integrationskern
 
-- [ ] **S1. Edge Integration Contract dokumentieren**
+- [x] **S1. Edge Integration Contract dokumentieren**
   - **Was:** Eine kurze Architekturdatei anlegen, z. B. `EDGE_INTEGRATION_CONTRACT.md`, die Gerät, Rohpunkt,
     kanonischen Kanal, Semantik, Qualität, Historie, Schreibpfad, Fallback und Audit Trail definiert.
   - **Nutzen:** Verhindert, dass Mini EMS nur ein größerer PoC-Baukasten wird. Der Vertrag macht klar, was die Edge
@@ -58,7 +58,7 @@ Leitentscheidungen:
     Was darf gelesen werden? Was darf geschrieben werden? Was wird geloggt? Was passiert bei Netzwerk-, Controller-
     oder Cloud-Ausfall?
 
-- [ ] **S2. Bestehendes BACnet-Mapping auf das Zielmodell abbilden**
+- [x] **S2. Bestehendes BACnet-Mapping auf das Zielmodell abbilden**
   - **Was:** Die vorhandenen BACnet-Punkte als Referenzmodell beschreiben: `source_id`, `protocol`, `raw_address`,
     `channel_id`, `equipment_id`, `role`, `unit`, `access`, Plausibilität, Aktualität und Schreibrecht.
   - **Nutzen:** Der bestehende PoC wird zur belastbaren Vorlage für spätere Modbus-, HTTP-, MQTT- oder GLT-Anbindungen.
@@ -69,7 +69,7 @@ Leitentscheidungen:
   - **Definition of Done:** Die Regelung kann fachlich als Nutzer kanonischer Kanäle beschrieben werden; das darunterliegende
     Protokoll bleibt austauschbar.
 
-- [ ] **S3. Erstes wiederverwendbares Geräte-Template vorbereiten**
+- [x] **S3. Erstes wiederverwendbares Geräte-Template vorbereiten**
   - **Was:** Eine Geräteklasse als Template denken, bevorzugt Hauptzähler / Netzanschlusspunkt, weil daran Lastspitzen,
     Eigenverbrauch, Speicher, Spotmarkt, Flexibilität und §14a hängen.
   - **Nutzen:** Mini EMS entwickelt sich von projektbezogenen Einzelpunkten zu wiederholbaren Geräte- und Anlagenklassen.

@@ -2,6 +2,8 @@
 
 Zweck dieser Datei: Sie hält fest, wie OpenEMS Messgeräte und Protokolle grundsätzlich auf EMS-Kanäle abbildet, wie unser `mini_ems_poc` aktuell BACnet nutzt, und wie spätere Protokoll-Zubauten sauber erweitert werden sollen.
 
+Der verbindliche Integrationsvertrag (gültiger Messwert, stale/bad, Lese-/Schreibrechte, Audit Trail, Ausfallverhalten) sowie das vollständige Referenz-Mapping der real konfigurierten BACnet-Punkte und das Geräte-Template für den Hauptzähler stehen in [EDGE_INTEGRATION_CONTRACT.md](./EDGE_INTEGRATION_CONTRACT.md).
+
 Wichtig: Das ist eine technische Arbeitskarte für das POC. Jede reale Aufschaltung an elektrischen Anlagen braucht Elektrofachkraft, Betreiberfreigabe, saubere OT-Netztrennung und zuerst einen reinen Lesebetrieb. Schreiben auf Anlagen oder Controller bleibt Human-Review-pflichtig.
 
 ## Kurzfazit
