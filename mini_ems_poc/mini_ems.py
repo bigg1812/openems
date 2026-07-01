@@ -11,8 +11,8 @@ if sys.version_info < (3, 10):
     found = "{}.{}.{}".format(*sys.version_info[:3])
     sys.stderr.write(
         "Fehler: Mini EMS benoetigt Python >= 3.10, gefunden: {}. "
-        "Bitte python3.12 bzw. die Projekt-.venv verwenden "
-        "(z. B. /Users/gabriel/dev/openems/.venv/bin/python).\n".format(found)
+        "Bitte einen Interpreter >= 3.10 verwenden "
+        "(z. B. python3.12 bzw. die Projekt-.venv, siehe README).\n".format(found)
     )
     raise SystemExit(1)
 
