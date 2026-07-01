@@ -1315,6 +1315,28 @@ legend {
   color: var(--alert);
 }
 
+/* Freshness-/Plausibilitaets-Hinweis an der Kachel (dezent, theme-aware) */
+.quality-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-top: var(--sp-1);
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.quality-badge.stale {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.quality-badge.bad {
+  background: var(--alert-soft);
+  color: var(--alert);
+}
+
 /* Textarea */
 textarea {
   width: 100%;
