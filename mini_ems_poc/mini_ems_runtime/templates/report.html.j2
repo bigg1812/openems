@@ -1,312 +1,290 @@
+{#-
+  Kundentauglicher Tagesbericht (UX2, PRODUCT_UX_KONZEPT.md Abschnitt 1/2).
+  Wird nur genutzt, wenn Jinja2 installiert ist; ansonsten rendert
+  runtime_db._render_report_html_fallback dasselbe Layout ohne Abhaengigkeit.
+  Variablen: `overview` (aufbereiteter Tagesbericht-Kopf) und `report`
+  (konfigurierbare Bausteine, dienen als technischer Anhang / Diagramme).
+-#}
+{%- macro kpi(label, value, note) -%}
+  <article class="kpi">
+    <span class="kpi-label">{{ label }}</span>
+    <strong class="kpi-value">{{ value }}</strong>
+    <span class="kpi-note">{{ note }}</span>
+  </article>
+{%- endmacro -%}
+{%- macro price(value) -%}
+  {%- if value is not none -%}{{ "%.2f"|format(value) }} ct/kWh{%- else -%}kein Messwert{%- endif -%}
+{%- endmacro -%}
+{%- macro power(value) -%}
+  {%- if value is not none -%}{{ "%.1f"|format(value) }} kW{%- else -%}kein Messwert{%- endif -%}
+{%- endmacro -%}
+{%- macro num(value) -%}
+  {%- if value is not none -%}{{ "%.2f"|format(value) }}{%- else -%}-{%- endif -%}
+{%- endmacro -%}
+{%- macro series_card(serie) -%}
+  {%- set points = serie.points | selectattr("value", "ne", none) | list -%}
+  <article class="chart-card">
+    <div class="chart-head"><strong>{{ serie.label }}</strong><span>{{ serie.unit }}</span></div>
+    {%- if points -%}
+      {%- set values = points | map(attribute="value") | list -%}
+      {%- set min_value = values | min -%}
+      {%- set max_value = values | max -%}
+      {%- set span = (max_value - min_value) if max_value != min_value else 1 -%}
+      {%- set divisor = points|length - 1 if points|length > 1 else 1 -%}
+      <svg class="chart" viewBox="0 0 520 150" preserveAspectRatio="none" role="img" aria-label="{{ serie.label }}">
+        <line x1="0" y1="132" x2="520" y2="132" stroke="#e8edf2"></line>
+        <polyline fill="none" stroke="{{ '#3f7a5f' if serie.unit == 'kWh' else '#3b6ea5' }}" stroke-width="2"
+          points="{% for point in points %}{{ (loop.index0 / divisor * 520)|round(1) }},{{ (132 - (((point.value - min_value) / span) * 112))|round(1) }} {% endfor %}"></polyline>
+      </svg>
+      <p class="card-meta">Min {{ num(min_value) }} / Max {{ num(max_value) }}</p>
+    {%- else -%}
+      <div class="empty">Kein Messwert im gewählten Zeitraum.</div>
+    {%- endif -%}
+  </article>
+{%- endmacro -%}
+{%- set tone = 'bad' if overview.status_lines | selectattr('label', 'equalto', 'Sicherer Modus') | list
+              else ('warn' if overview.status_lines | selectattr('label', 'equalto', 'Eingeschränkter Betrieb') | list else 'good') -%}
+{%- set tone_label = {'good': 'Normalbetrieb', 'warn': 'Eingeschränkter Betrieb', 'bad': 'Sicherer Modus'}[tone] -%}
 <!doctype html>
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <title>{{ report.title }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ overview.title or report.title }}</title>
   <style>
-    @page { size: A4; margin: 14mm; }
     :root {
-      --ink: #17212b;
-      --muted: #657384;
-      --line: #dbe4ee;
-      --soft: #f6f8fb;
-      --panel: #ffffff;
-      --blue: #2563eb;
-      --green: #16875a;
-      --amber: #b7791f;
-      --red: #bf3f36;
-      --dark: #111b25;
+      --ink: #1c2530; --muted: #667485; --line: #dce3ea; --line-soft: #e8edf2;
+      --panel: #ffffff; --soft: #f7f9fb; --accent: #3b6ea5;
+      --good: #3f7a5f; --warn: #b07a1e; --bad: #b0463c;
     }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: #eef3f7;
-      color: var(--ink);
-      font-family: "Segoe UI", Arial, sans-serif;
-      font-size: 12px;
-      line-height: 1.45;
-    }
-    .report-shell {
-      width: min(1180px, 100%);
-      margin: 0 auto;
-      padding: 28px;
-    }
-    .report-cover {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 24px;
-      align-items: end;
-      padding: 26px;
-      border-radius: 8px;
-      background: var(--dark);
-      color: #ffffff;
-    }
-    .eyebrow {
-      display: block;
-      color: #9fb0c2;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    h1 {
-      margin: 6px 0 0;
-      font-size: 30px;
-      font-weight: 680;
-      letter-spacing: 0;
-    }
-    h2 {
-      margin: 0 0 14px;
-      font-size: 16px;
-      letter-spacing: 0;
-    }
-    .subtitle {
-      margin: 8px 0 0;
-      color: #cad6e2;
-    }
-    .generated {
-      text-align: right;
-      color: #cad6e2;
-    }
-    .pipeline {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 18px;
-    }
-    .pipeline span {
-      min-height: 26px;
-      padding: 5px 9px;
-      border: 1px solid rgba(255, 255, 255, 0.22);
-      border-radius: 8px;
-      color: #edf4fb;
-    }
-    section {
-      margin-top: 18px;
-      padding: 20px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel);
-      page-break-inside: avoid;
-    }
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-    }
-    .card {
-      min-height: 122px;
-      padding: 14px;
-      border: 1px solid var(--line);
-      border-top: 3px solid var(--blue);
-      border-radius: 8px;
-      background: var(--soft);
-      page-break-inside: avoid;
-    }
-    .card.energy {
-      border-top-color: var(--green);
-    }
-    .card.state {
-      border-top-color: var(--amber);
-    }
-    .card-title {
-      display: block;
-      margin-top: 7px;
-      font-weight: 650;
-    }
-    .metric {
-      display: block;
-      margin-top: 10px;
-      color: var(--ink);
-      font-size: 23px;
-      font-weight: 680;
-      line-height: 1;
-    }
-    .metric small {
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 500;
-    }
-    .meta {
-      margin: 8px 0 0;
-      color: var(--muted);
-      font-size: 11px;
-    }
-    .chart-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-    }
-    .chart-card {
-      padding: 14px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #ffffff;
-      page-break-inside: avoid;
-    }
-    .chart-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 8px;
-      color: var(--muted);
-    }
-    .chart {
-      width: 100%;
-      height: 152px;
-      border: 1px solid var(--line);
-      background: #fbfdff;
-    }
-    .empty {
-      padding: 18px;
-      border: 1px dashed var(--line);
-      border-radius: 8px;
-      color: var(--muted);
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    th,
-    td {
-      border-bottom: 1px solid var(--line);
-      padding: 8px 7px;
-      text-align: left;
-      font-size: 11px;
-    }
-    th {
-      color: var(--muted);
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    td.value {
-      font-weight: 650;
-      text-align: right;
-      white-space: nowrap;
-    }
-    .print-note {
-      margin-top: 18px;
-      color: var(--muted);
-      font-size: 11px;
-    }
+    html, body { margin: 0; padding: 0; }
+    body { background: #eef2f6; color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 12px; line-height: 1.5; }
+    .report { width: min(820px, 100%); margin: 0 auto; padding: 24px; }
+    .eyebrow { display: block; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; }
+    h1 { margin: 6px 0 0; font-size: 26px; font-weight: 650; letter-spacing: -0.01em; }
+    h2 { margin: 0 0 12px; font-size: 15px; font-weight: 650; }
+    h3 { margin: 0 0 8px; font-size: 12px; font-weight: 650; color: var(--muted); }
+    p { margin: 0; }
+    .muted { color: var(--muted); }
+    .cover { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding: 22px 24px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+    .cover-sub { margin-top: 4px; color: var(--muted); font-size: 13px; }
+    .cover-meta { display: flex; flex-wrap: wrap; gap: 20px 32px; margin: 18px 0 0; }
+    .cover-meta div { min-width: 120px; }
+    .cover-meta dt { margin: 0; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+    .cover-meta dd { margin: 3px 0 0; font-weight: 600; }
+    .cover-status { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); min-width: 150px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+    .status-good .status-dot { background: var(--good); }
+    .status-warn .status-dot { background: var(--warn); }
+    .status-bad .status-dot { background: var(--bad); }
+    .status-label { font-size: 14px; font-weight: 650; }
+    .status-good .status-label { color: var(--good); }
+    .status-warn .status-label { color: var(--warn); }
+    .status-bad .status-label { color: var(--bad); }
+    .status-hint { color: var(--muted); font-size: 10px; }
+    .message { margin-top: 14px; padding: 16px 20px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--panel); }
+    .message-text { margin-top: 5px; font-size: 15px; font-weight: 550; }
+    .block { margin-top: 14px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); page-break-inside: avoid; break-inside: avoid; }
+    .kpi-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .kpi { padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--soft); }
+    .kpi-label { display: block; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+    .kpi-value { display: block; margin-top: 8px; font-size: 20px; font-weight: 650; line-height: 1.1; }
+    .kpi-note { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .status-list { list-style: none; margin: 14px 0 0; padding: 0; }
+    .status-list li { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line-soft); font-weight: 550; }
+    .status-list .count { margin-left: auto; font-weight: 650; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+    .dot-good { background: var(--good); }
+    .dot-warn { background: var(--warn); }
+    .dot-bad { background: var(--bad); }
+    .block-note { margin-top: 12px; color: var(--muted); font-size: 11px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .chip { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--soft); font-variant-numeric: tabular-nums; font-size: 11px; }
+    table { width: 100%; border-collapse: collapse; }
+    table.events { margin-top: 12px; }
+    th, td { border-bottom: 1px solid var(--line-soft); padding: 7px 6px; text-align: left; font-size: 11px; vertical-align: top; }
+    th { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+    td.time, td.sev { white-space: nowrap; color: var(--muted); }
+    td.value { text-align: right; font-weight: 600; white-space: nowrap; }
+    .chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .chart-card { padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel); page-break-inside: avoid; break-inside: avoid; }
+    .chart-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--muted); font-size: 11px; }
+    .chart { width: 100%; height: 130px; border: 1px solid var(--line-soft); background: var(--soft); }
+    .empty { padding: 16px; border: 1px dashed var(--line); border-radius: 6px; color: var(--muted); }
+    .appendix { margin-top: 20px; padding: 18px 20px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--soft); }
+    .appendix-label { display: block; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; }
+    .appendix-note { margin: 6px 0 4px; color: var(--muted); font-size: 11px; }
+    .appendix-part { margin-top: 16px; page-break-inside: avoid; break-inside: avoid; }
+    .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .card { padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel); page-break-inside: avoid; break-inside: avoid; }
+    .card-group { display: block; color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+    .card-title { display: block; margin-top: 6px; font-weight: 650; }
+    .card-metric { display: block; margin-top: 8px; font-size: 18px; font-weight: 650; line-height: 1; }
+    .card-metric small { color: var(--muted); font-size: 11px; font-weight: 500; }
+    .card-meta { margin-top: 7px; color: var(--muted); font-size: 10px; }
+    table.data { margin-top: 6px; }
+    .report-footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+    @page { size: A4; margin: 16mm 14mm; }
     @media print {
       body { background: #ffffff; }
-      .report-shell { width: 100%; padding: 0; }
-      .report-cover, section { box-shadow: none; }
+      .report { width: 100%; padding: 0; }
+      .cover, .block, .appendix, .message { break-inside: avoid; }
+      .appendix { page-break-before: always; }
+      .report-footer { page-break-inside: avoid; }
     }
-    @media (max-width: 900px) {
-      .report-shell { padding: 16px; }
-      .report-cover, .cards, .chart-grid { grid-template-columns: 1fr; }
-      .generated { text-align: left; }
+    @media (max-width: 760px) {
+      .cover { flex-direction: column; }
+      .kpi-row, .chart-grid, .cards { grid-template-columns: 1fr; }
+      .report-footer { flex-direction: column; gap: 4px; }
     }
   </style>
 </head>
 <body>
-  <main class="report-shell">
-    <header class="report-cover">
-      <div>
-        <span class="eyebrow">Mini EMS Betriebsbericht</span>
-        <h1>{{ report.title }}</h1>
-        <p class="subtitle">{{ report.subtitle }}</p>
-        <div class="pipeline">
-          {% for step in report.export_pipeline %}
-            <span>{{ step }}</span>
-          {% endfor %}
-        </div>
+  <main class="report">
+    <header class="cover">
+      <div class="cover-main">
+        <span class="eyebrow">Mini EMS &middot; Betriebsbericht</span>
+        <h1>{{ overview.title or "Tagesbericht" }}</h1>
+        <p class="cover-sub">{{ overview.location }}</p>
+        <dl class="cover-meta">
+          <div><dt>Berichtstag</dt><dd>{{ overview.date_label }}</dd></div>
+          <div><dt>Zeitraum</dt><dd>{{ overview.period_label }}</dd></div>
+          <div><dt>Erstellt</dt><dd>{{ overview.generated_label }}</dd></div>
+        </dl>
       </div>
-      <div class="generated">
-        <span class="eyebrow">Erstellt</span>
-        <strong>{{ report.generated_at }}</strong>
+      <div class="cover-status status-{{ tone }}">
+        <span class="status-dot"></span>
+        <span class="status-label">{{ tone_label }}</span>
+        <span class="status-hint">Betriebsstatus des Tages</span>
       </div>
     </header>
 
-    {% for section in report.sections %}
-      <section>
-        <h2>{{ section.title }}</h2>
-        {% if section.component == "summary" %}
-          <div class="cards">
-            {% for card in section.cards %}
-              <article class="card {{ 'energy' if card.kind == 'energy_counter' else '' }} {{ 'state' if card.kind == 'state' else '' }}">
-                <span class="eyebrow">{{ card.group }}</span>
-                <span class="card-title">{{ card.label }}</span>
-                <strong class="metric">
-                  {{ "%.2f"|format(card.display_value) if card.display_value is not none else "-" }}
-                  <small>{{ card.unit }}</small>
-                </strong>
-                <p class="meta">{{ card.display_label }} / {{ card.detail }}</p>
-                <p class="meta">{{ card.sample_count }} Messpunkte</p>
-              </article>
-            {% endfor %}
-          </div>
-        {% elif section.component == "line_chart" %}
-          <div class="chart-grid">
-            {% for serie in section.series %}
-              {% set points = serie.points | selectattr("value", "ne", none) | list %}
-              <article class="chart-card">
-                <div class="chart-head">
-                  <strong>{{ serie.label }}</strong>
-                  <span>{{ serie.unit }}</span>
-                </div>
-                {% if points %}
-                  {% set values = points | map(attribute="value") | list %}
-                  {% set min_value = values | min %}
-                  {% set max_value = values | max %}
-                  {% set span = max_value - min_value if max_value != min_value else 1 %}
-                  {% set divisor = points|length - 1 if points|length > 1 else 1 %}
-                  <svg class="chart" viewBox="0 0 520 150" preserveAspectRatio="none" role="img" aria-label="{{ serie.label }}">
-                    <line x1="0" y1="132" x2="520" y2="132" stroke="#dbe4ee"></line>
-                    <polyline
-                      fill="none"
-                      stroke="{{ '#16875a' if serie.unit == 'kWh' else '#2563eb' }}"
-                      stroke-width="2.4"
-                      points="{% for point in points %}{{ (loop.index0 / divisor * 520)|round(1) }},{{ (132 - (((point.value - min_value) / span) * 112))|round(1) }} {% endfor %}">
-                    </polyline>
-                  </svg>
-                  <p class="meta">Min {{ "%.2f"|format(min_value) }} / Max {{ "%.2f"|format(max_value) }}</p>
-                {% else %}
-                  <div class="empty">Keine Daten im gewählten Zeitraum.</div>
-                {% endif %}
-              </article>
-            {% endfor %}
-          </div>
-        {% elif section.component == "table" %}
-          <table>
-            <thead>
-              <tr><th>Zeit</th><th>Datenpunkt</th><th>Wert</th><th>Einheit</th></tr>
-            </thead>
-            <tbody>
-              {% for row in section.rows %}
-                <tr>
-                  <td>{{ row.timestamp }}</td>
-                  <td>{{ row.label or "Datenpunkt" }}</td>
-                  <td class="value">{{ "%.2f"|format(row.value) if row.value is not none else "-" }}</td>
-                  <td>{{ row.unit }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        {% else %}
-          <table>
-            <thead>
-              <tr><th>Zeit</th><th>Bereich</th><th>Status</th><th>Meldung</th></tr>
-            </thead>
-            <tbody>
-              {% for row in section.rows %}
-                <tr>
-                  <td>{{ row.timestamp }}</td>
-                  <td>{{ "Kommunikation" if row.channel_id else "Anlage" }}</td>
-                  <td>{{ row.severity }}</td>
-                  <td>{{ row.message or row.event_type }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        {% endif %}
-      </section>
+    {% if overview.main_message %}
+    <section class="message">
+      <span class="eyebrow">Hauptbotschaft</span>
+      <p class="message-text">{{ overview.main_message }}</p>
+    </section>
+    {% endif %}
+
+    <section class="block">
+      <h2>Betriebszusammenfassung</h2>
+      <div class="kpi-row">{{ kpi("Läufe heute", overview.cycle_count|string, "Ausgeführte Steuerungszyklen") }}</div>
+      {% if overview.status_lines %}
+      <ul class="status-list">
+        {% for line in overview.status_lines %}
+        {%- set dot = 'bad' if line.label == 'Sicherer Modus' else ('warn' if line.label == 'Eingeschränkter Betrieb' else ('good' if line.label == 'Normalbetrieb' else 'warn')) -%}
+        <li><span class="dot dot-{{ dot }}"></span>{{ line.label }}<span class="count">{{ line.count }}</span></li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted">Für diesen Tag liegen noch keine Läufe vor.</p>
+      {% endif %}
+    </section>
+
+    <section class="block">
+      <h2>Strompreis</h2>
+      <div class="kpi-row">
+        {{ kpi("Tagesmittel", price(overview.price.average), "Mittlerer Börsenstrompreis") }}
+        {{ kpi("Günstigster Preis", price(overview.price.min), "Niedrigster Viertelstundenpreis") }}
+        {{ kpi("Höchster Preis", price(overview.price.max), "Höchster Viertelstundenpreis") }}
+      </div>
+      {% if overview.windows %}
+      <p class="block-note">Geplante Preisfenster ({{ overview.windows|length }}):</p>
+      <div class="chips">{% for window in overview.windows %}<span class="chip">{{ window }}</span>{% endfor %}</div>
+      {% else %}
+      <p class="block-note">Für diesen Tag wurden keine Preisfenster geplant.</p>
+      {% endif %}
+    </section>
+
+    <section class="block">
+      <h2>Netzleistung</h2>
+      <div class="kpi-row">
+        {{ kpi("Mittlere Leistung", power(overview.grid.average), "Durchschnitt am Netzanschluss") }}
+        {{ kpi("Niedrigste Leistung", power(overview.grid.min), "Minimum des Tages") }}
+        {{ kpi("Höchste Leistung", power(overview.grid.max), "Maximum des Tages") }}
+      </div>
+    </section>
+
+    <section class="block">
+      <h2>Kommunikationshinweise</h2>
+      <p class="block-note">Meldungen aus dem Datenaustausch mit der Anlage: {{ overview.event_count }}.</p>
+      {% if overview.event_count and overview.events %}
+      <table class="events">
+        <thead><tr><th>Zeit</th><th>Status</th><th>Meldung</th></tr></thead>
+        <tbody>
+          {% for event in overview.events %}
+          <tr><td class="time">{{ event.time }}</td><td class="sev">{{ event.severity }}</td><td>{{ event.message }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="muted">Keine Kommunikationshinweise an diesem Tag.</p>
+      {% endif %}
+    </section>
+
+    {% set chart_series = [] %}
+    {% for section in report.sections if section.component == "line_chart" %}
+      {% for serie in section.series %}{% set _ = chart_series.append(serie) %}{% endfor %}
     {% endfor %}
-    <p class="print-note">Hinweis: Wenn der direkte PDF-Renderer nicht installiert ist, kann diese HTML-Ansicht im Browser als PDF gedruckt werden.</p>
+    {% if chart_series %}
+    <section class="block charts">
+      <h2>Verlaufsdiagramme</h2>
+      <div class="chart-grid">
+        {% for serie in chart_series %}{{ series_card(serie) }}{% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    <section class="appendix">
+      <span class="appendix-label">Technischer Anhang</span>
+      <p class="appendix-note">Dieser Abschnitt enthält die zugrunde liegenden Messwerte für die technische Nachvollziehbarkeit.</p>
+      {% for section in report.sections %}
+      <div class="appendix-part">
+        <h3>{{ section.title }}</h3>
+        {% if section.component == "summary" %}
+        <div class="cards">
+          {% for card in section.cards %}
+          <article class="card {{ 'energy' if card.kind == 'energy_counter' else '' }}">
+            <span class="card-group">{{ card.group }}</span>
+            <span class="card-title">{{ card.label }}</span>
+            <strong class="card-metric">{{ num(card.display_value) }} <small>{{ card.unit }}</small></strong>
+            <p class="card-meta">{{ card.display_label }}; {{ card.detail }}</p>
+            <p class="card-meta">{{ card.sample_count }} Messpunkte</p>
+          </article>
+          {% endfor %}
+        </div>
+        {% elif section.component == "line_chart" %}
+        <div class="chart-grid">
+          {% for serie in section.series %}{{ series_card(serie) }}{% endfor %}
+        </div>
+        {% elif section.component == "table" %}
+        <table class="data">
+          <tr><th>Zeit</th><th>Datenpunkt</th><th>Wert</th><th>Einheit</th></tr>
+          {% for row in section.rows %}
+          <tr><td>{{ row.timestamp }}</td><td>{{ row.label or "Datenpunkt" }}</td><td class="value">{{ num(row.value) }}</td><td>{{ row.unit }}</td></tr>
+          {% else %}
+          <tr><td colspan="4" class="muted">Keine Einträge im gewählten Zeitraum.</td></tr>
+          {% endfor %}
+        </table>
+        {% else %}
+        <table class="data">
+          <tr><th>Zeit</th><th>Datenpunkt</th><th>Wert</th><th>Details</th></tr>
+          {% for row in section.rows %}
+          <tr><td>{{ row.timestamp }}</td><td>{{ row.label or "Anlage" }}</td><td class="value">{{ num(row.value) }}</td><td>{{ row.message or row.event_type or "" }}</td></tr>
+          {% else %}
+          <tr><td colspan="4" class="muted">Keine Einträge im gewählten Zeitraum.</td></tr>
+          {% endfor %}
+        </table>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </section>
+
+    <footer class="report-footer">
+      <span>Mini EMS Betriebsbericht</span>
+      <span>Bei fehlendem PDF-Renderer kann diese Ansicht im Browser über Drucken / Als PDF speichern exportiert werden.</span>
+    </footer>
   </main>
 </body>
 </html>
