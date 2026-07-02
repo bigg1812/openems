@@ -6,6 +6,7 @@ from pathlib import Path
 
 from mini_ems_poc.mini_ems_runtime.config import validate_raw_config
 from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
+from mini_ems_poc.tests.test_mapping_config import sample_mapping_draft
 
 
 def make_raw_config(config_admin_token=None):
@@ -211,6 +212,20 @@ class ConfigApiTest(unittest.TestCase):
 
         self.assertFalse(payload["valid"])
         self.assertIn("protocol must be 'bacnet'", payload["message"])
+
+    def test_mapping_preview_returns_valid_runtime_config_patch(self) -> None:
+        server = self._build_server(make_raw_config())
+
+        payload = server.preview_mapping_config_payload(sample_mapping_draft())
+
+        self.assertTrue(payload["valid"])
+        self.assertEqual(payload["errors"], [])
+        self.assertEqual(payload["patch"]["network"]["controller_ip"], "192.168.1.20")
+        self.assertEqual(payload["patch"]["points"]["grid_active_power_kw"], 300)
+        self.assertEqual(
+            payload["patch"]["additional_inputs"][0]["channel_id"],
+            "site.outdoor_temperature_c",
+        )
 
     def test_site_config_view_strips_admin_token_and_keeps_editable_sections(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
