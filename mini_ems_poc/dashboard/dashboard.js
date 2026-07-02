@@ -73,7 +73,15 @@ const PAGES = {
   dashboard: "Dashboard",
   analyse: "Analyse",
   berichte: "Berichte",
+  konfiguration: "Konfiguration",
   system: "System",
+};
+
+const PAGE_SUBTITLES = {
+  analyse: "Messwerte und Datenqualität über frei wählbare Zeiträume prüfen.",
+  berichte: "Betriebsberichte aus den gewünschten Datenpunkten zusammenstellen.",
+  konfiguration: "Datenquellen, Messpunkte und Betriebsparameter prüfen und vorbereiten.",
+  system: "Systemzustand, Kommunikation und letzte Läufe kontrollieren.",
 };
 
 /* Priorisierte Reihenfolge (UX4): erst Wirtschaftlichkeit (Preis, Preissteuerung),
@@ -114,6 +122,114 @@ const DEFAULT_DASHBOARD = {
   charts: [],
 };
 
+const CONFIG_CHANNEL_DEFAULTS = [
+  { channel_id: "site.outdoor_temperature_c", object_type: "ai", instance: 1801, description: "Außentemperatur", plausible_min: -50, plausible_max: 60, include_in_health: true, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.buffer_1_top_temperature_c", object_type: "ai", instance: 1101, description: "Puffer 1 oben", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.buffer_1_bottom_temperature_c", object_type: "ai", instance: 1102, description: "Puffer 1 unten", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.buffer_2_top_temperature_c", object_type: "ai", instance: 1103, description: "Puffer 2 oben", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.buffer_2_bottom_temperature_c", object_type: "ai", instance: 1104, description: "Puffer 2 unten", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.heat_generation_flow_temperature_c", object_type: "ai", instance: 1107, description: "Wärmeerzeugung Vorlauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.heat_generation_return_temperature_c", object_type: "ai", instance: 1108, description: "Wärmeerzeugung Rücklauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.boiler_1_flow_temperature_c", object_type: "ai", instance: 2101, description: "Gaskessel Vorlauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.boiler_1_return_temperature_c", object_type: "ai", instance: 1201, description: "Gaskessel Rücklauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.boiler_2_flow_temperature_c", object_type: "ai", instance: 2102, description: "Pelletkessel Vorlauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.boiler_2_return_temperature_c", object_type: "ai", instance: 1202, description: "Pelletkessel Rücklauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.chp_flow_temperature_c", object_type: "ai", instance: 1203, description: "BHKW Vorlauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.chp_return_temperature_c", object_type: "ai", instance: 1204, description: "BHKW Rücklauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.chp_electric_energy_kwh", object_type: "av", instance: 48, description: "BHKW elektrische Energie", plausible_min: 0, plausible_max: 1000000000, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.chp_thermal_energy_kwh", object_type: "av", instance: 49, description: "BHKW thermische Energie", plausible_min: 0, plausible_max: 1000000000, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.pellet_thermal_energy_kwh", object_type: "av", instance: 50, description: "Pelletkessel thermische Energie", plausible_min: 0, plausible_max: 1000000000, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+  { channel_id: "site.gas_thermal_energy_kwh", object_type: "av", instance: 51, description: "Gaskessel thermische Energie", plausible_min: 0, plausible_max: 1000000000, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
+];
+
+const DEFAULT_SITE_CONFIG = {
+  site: {
+    name: "Mini EMS Standort",
+    access_status: "local",
+    operator_note: "Keine echte Schalthandlung aus dieser Oberfläche.",
+  },
+  runtime: {
+    environment: "local",
+    bacnet_mode: "simulated",
+    real_writes_enabled: false,
+  },
+  simulation: {
+    values_file: "sim/sample_values.json",
+    prices_file: "sim/sample_prices.json",
+  },
+  network: {
+    controller_ip: "127.0.0.1",
+    controller_port: 47808,
+    local_ip: "127.0.0.1",
+    local_port: 47809,
+    response_timeout_seconds: 1,
+    retries: 0,
+  },
+  points: {
+    grid_active_power_kw: 300,
+    current_price_av: 1000,
+    grid_lockout_bv: 400,
+    spotmarket_lockout_bv: 401,
+  },
+  timing: {
+    cycle_seconds: 60,
+    inter_read_delay_seconds: 0,
+  },
+  watchdog: {
+    max_cycle_age_seconds: 300,
+  },
+  api: {
+    host: "127.0.0.1",
+    port: 8090,
+    history_default_limit: 96,
+  },
+  price_source: {
+    provider: "smard",
+    region: "DE-LU",
+    filter: 4169,
+    resolution: "quarterhour",
+    timeout_seconds: 30,
+    price_factor: 0.1,
+  },
+  controllers: {
+    grid_lockout: {
+      enabled: false,
+      threshold_kw: 5,
+      clear_threshold_kw: 5.5,
+      below_threshold_cycles_required: 3,
+    },
+    spotmarket_lockout: {
+      negative_quarters_min_consecutive: 8,
+      min_valid_quarters: 96,
+      invalid_price_sentinel: null,
+    },
+  },
+  safety: {
+    fail_safe_output: false,
+    comm_error_safe_mode_threshold: 2,
+  },
+  outputs: {
+    current_price: { confirmation_mode: "ack_or_readback", criticality: "noncritical" },
+    grid_lockout: { confirmation_mode: "ack_only", criticality: "critical" },
+    spotmarket_lockout: { confirmation_mode: "ack_only", criticality: "critical" },
+  },
+  database: {
+    sqlite_file: "data/local/mini_ems.local.sqlite",
+  },
+  logging: {
+    directory: "logs/local",
+    log_file: "mini_ems.local.log",
+    state_file: "runtime/local/state.json",
+    health_file: "runtime/local/health.json",
+    price_cache_file: "data/local/spotmarket_price_cache.json",
+    spotmarket_plan_file: "data/local/spotmarket_tomorrow_windows.json",
+    spotmarket_override_file: "data/local/spotmarket_manual_override.json",
+    level: "INFO",
+    stdout: true,
+  },
+  additional_inputs: CONFIG_CHANNEL_DEFAULTS.map((channel) => ({ ...channel })),
+};
+
 const appState = {
   availableChannels: DEFAULT_CHANNELS,
   selectedChannels: new Set(VIEW_PRESETS[0].channels),
@@ -124,6 +240,7 @@ const appState = {
   weather: null,
   priceStats: null,
   dashboard: { ...DEFAULT_DASHBOARD },
+  siteConfig: { config: null, dirty: false },
 };
 
 const priceChart = {
@@ -147,6 +264,7 @@ document.addEventListener("DOMContentLoaded", () => {
   appState.dashboard = loadDashboardConfig();
   appState.savedViews = loadSavedViews();
   bindUi();
+  initSiteConfigPage();
   initRouter();
   setReportDefaults();
   renderViewSelect();
@@ -193,6 +311,10 @@ function bindUi() {
       closeDashboardConfig();
     }
   });
+  document.getElementById("site-config-validate").addEventListener("click", validateSiteConfig);
+  document.getElementById("site-config-save").addEventListener("click", saveSiteConfig);
+  document.getElementById("site-config-form").addEventListener("input", handleSiteConfigChange);
+  document.getElementById("site-config-form").addEventListener("change", handleSiteConfigChange);
 }
 
 function initRouter() {
@@ -213,9 +335,13 @@ function showPage(page) {
     link.classList.toggle("active", link.dataset.page === page);
   });
   setText("page-title", PAGES[page] || "Dashboard");
+  updateOperatorMessageForPage(page);
   if (page === "dashboard") {
     rebuildPriceChart();
     redrawDashboardCharts();
+  }
+  if (page === "konfiguration") {
+    updateSiteConfigPreview();
   }
 }
 
@@ -321,7 +447,7 @@ function renderStatus(payload) {
   const message = buildMainMessage(payload);
   setText("global-status", friendlyState(status));
   document.getElementById("global-status-dot").className = `status-dot ${cssToken(status)}`;
-  setText("operator-message", message.headline);
+  updateOperatorMessageForPage(currentPageFromHash(), payload);
   setText("last-updated", health.timestamp ? `Stand ${formatTimestamp(health.timestamp)}` : "-");
   renderStatusHero(message, health);
   renderStartHints(buildStartHints(payload));
@@ -1223,6 +1349,557 @@ function resetDashboardConfig() {
   renderDashboardCharts();
 }
 
+function initSiteConfigPage() {
+  appState.siteConfig.config = cloneSiteConfig(DEFAULT_SITE_CONFIG);
+  populateSiteConfigForm(appState.siteConfig.config);
+  setText("site-config-source", "Prototypvorlage");
+  setSiteConfigFeedback("Noch nicht geprüft.", "neutral");
+  loadSiteConfigFromBackend();
+}
+
+async function loadSiteConfigFromBackend() {
+  try {
+    const response = await fetch("/api/config/site", { cache: "no-store" });
+    if (response.status === 404) {
+      setSiteConfigFeedback("Backend-Konfiguration noch nicht angebunden; Prototypvorlage aktiv.", "neutral");
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(`Serverstatus ${response.status}`);
+    }
+    const payload = await response.json();
+    if (appState.siteConfig.dirty) {
+      return;
+    }
+    const config = normalizeSiteConfig(payload.config || payload);
+    appState.siteConfig.config = config;
+    populateSiteConfigForm(config);
+    setText("site-config-source", payload.save_enabled ? "Backend-Konfiguration" : "Backend-Konfiguration ohne Speichertoken");
+    setSiteConfigFeedback("Konfiguration vom Backend geladen.", "neutral");
+  } catch (error) {
+    setText("site-config-source", "Prototypvorlage");
+    setSiteConfigFeedback(`Backend-Konfiguration konnte nicht geladen werden: ${error.message}`, "neutral");
+  }
+}
+
+function populateSiteConfigForm(config) {
+  const normalized = normalizeSiteConfig(config);
+  setInputValue("config-site-name", normalized.site.name);
+  setSelectValue("config-access-status", normalized.site.access_status);
+  setInputValue("config-operator-note", normalized.site.operator_note);
+  setSelectValue("config-runtime-environment", normalized.runtime.environment);
+  setSelectValue("config-bacnet-mode", normalized.runtime.bacnet_mode);
+  setInputChecked("config-real-writes-enabled", normalized.runtime.real_writes_enabled);
+  setInputValue("config-api-host", normalized.api.host);
+  setInputValue("config-api-port", normalized.api.port);
+  setInputValue("config-controller-ip", normalized.network.controller_ip);
+  setInputValue("config-controller-port", normalized.network.controller_port);
+  setInputValue("config-local-ip", normalized.network.local_ip);
+  setInputValue("config-local-port", normalized.network.local_port);
+  setInputValue("config-cycle-seconds", normalized.timing.cycle_seconds);
+  setInputValue("config-inter-read-delay", normalized.timing.inter_read_delay_seconds);
+  setInputValue("config-watchdog-seconds", normalized.watchdog.max_cycle_age_seconds);
+  setInputValue("config-history-limit", normalized.api.history_default_limit);
+  setSelectValue("config-price-provider", normalized.price_source.provider);
+  setInputValue("config-price-region", normalized.price_source.region);
+  setInputValue("config-price-filter", normalized.price_source.filter);
+  setSelectValue("config-price-resolution", normalized.price_source.resolution);
+  setInputValue("config-price-timeout", normalized.price_source.timeout_seconds);
+  setInputValue("config-price-factor", normalized.price_source.price_factor);
+  setInputChecked("config-grid-enabled", normalized.controllers.grid_lockout.enabled);
+  setInputValue("config-grid-threshold", normalized.controllers.grid_lockout.threshold_kw);
+  setInputValue("config-grid-clear-threshold", normalized.controllers.grid_lockout.clear_threshold_kw);
+  setInputValue("config-grid-clear-cycles", normalized.controllers.grid_lockout.below_threshold_cycles_required);
+  setInputValue("config-spotmarket-consecutive", normalized.controllers.spotmarket_lockout.negative_quarters_min_consecutive);
+  setInputValue("config-spotmarket-min-valid", normalized.controllers.spotmarket_lockout.min_valid_quarters);
+  setInputValue("config-invalid-price-sentinel", normalized.controllers.spotmarket_lockout.invalid_price_sentinel ?? "");
+  setInputValue("config-safe-mode-threshold", normalized.safety.comm_error_safe_mode_threshold);
+  renderSiteConfigChannels(normalized.additional_inputs);
+  updateSiteConfigPreview();
+}
+
+function normalizeSiteConfig(config) {
+  const base = cloneSiteConfig(DEFAULT_SITE_CONFIG);
+  const raw = config && typeof config === "object" ? config : {};
+  return {
+    ...base,
+    ...raw,
+    site: { ...base.site, ...(raw.site || {}) },
+    runtime: { ...base.runtime, ...(raw.runtime || {}) },
+    simulation: { ...base.simulation, ...(raw.simulation || {}) },
+    network: { ...base.network, ...(raw.network || {}) },
+    points: { ...base.points, ...(raw.points || {}) },
+    timing: { ...base.timing, ...(raw.timing || {}) },
+    watchdog: { ...base.watchdog, ...(raw.watchdog || {}) },
+    api: { ...base.api, ...(raw.api || {}) },
+    price_source: { ...base.price_source, ...(raw.price_source || {}) },
+    controllers: {
+      grid_lockout: { ...base.controllers.grid_lockout, ...(raw.controllers?.grid_lockout || {}) },
+      spotmarket_lockout: { ...base.controllers.spotmarket_lockout, ...(raw.controllers?.spotmarket_lockout || {}) },
+    },
+    safety: { ...base.safety, ...(raw.safety || {}) },
+    outputs: { ...base.outputs, ...(raw.outputs || {}) },
+    database: { ...base.database, ...(raw.database || {}) },
+    logging: { ...base.logging, ...(raw.logging || {}) },
+    additional_inputs: normalizeSiteConfigChannels(raw.additional_inputs || base.additional_inputs),
+  };
+}
+
+function renderSiteConfigChannels(channels) {
+  const target = document.getElementById("config-channel-list");
+  if (!target) {
+    return;
+  }
+  const normalized = normalizeSiteConfigChannels(channels);
+  target.innerHTML = normalized.map((channel) => {
+    const meta = channelMeta(channel.channel_id);
+    const title = meta.label || channel.description || "Zusatzkanal";
+    const detail = [meta.group || "Messpunkt", meta.unit || valueKindLabel(meta.kind)].filter(Boolean).join(" / ");
+    const description = channel.description || title;
+    return `
+      <div class="config-channel-row" data-channel-id="${escapeHtml(channel.channel_id)}" data-description="${escapeHtml(description)}">
+        <div class="config-channel-row-head">
+          <label class="check config-channel-main">
+            <input type="checkbox" data-config-field="enabled" ${checkedAttribute(channel.enabled !== false)}>
+            <span>
+              <strong>${escapeHtml(title)}</strong>
+              <small>${escapeHtml(detail)}<br><span class="config-channel-key">${escapeHtml(channel.channel_id)}</span></small>
+            </span>
+          </label>
+          <span class="config-channel-summary">${escapeHtml(formatPointSummary(channel))}</span>
+        </div>
+        <div class="config-point-fields">
+          <label>
+            Protokoll
+            <select data-config-field="protocol">
+              <option value="bacnet" ${selectedAttribute(channel.protocol === "bacnet")}>BACnet</option>
+            </select>
+          </label>
+          <label>
+            Zielgerät
+            <input type="text" data-config-field="controller_ip" placeholder="Standardgerät" value="${escapeHtml(inputValue(channel.controller_ip))}">
+          </label>
+          <label>
+            Port
+            <input type="number" min="1" max="65535" data-config-field="controller_port" placeholder="Standard" value="${escapeHtml(inputValue(channel.controller_port))}">
+          </label>
+          <label>
+            Objekttyp
+            <select data-config-field="object_type">
+              <option value="ai" ${selectedAttribute(channel.object_type === "ai")}>AI Messwert</option>
+              <option value="av" ${selectedAttribute(channel.object_type === "av")}>AV Wert</option>
+              <option value="bv" ${selectedAttribute(channel.object_type === "bv")}>BV Status</option>
+            </select>
+          </label>
+          <label>
+            Adresse / Instanz
+            <input type="number" min="0" data-config-field="instance" value="${escapeHtml(inputValue(channel.instance))}">
+          </label>
+          <label>
+            Abfrageintervall
+            <input type="number" min="1" data-config-field="read_interval_cycles" value="${escapeHtml(inputValue(channel.read_interval_cycles))}">
+          </label>
+          <label>
+            Max. Alter (s)
+            <input type="number" min="1" data-config-field="max_age_seconds" value="${escapeHtml(inputValue(channel.max_age_seconds))}">
+          </label>
+          <label>
+            Plausibel von
+            <input type="number" step="0.1" data-config-field="plausible_min" value="${escapeHtml(inputValue(channel.plausible_min))}">
+          </label>
+          <label>
+            Plausibel bis
+            <input type="number" step="0.1" data-config-field="plausible_max" value="${escapeHtml(inputValue(channel.plausible_max))}">
+          </label>
+          <label class="check config-check config-point-health">
+            <input type="checkbox" data-config-field="include_in_health" ${checkedAttribute(channel.include_in_health)}>
+            <span>Im Status überwachen</span>
+          </label>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function normalizeSiteConfigChannels(channels) {
+  const source = Array.isArray(channels) && channels.length ? channels : CONFIG_CHANNEL_DEFAULTS;
+  const byId = new Map();
+  source.forEach((channel) => {
+    if (!channel || typeof channel.channel_id !== "string") {
+      return;
+    }
+    const current = byId.get(channel.channel_id) || defaultChannelConfig(channel.channel_id);
+    byId.set(channel.channel_id, {
+      ...current,
+      ...channel,
+      protocol: protocolValue(channel.protocol || current.protocol),
+      object_type: bacnetObjectTypeValue(channel.object_type || current.object_type),
+      enabled: channel.enabled !== false,
+    });
+  });
+  return [...byId.values()].sort((a, b) => {
+    const metaA = channelMeta(a.channel_id);
+    const metaB = channelMeta(b.channel_id);
+    const group = String(metaA.group || "").localeCompare(String(metaB.group || ""), "de");
+    return group || String(metaA.label || a.channel_id).localeCompare(String(metaB.label || b.channel_id), "de");
+  });
+}
+
+function defaultChannelConfig(channelId) {
+  const meta = channelMeta(channelId);
+  const isEnergy = meta.kind === "energy_counter";
+  const isState = meta.kind === "state";
+  return {
+    channel_id: channelId,
+    protocol: "bacnet",
+    object_type: isState ? "bv" : isEnergy ? "av" : "ai",
+    instance: "",
+    description: meta.label || "Zusatzkanal",
+    controller_ip: "",
+    controller_port: "",
+    plausible_min: isEnergy ? 0 : "",
+    plausible_max: isEnergy ? 1000000000 : "",
+    include_in_health: false,
+    read_interval_cycles: 1,
+    max_age_seconds: 120,
+    enabled: true,
+  };
+}
+
+function handleSiteConfigChange() {
+  appState.siteConfig.dirty = true;
+  setSiteConfigFeedback("Änderungen noch nicht geprüft.", "neutral");
+  updateSiteConfigPreview();
+}
+
+function buildSiteConfigPayload() {
+  const base = normalizeSiteConfig(appState.siteConfig.config || DEFAULT_SITE_CONFIG);
+  const environment = selectValue("config-runtime-environment", base.runtime.environment);
+  return {
+    patch: {
+      runtime: {
+        environment,
+        bacnet_mode: selectValue("config-bacnet-mode", base.runtime.bacnet_mode),
+        real_writes_enabled: checkboxValue("config-real-writes-enabled"),
+      },
+      network: {
+        controller_ip: textValue("config-controller-ip", base.network.controller_ip),
+        controller_port: integerValue("config-controller-port", base.network.controller_port),
+        local_ip: textValue("config-local-ip", base.network.local_ip),
+        local_port: integerValue("config-local-port", base.network.local_port),
+      },
+      timing: {
+        cycle_seconds: integerValue("config-cycle-seconds", base.timing.cycle_seconds),
+        inter_read_delay_seconds: numericValue("config-inter-read-delay", base.timing.inter_read_delay_seconds),
+      },
+      watchdog: {
+        max_cycle_age_seconds: numericValue("config-watchdog-seconds", base.watchdog.max_cycle_age_seconds),
+      },
+      api: {
+        host: textValue("config-api-host", base.api.host),
+        port: integerValue("config-api-port", base.api.port),
+        history_default_limit: integerValue("config-history-limit", base.api.history_default_limit),
+      },
+      price_source: {
+        provider: selectValue("config-price-provider", base.price_source.provider),
+        region: textValue("config-price-region", base.price_source.region),
+        filter: integerValue("config-price-filter", base.price_source.filter),
+        resolution: selectValue("config-price-resolution", base.price_source.resolution),
+        timeout_seconds: numericValue("config-price-timeout", base.price_source.timeout_seconds),
+        price_factor: numericValue("config-price-factor", base.price_source.price_factor),
+      },
+      controllers: {
+        grid_lockout: {
+          enabled: checkboxValue("config-grid-enabled"),
+          threshold_kw: numericValue("config-grid-threshold", base.controllers.grid_lockout.threshold_kw),
+          clear_threshold_kw: numericValue("config-grid-clear-threshold", base.controllers.grid_lockout.clear_threshold_kw),
+          below_threshold_cycles_required: integerValue("config-grid-clear-cycles", base.controllers.grid_lockout.below_threshold_cycles_required),
+        },
+        spotmarket_lockout: {
+          negative_quarters_min_consecutive: integerValue("config-spotmarket-consecutive", base.controllers.spotmarket_lockout.negative_quarters_min_consecutive),
+          min_valid_quarters: integerValue("config-spotmarket-min-valid", base.controllers.spotmarket_lockout.min_valid_quarters),
+          invalid_price_sentinel: optionalNumericValue("config-invalid-price-sentinel"),
+        },
+      },
+      safety: {
+        comm_error_safe_mode_threshold: integerValue("config-safe-mode-threshold", base.safety.comm_error_safe_mode_threshold),
+      },
+      additional_inputs: readSiteConfigChannels(),
+    },
+  };
+}
+
+function readSiteConfigChannels() {
+  return [...document.querySelectorAll(".config-channel-row")].map((row) => {
+    if (!row.querySelector("[data-config-field='enabled']")?.checked) {
+      return null;
+    }
+    return {
+      channel_id: row.dataset.channelId,
+      protocol: row.querySelector("[data-config-field='protocol']")?.value || "bacnet",
+      object_type: row.querySelector("[data-config-field='object_type']")?.value || "ai",
+      instance: integerFromElement(row.querySelector("[data-config-field='instance']"), 0),
+      description: row.dataset.description || channelMeta(row.dataset.channelId).label || "Zusatzkanal",
+      controller_ip: optionalTextFromElement(row.querySelector("[data-config-field='controller_ip']")),
+      controller_port: optionalIntegerFromElement(row.querySelector("[data-config-field='controller_port']")),
+      plausible_min: optionalNumberFromElement(row.querySelector("[data-config-field='plausible_min']")),
+      plausible_max: optionalNumberFromElement(row.querySelector("[data-config-field='plausible_max']")),
+      include_in_health: row.querySelector("[data-config-field='include_in_health']")?.checked === true,
+      read_interval_cycles: integerFromElement(row.querySelector("[data-config-field='read_interval_cycles']"), 1),
+      max_age_seconds: integerFromElement(row.querySelector("[data-config-field='max_age_seconds']"), 120),
+    };
+  }).filter(Boolean);
+}
+
+function updateSiteConfigPreview() {
+  const target = document.getElementById("site-config-preview");
+  if (!target) {
+    return;
+  }
+  target.textContent = JSON.stringify(buildSiteConfigPayload(), null, 2);
+}
+
+async function validateSiteConfig() {
+  const form = document.getElementById("site-config-form");
+  if (!form.reportValidity()) {
+    setSiteConfigFeedback("Bitte die markierten Felder korrigieren.", "warn");
+    return;
+  }
+  const button = document.getElementById("site-config-validate");
+  button.disabled = true;
+  setSiteConfigFeedback("Konfiguration wird geprüft...", "neutral");
+  try {
+    const payload = buildSiteConfigPayload();
+    const response = await postJson("/api/config/site/validate", payload);
+    appState.siteConfig.dirty = false;
+    setText("site-config-source", "Vom Backend geprüft");
+    setSiteConfigFeedback(siteConfigResponseMessage(response, "validate"), siteConfigResponseState(response));
+  } catch (error) {
+    setSiteConfigFeedback(error.message, "warn");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function saveSiteConfig() {
+  const form = document.getElementById("site-config-form");
+  if (!form.reportValidity()) {
+    setSiteConfigFeedback("Bitte die markierten Felder korrigieren.", "warn");
+    return;
+  }
+  const token = document.getElementById("site-config-token").value.trim();
+  if (!token) {
+    setSiteConfigFeedback("Bitte zuerst den Admin-Token eintragen. Ohne Token wird nichts gespeichert.", "warn");
+    document.getElementById("site-config-token").focus();
+    return;
+  }
+  const button = document.getElementById("site-config-save");
+  button.disabled = true;
+  setSiteConfigFeedback("Konfiguration wird gespeichert...", "neutral");
+  try {
+    const payload = buildSiteConfigPayload();
+    const response = await postJson("/api/config/site/save", payload, { token });
+    appState.siteConfig.dirty = false;
+    setText("site-config-source", "Vom Backend gespeichert");
+    setSiteConfigFeedback(siteConfigResponseMessage(response, "save"), siteConfigResponseState(response));
+  } catch (error) {
+    setSiteConfigFeedback(error.message, "warn");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function postJson(path, payload, options = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (options.token) {
+    headers["X-Mini-Ems-Admin-Token"] = options.token;
+  }
+  const response = await fetch(path, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Der Backend-Endpunkt ${path} ist noch nicht vorhanden. Die Eingaben bleiben erhalten; es wurde nichts an der Anlage geändert.`);
+    }
+    throw new Error(friendlyPostError(path, response.status, text));
+  }
+  if (!text) {
+    return {};
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { message: text };
+  }
+}
+
+function friendlyPostError(path, status, text) {
+  const clean = String(text || "").trim();
+  try {
+    const payload = JSON.parse(clean);
+    return payload.message || payload.error || `${path} konnte nicht verarbeitet werden. Serverstatus ${status}.`;
+  } catch {
+    /* Antwort war kein JSON. */
+  }
+  if (!clean || clean.startsWith("<!doctype") || clean.startsWith("<html")) {
+    return `${path} konnte nicht verarbeitet werden. Serverstatus ${status}.`;
+  }
+  return clean.length > 220 ? `${clean.slice(0, 220)}...` : clean;
+}
+
+function siteConfigResponseMessage(response, action) {
+  const errors = Array.isArray(response?.errors) ? response.errors : [];
+  const warnings = Array.isArray(response?.warnings) ? response.warnings : [];
+  if (errors.length) {
+    return `Bitte prüfen: ${errors.map((item) => String(item)).join(" / ")}`;
+  }
+  if (response?.valid === false || response?.saved === false) {
+    return response?.message ? String(response.message) : "Die Konfiguration wurde vom Backend abgelehnt.";
+  }
+  if (warnings.length) {
+    return `Geprüft mit Hinweisen: ${warnings.map((item) => String(item)).join(" / ")}`;
+  }
+  if (response?.message) {
+    return String(response.message);
+  }
+  if (action === "save" && response?.saved === true) {
+    return response.restart_required
+      ? "Konfiguration gespeichert. Ein Neustart der Mini-EMS-Runtime ist erforderlich."
+      : "Konfiguration gespeichert.";
+  }
+  return action === "save" ? "Konfiguration wurde vom Backend angenommen." : "Konfiguration ist formal in Ordnung.";
+}
+
+function siteConfigResponseState(response) {
+  if (response?.valid === false || response?.saved === false) {
+    return "warn";
+  }
+  if (Array.isArray(response?.errors) && response.errors.length) {
+    return "warn";
+  }
+  if (Array.isArray(response?.warnings) && response.warnings.length) {
+    return "warn";
+  }
+  return "ok";
+}
+
+function setSiteConfigFeedback(message, state = "neutral") {
+  const target = document.getElementById("site-config-feedback");
+  if (!target) {
+    return;
+  }
+  target.className = `config-feedback ${state}`;
+  target.textContent = message || "-";
+}
+
+function cloneSiteConfig(config) {
+  return JSON.parse(JSON.stringify(config));
+}
+
+function setInputValue(id, value) {
+  const element = document.getElementById(id);
+  if (element) {
+    element.value = value ?? "";
+  }
+}
+
+function setInputChecked(id, value) {
+  const element = document.getElementById(id);
+  if (element) {
+    element.checked = value === true;
+  }
+}
+
+function setSelectValue(id, value) {
+  const element = document.getElementById(id);
+  if (element) {
+    element.value = value;
+  }
+}
+
+function textValue(id, fallback = "") {
+  const value = document.getElementById(id)?.value.trim();
+  return value || fallback;
+}
+
+function selectValue(id, fallback = "") {
+  return document.getElementById(id)?.value || fallback;
+}
+
+function checkboxValue(id) {
+  return document.getElementById(id)?.checked === true;
+}
+
+function numericValue(id, fallback) {
+  const raw = document.getElementById(id)?.value;
+  if (raw === undefined || raw === null || raw === "") {
+    return fallback;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function integerValue(id, fallback) {
+  const value = numericValue(id, fallback);
+  return Number.isFinite(value) ? Math.round(value) : fallback;
+}
+
+function optionalNumericValue(id) {
+  const raw = document.getElementById(id)?.value;
+  if (raw === undefined || raw === null || raw === "") {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function integerFromElement(element, fallback) {
+  const value = Number(element?.value);
+  return Number.isFinite(value) ? Math.round(value) : fallback;
+}
+
+function optionalNumberFromElement(element) {
+  const raw = element?.value;
+  if (raw === undefined || raw === null || raw === "") {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function optionalIntegerFromElement(element) {
+  const raw = element?.value;
+  if (raw === undefined || raw === null || raw === "") {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) ? Math.round(value) : null;
+}
+
+function optionalTextFromElement(element) {
+  const raw = element?.value;
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+  const value = String(raw).trim();
+  return value || null;
+}
+
+function inputValue(value) {
+  return value === null || value === undefined ? "" : value;
+}
+
+function checkedAttribute(value) {
+  return value ? "checked" : "";
+}
+
+function selectedAttribute(value) {
+  return value ? "selected" : "";
+}
+
 function selectedChannelMeta() {
   const byId = new Map(appState.availableChannels.map((channel) => [channel.id, channel]));
   return [...appState.selectedChannels].map((id) => byId.get(id) || { id, label: "Datenpunkt", unit: "", group: "EMS" });
@@ -1917,6 +2594,57 @@ function describeQualityChannels(entries) {
     return `${labels.join(", ")} und ${unknownCount} ${unknownCount === 1 ? "weiterer Messpunkt" : "weitere Messpunkte"}`;
   }
   return labels.join(", ");
+}
+
+function updateOperatorMessageForPage(page, payload = appState.statusPayload || {}) {
+  const message = page === "dashboard"
+    ? buildMainMessage(payload).headline
+    : PAGE_SUBTITLES[page] || "Mini EMS Leitstand";
+  setText("operator-message", message);
+}
+
+function protocolValue(value) {
+  const normalized = String(value || "bacnet").trim().toLowerCase();
+  return normalized || "bacnet";
+}
+
+function protocolLabel(value) {
+  return protocolValue(value) === "bacnet" ? "BACnet" : String(value || "Protokoll");
+}
+
+function bacnetObjectTypeValue(value) {
+  if (value === 0) {
+    return "ai";
+  }
+  if (value === 2) {
+    return "av";
+  }
+  if (value === 5) {
+    return "bv";
+  }
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["analog_input", "analog-input", "ai"].includes(normalized)) {
+    return "ai";
+  }
+  if (["analog_value", "analog-value", "av"].includes(normalized)) {
+    return "av";
+  }
+  if (["binary_value", "binary-value", "bv"].includes(normalized)) {
+    return "bv";
+  }
+  return "ai";
+}
+
+function bacnetObjectTypeLabel(value) {
+  return { ai: "AI", av: "AV", bv: "BV" }[bacnetObjectTypeValue(value)] || "AI";
+}
+
+function formatPointSummary(channel) {
+  const target = channel.controller_ip
+    ? `${channel.controller_ip}${channel.controller_port ? `:${channel.controller_port}` : ""}`
+    : "Standardgerät";
+  const instance = inputValue(channel.instance) === "" ? "-" : channel.instance;
+  return `${protocolLabel(channel.protocol)} / ${target} / ${bacnetObjectTypeLabel(channel.object_type)} ${instance}`;
 }
 
 function buildPriceWindowSummary(health, plan) {

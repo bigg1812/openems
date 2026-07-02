@@ -17,6 +17,7 @@ HEALTH_CHANNEL = "system.health"
 @dataclass(frozen=True)
 class PointConfig:
     channel_id: str
+    protocol: str
     object_type: int
     instance: int
     access: str
@@ -54,6 +55,7 @@ class ChannelRegistry:
         registry = {
             GRID_ACTIVE_POWER_CHANNEL: PointConfig(
                 channel_id=GRID_ACTIVE_POWER_CHANNEL,
+                protocol="bacnet",
                 object_type=BACNET_AV,
                 instance=points.grid_active_power_kw,
                 access="read",
@@ -63,6 +65,7 @@ class ChannelRegistry:
             ),
             CURRENT_PRICE_CHANNEL: PointConfig(
                 channel_id=CURRENT_PRICE_CHANNEL,
+                protocol="bacnet",
                 object_type=BACNET_AV,
                 instance=points.current_price_av,
                 access="readwrite",
@@ -70,6 +73,7 @@ class ChannelRegistry:
             ),
             GRID_LOCKOUT_CHANNEL: PointConfig(
                 channel_id=GRID_LOCKOUT_CHANNEL,
+                protocol="bacnet",
                 object_type=BACNET_BV,
                 instance=points.grid_lockout_bv,
                 access="write",
@@ -77,6 +81,7 @@ class ChannelRegistry:
             ),
             SPOTMARKET_LOCKOUT_CHANNEL: PointConfig(
                 channel_id=SPOTMARKET_LOCKOUT_CHANNEL,
+                protocol="bacnet",
                 object_type=BACNET_BV,
                 instance=points.spotmarket_lockout_bv,
                 access="write",
@@ -87,6 +92,7 @@ class ChannelRegistry:
         for channel_id, input_config in (additional_inputs or {}).items():
             registry[channel_id] = PointConfig(
                 channel_id=channel_id,
+                protocol=input_config.protocol,
                 object_type=input_config.object_type,
                 instance=input_config.instance,
                 access="read",

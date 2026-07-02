@@ -972,6 +972,186 @@ select:focus {
   box-shadow: var(--ring);
 }
 
+/* Admin-Konfiguration */
+.config-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+.token-field {
+  flex: 1 1 240px;
+  max-width: 360px;
+}
+
+.config-feedback {
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.config-feedback.ok {
+  border-color: color-mix(in srgb, var(--ok) 38%, var(--line));
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.config-feedback.warn {
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--line));
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.admin-config-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3);
+  align-items: start;
+}
+
+.config-card-wide {
+  grid-column: 1 / -1;
+}
+
+.config-card-priority {
+  order: -1;
+}
+
+.config-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3);
+}
+
+.config-field-grid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.config-check {
+  min-height: 38px;
+  align-self: end;
+  align-content: center;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.config-note {
+  margin: var(--sp-3) 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.config-channel-list {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.config-channel-row {
+  display: grid;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+}
+
+.config-channel-row-head {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: var(--sp-3);
+  align-items: center;
+}
+
+.config-channel-main {
+  min-height: 50px;
+  align-content: center;
+  background: var(--surface);
+}
+
+.config-channel-main strong {
+  display: block;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.config-channel-main small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.config-channel-key {
+  color: var(--subtle);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.config-channel-summary {
+  justify-self: end;
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.config-point-fields {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(150px, 1fr) minmax(92px, 0.7fr) minmax(120px, 0.9fr) minmax(120px, 0.9fr);
+  gap: var(--sp-2);
+  align-items: end;
+}
+
+.config-point-fields label {
+  min-width: 0;
+}
+
+.config-point-health {
+  grid-column: span 2;
+}
+
+.technical-preview {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.technical-preview summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.technical-preview summary:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: var(--radius-sm);
+}
+
+.technical-preview pre {
+  max-height: 420px;
+  margin: var(--sp-3) 0 0;
+  padding: var(--sp-3);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 /* Channel workbench */
 .channel-layout {
   display: grid;
@@ -1576,9 +1756,14 @@ textarea:focus {
 
   .dashboard-layout,
   .system-layout,
+  .admin-config-layout,
   .channel-layout,
   .report-layout {
     grid-template-columns: 1fr;
+  }
+
+  .config-point-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .dashboard-layout .tool-panel[data-widget="price"],
@@ -1615,6 +1800,8 @@ textarea:focus {
   .kpi-grid,
   .control-grid,
   .control-grid.compact,
+  .config-field-grid,
+  .config-field-grid.compact,
   .selected-strip,
   .series-grid,
   .window-columns,
@@ -1623,6 +1810,27 @@ textarea:focus {
   .preview-sections,
   .report-channel-list {
     grid-template-columns: 1fr;
+  }
+
+  .config-toolbar .button,
+  .token-field {
+    width: 100%;
+    max-width: none;
+  }
+
+  .config-channel-row-head,
+  .config-point-fields,
+  .config-channel-row {
+    grid-template-columns: 1fr;
+  }
+
+  .config-channel-summary {
+    justify-self: stretch;
+    white-space: normal;
+  }
+
+  .config-point-health {
+    grid-column: auto;
   }
 
   th,
