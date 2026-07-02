@@ -482,7 +482,7 @@ def _load_additional_inputs(
             instance=instance,
             description=str(entry.get("description", channel_id)),
             controller_ip=_optional_text(entry.get("controller_ip")),
-            controller_port=int(entry.get("controller_port", default_controller_port)),
+            controller_port=_optional_int(entry.get("controller_port", default_controller_port)),
             plausible_min=_optional_float(entry.get("plausible_min")),
             plausible_max=_optional_float(entry.get("plausible_max")),
             include_in_health=bool(entry.get("include_in_health", False)),
@@ -535,6 +535,12 @@ def _optional_float(value: Any) -> Optional[float]:
     if value is None:
         return None
     return float(value)
+
+
+def _optional_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    return int(value)
 
 
 def _optional_text(value: Any) -> Optional[str]:
@@ -643,9 +649,10 @@ def _validate_config(config: MiniEmsConfig) -> None:
         if channel_id in core_channels:
             raise ValueError("additional_inputs channel_id duplicates a core channel: {0}".format(channel_id))
         _validate_additional_input_protocol(channel_id, input_config)
-        if input_config.controller_port is None:
-            continue
-        if input_config.controller_port <= 0 or input_config.controller_port > 65535:
+        if (
+            input_config.controller_port is not None
+            and (input_config.controller_port <= 0 or input_config.controller_port > 65535)
+        ):
             raise ValueError(
                 "additional_inputs controller_port must be between 1 and 65535 for {0}".format(channel_id)
             )

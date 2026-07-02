@@ -14,6 +14,7 @@
       }
     })();
   </script>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/vendor/uPlot.min.css">
   <link rel="stylesheet" href="/dashboard.css">
 </head>
@@ -285,6 +286,16 @@
           <div class="config-feedback" id="site-config-feedback" role="status">Noch nicht geprüft.</div>
 
           <div class="admin-config-layout">
+            <article class="tool-panel config-card config-card-wide config-card-priority">
+              <div class="panel-head">
+                <div>
+                  <h3>Datenquellen und Messpunkte</h3>
+                  <p>Welche Werte abgefragt werden und wie sie technisch adressiert sind.</p>
+                </div>
+              </div>
+              <div class="config-channel-list" id="config-channel-list"></div>
+            </article>
+
             <article class="tool-panel config-card">
               <div class="panel-head">
                 <div>
@@ -475,16 +486,6 @@
                   <input id="config-safe-mode-threshold" type="number" min="1" value="2">
                 </label>
               </div>
-            </article>
-
-            <article class="tool-panel config-card config-card-wide">
-              <div class="panel-head">
-                <div>
-                  <h3>Messpunkte und Zusatzkanäle</h3>
-                  <p>Aktive Zusatzwerte für Dashboard, Bericht und Zustandsprüfung.</p>
-                </div>
-              </div>
-              <div class="config-channel-list" id="config-channel-list"></div>
             </article>
 
             <article class="tool-panel config-card config-card-wide">

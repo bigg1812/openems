@@ -42,6 +42,35 @@ Leitentscheidungen:
 - Reads und Writes werden als unterschiedliche Risikoklassen behandelt.
 - Die Regelung soll langfristig nur noch kanonische Kanäle lesen, nicht BACnet-Objekte, Modbus-Register oder API-Felder.
 
+## Strategische Ergänzung (2026-07-02): Konfiguration als Mapping-Prozess
+
+Die Konfiguration soll nicht als JSON-Editor oder lange technische Formularseite wachsen. Ziel ist ein leichter
+Inbetriebnahmeprozess: Der Kunde bzw. Konfigurator richtet einen Standort ein, legt Geräte/Datenquellen an,
+erfasst oder importiert Rohpunkte, ordnet sie fachlichen Mini-EMS-Kanälen zu, testet die Werte und aktiviert erst
+danach die daraus erzeugte Runtime-Konfiguration.
+
+Technisch bleibt die Runtime-Konfiguration vorerst stabil. Davor liegt eine neue verständliche Zwischenebene:
+
+```text
+Mapping-Entwurf
+-> Validierung und Preview
+-> Runtime-Config-Patch
+-> Freigabe / Backup / Aktivierung
+```
+
+Der erste technische Kern ist `mini_ems_runtime/mapping_config.py` mit dem Preview-Endpunkt
+`POST /api/config/mapping/preview`. Die UI soll damit später nicht direkt `config.json` bearbeiten, sondern einen
+fachlichen Entwurf aus `devices`, `raw_points` und `mappings` erzeugen. Erst der Generator übersetzt daraus die
+heutige Mini-EMS-Konfiguration (`network`, `points`, `additional_inputs`).
+
+Leitentscheidungen:
+
+- Einstieg ist "Standort einrichten", nicht "Konfiguration bearbeiten".
+- Fachliche Kanäle stehen vor Protokolldetails: z. B. "Netzleistung" vor "BACnet AV 300".
+- Technische Details bleiben sichtbar, aber einklappbar und sekundär.
+- `config.json` wird nicht blind überschrieben; Preview, Validierung, Backup und Audit bleiben Pflicht.
+- Version 1 bleibt bewusst klein: manuelles BACnet-Mapping plus Preview; Scan, Import, Templates und Live-Test folgen danach.
+
 ## Strategische To-do-Linie: Edge-Integrationskern
 
 - [x] **S1. Edge Integration Contract dokumentieren**
@@ -87,6 +116,37 @@ Leitentscheidungen:
   - **Risiken:** Registerlisten, Skalierung, Byte-/Word-Order und Vorzeichen müssen sauber geprüft werden.
   - **Definition of Done:** Ein kanonischer Kanal wie `meter.grid.active_power_kw` kann wahlweise aus BACnet oder Modbus
     stammen, ohne dass die Regelungslogik das Protokoll kennen muss.
+
+- [ ] **S5. Mapping-Entwurfsmodell als Konfigurationskern ausbauen**
+  - **Was:** Das vorhandene Preview-Modell (`devices`, `raw_points`, `mappings`) zur zentralen Grundlage der
+    Konfigurations-UI machen. Ein Mapping-Entwurf beschreibt Geräte/Datenquellen, gefundene oder manuell
+    angelegte Rohpunkte und deren Zuordnung zu kanonischen Mini-EMS-Kanälen. Die Runtime arbeitet weiter mit
+    der generierten Config, nicht direkt mit UI-Formularfeldern.
+  - **Nutzen:** Die UI kann leicht und fachlich bleiben, während die Runtime stabil und sicher bleibt. Konfiguratoren
+    mappen "Netzleistung", "Außentemperatur" oder "Puffer oben" auf Rohpunkte, statt eine komplette technische
+    JSON-Struktur verstehen zu müssen.
+  - **Betroffen:** `mapping_config.py`, HTTP-API, spätere Dashboard-Konfigurationsseite, Tests, `EMS-Mapping.md`,
+    `MINI_EMS_ANLEITUNG.md`.
+  - **Aufwand:** M
+  - **Risiken:** Das Modell darf nicht zu früh zur generischen Plattform anwachsen. Für Version 1 nur BACnet,
+    manuelle Rohpunkte und einfache Preview/Validierung; Modbus-Rohpunkte kommen über den in S4 ergänzten
+    Modbus-Adapter hinzu, nicht als eigenes Mapping-Protokoll.
+  - **Definition of Done:** Ein Mapping-Entwurf kann Geräte, Rohpunkte und fachliche Zuordnungen aufnehmen;
+    `POST /api/config/mapping/preview` liefert einen validierten Runtime-Config-Patch; Fehler/Warnungen sind
+    UI-tauglich; bestehende Runtime-Tests bleiben grün.
+
+- [ ] **S6. Mapping-Aktivierung mit Backup und Audit ergänzen**
+  - **Was:** Nach der Preview einen kontrollierten Aktivierungspfad bauen: Mapping-Entwurf speichern, erzeugten
+    Config-Patch prüfen, aktive Config sichern, Änderung mit Admin-Recht übernehmen und Neustartbedarf sichtbar
+    markieren. Der Entwurf selbst bleibt als nachvollziehbares Inbetriebnahme-Artefakt erhalten.
+  - **Nutzen:** Aus dem einfachen UI-Prozess wird ein sicherer Betriebsprozess. Kunden sehen nicht nur "gespeichert",
+    sondern welche Zuordnung aktiv ist, wer sie freigegeben hat und ob ein Neustart erforderlich ist.
+  - **Betroffen:** Config-API, Backup-/Audit-Ablage, künftige Auth-/Token-Schicht, UI-Freigabeseite, Betriebsdoku.
+  - **Aufwand:** M/L
+  - **Risiken:** Aktivieren darf nie über einen read-only Viewer-Pfad möglich sein. Secrets, Admin-Token und
+    Anlagen-Schreibfreigaben dürfen nicht im Mapping-Entwurf landen.
+  - **Definition of Done:** Ungültige Entwürfe können nicht aktiviert werden; jede Aktivierung erzeugt Backup und
+    Audit-Eintrag; UI zeigt aktiven Stand, Entwurf, Validierungsstatus und Neustartbedarf getrennt.
 
 ## Strategische To-do-Linie: Geschütztes Kundenhosting
 

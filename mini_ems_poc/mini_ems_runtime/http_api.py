@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 
 from .config import ApiConfig, load_config, validate_raw_config
 from .logging_utils import log_event
+from .mapping_config import build_mapping_config_patch
 from .read_diagnostics import ChannelReadDiagnosticsService
 from .runtime_db import RuntimeDatabase
 from .spotmarket_plan import SpotmarketPlanWriter
@@ -210,6 +211,10 @@ class MiniEmsApiServer:
                                 {"saved": False, "message": str(error)},
                                 status=HTTPStatus.FORBIDDEN,
                             )
+                        return
+                    if parsed.path == "/api/config/mapping/preview":
+                        payload = self._read_json_body()
+                        self._send_json(api_server.preview_mapping_config_payload(payload))
                         return
                     if parsed.path == "/api/report/preview":
                         payload = self._read_json_body()
@@ -411,6 +416,23 @@ class MiniEmsApiServer:
         except Exception as error:
             return {"valid": False, "message": str(error)}
         return {"valid": True}
+
+    def preview_mapping_config_payload(self, payload: Dict[str, object]) -> Dict[str, object]:
+        result = build_mapping_config_patch(payload)
+        if not result.get("valid"):
+            return result
+        try:
+            raw = _deep_merge_dicts(self._read_config_file(), result["patch"])
+            validate_raw_config(raw, base_dir=self._config_base_dir())
+        except Exception as error:
+            errors = list(result.get("errors", []))
+            errors.append(str(error))
+            return {
+                **result,
+                "valid": False,
+                "errors": errors,
+            }
+        return result
 
     def save_site_config_payload(
         self,

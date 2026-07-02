@@ -6,6 +6,7 @@ from pathlib import Path
 
 from mini_ems_poc.mini_ems_runtime.config import validate_raw_config
 from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
+from mini_ems_poc.tests.test_mapping_config import sample_mapping_draft
 
 
 def make_raw_config(config_admin_token=None):
@@ -136,6 +137,153 @@ class ConfigApiTest(unittest.TestCase):
 
         self.assertFalse(payload["valid"])
         self.assertIn("simulated BACnet mode requires real_writes_enabled=false", payload["message"])
+
+    def test_validate_accepts_additional_input_protocol_and_target_fields(self) -> None:
+        server = self._build_server(make_raw_config())
+
+        payload = server.validate_site_config_payload(
+            {
+                "patch": {
+                    "additional_inputs": [
+                        {
+                            "channel_id": "site.outdoor_temperature_c",
+                            "protocol": "bacnet",
+                            "object_type": "ai",
+                            "instance": 1801,
+                            "description": "Outdoor temperature",
+                            "controller_ip": "192.168.1.200",
+                            "controller_port": 47810,
+                            "plausible_min": -30.0,
+                            "plausible_max": 60.0,
+                            "read_interval_cycles": 2,
+                            "max_age_seconds": 180,
+                        }
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(payload, {"valid": True})
+
+    def test_validate_still_checks_plausibility_when_point_target_uses_default(self) -> None:
+        server = self._build_server(make_raw_config())
+
+        payload = server.validate_site_config_payload(
+            {
+                "patch": {
+                    "additional_inputs": [
+                        {
+                            "channel_id": "site.outdoor_temperature_c",
+                            "protocol": "bacnet",
+                            "object_type": "ai",
+                            "instance": 1801,
+                            "description": "Outdoor temperature",
+                            "controller_ip": None,
+                            "controller_port": None,
+                            "plausible_min": 80.0,
+                            "plausible_max": 60.0,
+                        }
+                    ]
+                }
+            }
+        )
+
+        self.assertFalse(payload["valid"])
+        self.assertIn("plausible_min must be <= plausible_max", payload["message"])
+
+    def test_validate_rejects_unsupported_additional_input_protocol(self) -> None:
+        server = self._build_server(make_raw_config())
+
+        payload = server.validate_site_config_payload(
+            {
+                "patch": {
+                    "additional_inputs": [
+                        {
+                            "channel_id": "site.outdoor_temperature_c",
+                            "protocol": "mqtt",
+                            "object_type": "ai",
+                            "instance": 1801,
+                            "description": "Outdoor temperature",
+                        }
+                    ]
+                }
+            }
+        )
+
+        self.assertFalse(payload["valid"])
+        self.assertIn("protocol must be one of", payload["message"])
+
+    def test_validate_rejects_modbus_additional_input_without_address_block(self) -> None:
+        # protocol=modbus_tcp is supported (S4), but still requires the modbus
+        # address block; a bare BACnet-shaped entry must fail clearly.
+        server = self._build_server(make_raw_config())
+
+        payload = server.validate_site_config_payload(
+            {
+                "patch": {
+                    "additional_inputs": [
+                        {
+                            "channel_id": "site.outdoor_temperature_c",
+                            "protocol": "modbus_tcp",
+                            "object_type": "ai",
+                            "instance": 1801,
+                            "description": "Outdoor temperature",
+                        }
+                    ]
+                }
+            }
+        )
+
+        self.assertFalse(payload["valid"])
+        self.assertIn("requires a modbus object", payload["message"])
+
+    def test_validate_accepts_modbus_additional_input_with_address_block(self) -> None:
+        # S4: protocol=modbus_tcp with a complete modbus block is a valid,
+        # read-only alternative to the BACnet path for the same channel shape.
+        server = self._build_server(make_raw_config())
+
+        payload = server.validate_site_config_payload(
+            {
+                "patch": {
+                    "additional_inputs": [
+                        {
+                            "channel_id": "meter.grid.active_power_kw",
+                            "protocol": "modbus_tcp",
+                            "description": "Hauptzaehler Wirkleistung",
+                            "modbus": {
+                                "host": "192.168.244.60",
+                                "port": 502,
+                                "unit_id": 1,
+                                "function_code": 3,
+                                "register": 19026,
+                                "encoding": "float32",
+                                "word_order": "big",
+                                "scale": 0.001,
+                            },
+                            "plausible_min": -750.0,
+                            "plausible_max": 750.0,
+                            "max_age_seconds": 120,
+                        }
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(payload, {"valid": True})
+
+    def test_mapping_preview_returns_valid_runtime_config_patch(self) -> None:
+        server = self._build_server(make_raw_config())
+
+        payload = server.preview_mapping_config_payload(sample_mapping_draft())
+
+        self.assertTrue(payload["valid"])
+        self.assertEqual(payload["errors"], [])
+        self.assertEqual(payload["patch"]["network"]["controller_ip"], "192.168.1.20")
+        self.assertEqual(payload["patch"]["points"]["grid_active_power_kw"], 300)
+        self.assertEqual(
+            payload["patch"]["additional_inputs"][0]["channel_id"],
+            "site.outdoor_temperature_c",
+        )
 
     def test_site_config_view_strips_admin_token_and_keeps_editable_sections(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
