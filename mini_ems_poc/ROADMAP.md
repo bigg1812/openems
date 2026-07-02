@@ -42,6 +42,35 @@ Leitentscheidungen:
 - Reads und Writes werden als unterschiedliche Risikoklassen behandelt.
 - Die Regelung soll langfristig nur noch kanonische Kanäle lesen, nicht BACnet-Objekte, Modbus-Register oder API-Felder.
 
+## Strategische Ergänzung (2026-07-02): Konfiguration als Mapping-Prozess
+
+Die Konfiguration soll nicht als JSON-Editor oder lange technische Formularseite wachsen. Ziel ist ein leichter
+Inbetriebnahmeprozess: Der Kunde bzw. Konfigurator richtet einen Standort ein, legt Geräte/Datenquellen an,
+erfasst oder importiert Rohpunkte, ordnet sie fachlichen Mini-EMS-Kanälen zu, testet die Werte und aktiviert erst
+danach die daraus erzeugte Runtime-Konfiguration.
+
+Technisch bleibt die Runtime-Konfiguration vorerst stabil. Davor liegt eine neue verständliche Zwischenebene:
+
+```text
+Mapping-Entwurf
+-> Validierung und Preview
+-> Runtime-Config-Patch
+-> Freigabe / Backup / Aktivierung
+```
+
+Der erste technische Kern ist `mini_ems_runtime/mapping_config.py` mit dem Preview-Endpunkt
+`POST /api/config/mapping/preview`. Die UI soll damit später nicht direkt `config.json` bearbeiten, sondern einen
+fachlichen Entwurf aus `devices`, `raw_points` und `mappings` erzeugen. Erst der Generator übersetzt daraus die
+heutige Mini-EMS-Konfiguration (`network`, `points`, `additional_inputs`).
+
+Leitentscheidungen:
+
+- Einstieg ist "Standort einrichten", nicht "Konfiguration bearbeiten".
+- Fachliche Kanäle stehen vor Protokolldetails: z. B. "Netzleistung" vor "BACnet AV 300".
+- Technische Details bleiben sichtbar, aber einklappbar und sekundär.
+- `config.json` wird nicht blind überschrieben; Preview, Validierung, Backup und Audit bleiben Pflicht.
+- Version 1 bleibt bewusst klein: manuelles BACnet-Mapping plus Preview; Scan, Import, Templates und Live-Test folgen danach.
+
 ## Strategische To-do-Linie: Edge-Integrationskern
 
 - [x] **S1. Edge Integration Contract dokumentieren**
@@ -79,8 +108,38 @@ Leitentscheidungen:
   - **Definition of Done:** Es gibt eine klare Vorlage, welche Rohpunkte, Einheiten, Rollen, Plausibilitätsgrenzen,
     Aktualitätsregeln und optionalen Schreibrechte ein Hauptzähler braucht.
 
-- [ ] **S4. Danach Modbus TCP read-only als erster neuer Adapter**
-  - **Was:** Erst nach S1-S3 einen read-only Modbus-TCP-Adapter für ein Leistungsmessgerät ergänzen.
+- [ ] **S4. Mapping-Entwurfsmodell als Konfigurationskern ausbauen**
+  - **Was:** Das vorhandene Preview-Modell (`devices`, `raw_points`, `mappings`) zur zentralen Grundlage der
+    Konfigurations-UI machen. Ein Mapping-Entwurf beschreibt Geräte/Datenquellen, gefundene oder manuell
+    angelegte Rohpunkte und deren Zuordnung zu kanonischen Mini-EMS-Kanälen. Die Runtime arbeitet weiter mit
+    der generierten Config, nicht direkt mit UI-Formularfeldern.
+  - **Nutzen:** Die UI kann leicht und fachlich bleiben, während die Runtime stabil und sicher bleibt. Konfiguratoren
+    mappen "Netzleistung", "Außentemperatur" oder "Puffer oben" auf Rohpunkte, statt eine komplette technische
+    JSON-Struktur verstehen zu müssen.
+  - **Betroffen:** `mapping_config.py`, HTTP-API, spätere Dashboard-Konfigurationsseite, Tests, `EMS-Mapping.md`,
+    `MINI_EMS_ANLEITUNG.md`.
+  - **Aufwand:** M
+  - **Risiken:** Das Modell darf nicht zu früh zur generischen Plattform anwachsen. Für Version 1 nur BACnet,
+    manuelle Rohpunkte und einfache Preview/Validierung; keine vorgetäuschte Unterstützung für Modbus/MQTT/OPC UA.
+  - **Definition of Done:** Ein Mapping-Entwurf kann Geräte, Rohpunkte und fachliche Zuordnungen aufnehmen;
+    `POST /api/config/mapping/preview` liefert einen validierten Runtime-Config-Patch; Fehler/Warnungen sind
+    UI-tauglich; bestehende Runtime-Tests bleiben grün.
+
+- [ ] **S5. Mapping-Aktivierung mit Backup und Audit ergänzen**
+  - **Was:** Nach der Preview einen kontrollierten Aktivierungspfad bauen: Mapping-Entwurf speichern, erzeugten
+    Config-Patch prüfen, aktive Config sichern, Änderung mit Admin-Recht übernehmen und Neustartbedarf sichtbar
+    markieren. Der Entwurf selbst bleibt als nachvollziehbares Inbetriebnahme-Artefakt erhalten.
+  - **Nutzen:** Aus dem einfachen UI-Prozess wird ein sicherer Betriebsprozess. Kunden sehen nicht nur "gespeichert",
+    sondern welche Zuordnung aktiv ist, wer sie freigegeben hat und ob ein Neustart erforderlich ist.
+  - **Betroffen:** Config-API, Backup-/Audit-Ablage, künftige Auth-/Token-Schicht, UI-Freigabeseite, Betriebsdoku.
+  - **Aufwand:** M/L
+  - **Risiken:** Aktivieren darf nie über einen read-only Viewer-Pfad möglich sein. Secrets, Admin-Token und
+    Anlagen-Schreibfreigaben dürfen nicht im Mapping-Entwurf landen.
+  - **Definition of Done:** Ungültige Entwürfe können nicht aktiviert werden; jede Aktivierung erzeugt Backup und
+    Audit-Eintrag; UI zeigt aktiven Stand, Entwurf, Validierungsstatus und Neustartbedarf getrennt.
+
+- [ ] **S6. Danach Modbus TCP read-only als erster neuer Adapter**
+  - **Was:** Erst nach S1-S5 einen read-only Modbus-TCP-Adapter für ein Leistungsmessgerät ergänzen.
   - **Nutzen:** Beweist, dass das Modell wirklich protokollneutral ist, ohne sofort neue Schreibrisiken einzubauen.
   - **Betroffen:** `protocol.py`, neuer Adapter, Config, Tests, Simulation.
   - **Aufwand:** M/L
@@ -170,6 +229,28 @@ Leitentscheidungen:
   - **Aufwand:** M
   - **Risiken:** Audit-Logs dürfen keine Geheimnisse oder unnötigen personenbezogenen Daten enthalten.
   - **Definition of Done:** Betriebslog und Zugriffskonzept sind für einen Pilotkunden erklärbar.
+
+- [ ] **H9. Konfigurations-UI als geschützten Entwurfs- und Speicherpfad bauen**
+  - **Was:** Die UI ersetzt `config.json` nicht blind und schreibt nicht direkt aus einem Formular in die aktive
+    Standortkonfiguration. Ziel ist ein kontrollierter Ablauf: aktive Konfiguration lesen, erlaubte Felder als
+    Entwurf bearbeiten, denselben fachlichen und technischen Regeln wie beim Runtime-Start validieren, Entwurf
+    speichern, aktive Konfiguration vor Änderung sichern, Änderung mit Admin-Recht bzw. Token übernehmen und
+    den Vorgang auditierbar protokollieren. Änderungen, die nur beim Start geladen werden, bleiben bis zum
+    geplanten Mini-EMS-Neustart als "Neustart erforderlich" markiert.
+  - **Nutzen:** Betreiber bekommen eine verständliche Konfigurationsoberfläche, ohne die Schutzwirkung der
+    getrennten IPC-/Laptop-Konfiguration, Validierung und geplanten Betriebsfreigabe zu verlieren.
+  - **Betroffen:** HTTP-API, künftige Auth-/Token-Schicht, Config-Validierung, Backup-/Rollback-Ablage,
+    Audit-Log, `MINI_EMS_ANLEITUNG.md`, Windows-Task-Neustartprozess.
+  - **Aufwand:** M/L
+  - **Risiken:** Der erste Netzwerkzugriff bleibt read-only. Schreibende Konfigurations-Endpunkte dürfen nicht
+    über den Viewer-/Remote-Pfad erreichbar sein, brauchen Admin-Recht bzw. ein kurzlebiges Token und dürfen nie
+    direkt ins Internet freigegeben werden. Der lokale Simulationspfad (`config.local.json`, `127.0.0.1`,
+    `runtime.bacnet_mode=simulated`, `runtime.real_writes_enabled=false`) darf keinen Weg bekommen, echte
+    BACnet-Writes auszulösen. Safety-Flags und Anlagen-Schreibfreigaben bleiben lokale Admin-/IPC-Arbeit.
+  - **Definition of Done:** Ungültige Entwürfe können die aktive Konfiguration nicht überschreiben; jede
+    Übernahme erzeugt ein Backup und einen Audit-Eintrag ohne Geheimnisse; Admin-/Token-Prüfung ist dokumentiert;
+    read-only Netzwerkbetrieb blockiert schreibende Endpunkte; Neustartbedarf und Rollback-Pfad sind in Betrieb
+    und UI sichtbar.
 
 ## Priorisierte To-do-Liste
 

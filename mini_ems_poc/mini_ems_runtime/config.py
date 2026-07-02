@@ -28,6 +28,7 @@ class AdditionalInputConfig:
     object_type: int
     instance: int
     description: str
+    protocol: str = "bacnet"
     controller_ip: Optional[str] = None
     controller_port: Optional[int] = None
     plausible_min: Optional[float] = None
@@ -136,6 +137,7 @@ class ApiConfig:
     host: str
     port: int
     history_default_limit: int
+    config_admin_token: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -235,7 +237,14 @@ class MiniEmsConfig:
 
 
 def load_config(path: Path) -> MiniEmsConfig:
-    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    config_path = Path(path)
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    return validate_raw_config(raw, base_dir=config_path.resolve().parent)
+
+
+def validate_raw_config(raw: Dict[str, Any], *, base_dir: Path) -> MiniEmsConfig:
+    if not isinstance(raw, dict):
+        raise ValueError("Config root must be a JSON object")
 
     network = _require_dict(raw, "network")
     points = _require_dict(raw, "points")
@@ -255,7 +264,7 @@ def load_config(path: Path) -> MiniEmsConfig:
     logging = _require_dict(raw, "logging")
 
     config = MiniEmsConfig(
-        base_dir=Path(path).resolve().parent,
+        base_dir=Path(base_dir).resolve(),
         network=NetworkConfig(
             controller_ip=str(network["controller_ip"]),
             controller_port=int(network["controller_port"]),
@@ -341,6 +350,7 @@ def load_config(path: Path) -> MiniEmsConfig:
             host=str(api.get("host", "127.0.0.1")),
             port=int(api.get("port", 8090)),
             history_default_limit=int(api.get("history_default_limit", 96)),
+            config_admin_token=_optional_text(api.get("config_admin_token")),
         ),
         runtime=RuntimeConfig(
             environment=str(runtime.get("environment", "ipc")).lower(),
@@ -409,11 +419,12 @@ def _load_additional_inputs(
         channel_id = str(entry["channel_id"])
         additional_inputs[channel_id] = AdditionalInputConfig(
             channel_id=channel_id,
+            protocol=str(entry.get("protocol", "bacnet")).strip().lower() or "bacnet",
             object_type=_parse_object_type(entry["object_type"]),
             instance=int(entry["instance"]),
             description=str(entry.get("description", channel_id)),
             controller_ip=_optional_text(entry.get("controller_ip")),
-            controller_port=int(entry.get("controller_port", default_controller_port)),
+            controller_port=_optional_int(entry.get("controller_port", default_controller_port)),
             plausible_min=_optional_float(entry.get("plausible_min")),
             plausible_max=_optional_float(entry.get("plausible_max")),
             include_in_health=bool(entry.get("include_in_health", False)),
@@ -447,6 +458,12 @@ def _optional_float(value: Any) -> Optional[float]:
     if value is None:
         return None
     return float(value)
+
+
+def _optional_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    return int(value)
 
 
 def _optional_text(value: Any) -> Optional[str]:
@@ -554,9 +571,14 @@ def _validate_config(config: MiniEmsConfig) -> None:
     for channel_id, input_config in config.additional_inputs.items():
         if channel_id in core_channels:
             raise ValueError("additional_inputs channel_id duplicates a core channel: {0}".format(channel_id))
-        if input_config.controller_port is None:
-            continue
-        if input_config.controller_port <= 0 or input_config.controller_port > 65535:
+        if input_config.protocol != "bacnet":
+            raise ValueError(
+                "additional_inputs protocol must be 'bacnet' for {0}".format(channel_id)
+            )
+        if (
+            input_config.controller_port is not None
+            and (input_config.controller_port <= 0 or input_config.controller_port > 65535)
+        ):
             raise ValueError(
                 "additional_inputs controller_port must be between 1 and 65535 for {0}".format(channel_id)
             )

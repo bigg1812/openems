@@ -1,3 +1,5 @@
+import copy
+import hmac
 import json
 import math
 import os
@@ -11,8 +13,9 @@ from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
-from .config import ApiConfig
+from .config import ApiConfig, load_config, validate_raw_config
 from .logging_utils import log_event
+from .mapping_config import build_mapping_config_patch
 from .read_diagnostics import ChannelReadDiagnosticsService
 from .runtime_db import RuntimeDatabase
 from .spotmarket_plan import SpotmarketPlanWriter
@@ -105,6 +108,9 @@ class MiniEmsApiServer:
                     if parsed.path == "/api/config/spotmarket-lockout":
                         self._send_json(api_server._get_spotmarket_lockout_settings())
                         return
+                    if parsed.path == "/api/config/site":
+                        self._send_json(api_server.get_site_config())
+                        return
                     if parsed.path == "/api/spotmarket/windows":
                         self._send_json(api_server._load_json(api_server.spotmarket_plan_path, {}))
                         return
@@ -192,6 +198,24 @@ class MiniEmsApiServer:
                         payload = self._read_json_body()
                         self._send_json(api_server.update_spotmarket_lockout_settings(payload))
                         return
+                    if parsed.path == "/api/config/site/validate":
+                        payload = self._read_json_body()
+                        self._send_json(api_server.validate_site_config_payload(payload))
+                        return
+                    if parsed.path == "/api/config/site/save":
+                        payload = self._read_json_body()
+                        try:
+                            self._send_json(api_server.save_site_config_payload(payload, self._admin_token()))
+                        except PermissionError as error:
+                            self._send_json(
+                                {"saved": False, "message": str(error)},
+                                status=HTTPStatus.FORBIDDEN,
+                            )
+                        return
+                    if parsed.path == "/api/config/mapping/preview":
+                        payload = self._read_json_body()
+                        self._send_json(api_server.preview_mapping_config_payload(payload))
+                        return
                     if parsed.path == "/api/report/preview":
                         payload = self._read_json_body()
                         self._send_json(api_server.runtime_db.build_configurable_report(payload))
@@ -232,6 +256,16 @@ class MiniEmsApiServer:
                 if not isinstance(payload, dict):
                     raise ValueError("Request body must be a JSON object")
                 return payload
+
+            def _admin_token(self) -> Optional[str]:
+                token = self.headers.get("X-Mini-Ems-Admin-Token")
+                if token:
+                    return token
+                authorization = self.headers.get("Authorization", "")
+                prefix = "Bearer "
+                if authorization.startswith(prefix):
+                    return authorization[len(prefix):].strip()
+                return None
 
             def _send_json(self, payload: Dict[str, object], status: HTTPStatus = HTTPStatus.OK) -> None:
                 raw = json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
@@ -374,6 +408,69 @@ class MiniEmsApiServer:
         _write_json_preserve_order(cache_path, payload)
         return payload
 
+    def get_site_config(self) -> Dict[str, object]:
+        raw = self._read_config_file()
+        config = validate_raw_config(raw, base_dir=self._config_base_dir())
+        return {
+            "config": _safe_site_config_view(raw, config),
+            "editable_sections": list(_SITE_CONFIG_EDITABLE_SECTIONS),
+            "save_enabled": bool(self.api_config.config_admin_token),
+            "restart_required_on_save": True,
+        }
+
+    def validate_site_config_payload(self, payload: Dict[str, object]) -> Dict[str, object]:
+        try:
+            raw = self._candidate_config_from_payload(payload)
+            validate_raw_config(raw, base_dir=self._config_base_dir())
+        except Exception as error:
+            return {"valid": False, "message": str(error)}
+        return {"valid": True}
+
+    def preview_mapping_config_payload(self, payload: Dict[str, object]) -> Dict[str, object]:
+        result = build_mapping_config_patch(payload)
+        if not result.get("valid"):
+            return result
+        try:
+            raw = _deep_merge_dicts(self._read_config_file(), result["patch"])
+            validate_raw_config(raw, base_dir=self._config_base_dir())
+        except Exception as error:
+            errors = list(result.get("errors", []))
+            errors.append(str(error))
+            return {
+                **result,
+                "valid": False,
+                "errors": errors,
+            }
+        return result
+
+    def save_site_config_payload(
+        self,
+        payload: Dict[str, object],
+        admin_token: Optional[str],
+    ) -> Dict[str, object]:
+        expected_token = self.api_config.config_admin_token
+        if not expected_token:
+            raise PermissionError("Config save is disabled: api.config_admin_token is not configured")
+        if admin_token is None or not hmac.compare_digest(str(admin_token), str(expected_token)):
+            raise PermissionError("Invalid admin token")
+
+        try:
+            raw = self._candidate_config_from_payload(payload)
+            validate_raw_config(raw, base_dir=self._config_base_dir())
+        except Exception as error:
+            return {"saved": False, "valid": False, "message": str(error)}
+
+        config_path = self._require_config_path()
+        backup_path = self._backup_config_file(config_path)
+        _write_json_preserve_order(config_path, raw)
+        load_config(config_path)
+        return {
+            "saved": True,
+            "valid": True,
+            "restart_required": True,
+            "backup_file": backup_path.name,
+        }
+
     def update_spotmarket_lockout_settings(self, payload: Dict[str, object]) -> Dict[str, object]:
         min_consecutive_quarters = self._parse_min_consecutive_quarters(payload)
         if self.config_path is not None:
@@ -460,6 +557,125 @@ class MiniEmsApiServer:
         if not isinstance(raw, dict):
             return dict(default)
         return raw
+
+    def _candidate_config_from_payload(self, payload: Dict[str, object]) -> Dict[str, object]:
+        if "config" in payload:
+            config_payload = payload["config"]
+            if not isinstance(config_payload, dict):
+                raise ValueError("config must be a JSON object")
+            if _looks_like_full_config(config_payload):
+                return copy.deepcopy(config_payload)
+            return _deep_merge_dicts(self._read_config_file(), config_payload)
+        if "patch" in payload:
+            patch = payload["patch"]
+            if not isinstance(patch, dict):
+                raise ValueError("patch must be a JSON object")
+            return _deep_merge_dicts(self._read_config_file(), patch)
+        if _looks_like_full_config(payload):
+            return copy.deepcopy(payload)
+        return _deep_merge_dicts(self._read_config_file(), payload)
+
+    def _read_config_file(self) -> Dict[str, object]:
+        config_path = self._require_config_path()
+        try:
+            raw = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise ValueError("Unable to read config file: {0}".format(error)) from error
+        if not isinstance(raw, dict):
+            raise ValueError("Config file root must be a JSON object")
+        return raw
+
+    def _config_base_dir(self) -> Path:
+        return self._require_config_path().resolve().parent
+
+    def _require_config_path(self) -> Path:
+        if self.config_path is None:
+            raise ValueError("Config file is not available")
+        return self.config_path
+
+    def _backup_config_file(self, config_path: Path) -> Path:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        backup_path = config_path.with_name("{0}.{1}.bak".format(config_path.name, timestamp))
+        backup_path.write_bytes(config_path.read_bytes())
+        return backup_path
+
+
+_SITE_CONFIG_EDITABLE_SECTIONS = (
+    "runtime",
+    "network",
+    "api",
+    "timing",
+    "watchdog",
+    "price_source",
+    "controllers",
+    "safety",
+    "additional_inputs",
+)
+_SITE_CONFIG_VIEW_SECTIONS = _SITE_CONFIG_EDITABLE_SECTIONS
+_FULL_CONFIG_REQUIRED_SECTIONS = {
+    "network",
+    "points",
+    "timing",
+    "price_source",
+    "controllers",
+    "safety",
+    "logging",
+}
+
+
+def _safe_site_config_view(raw: Dict[str, object], config) -> Dict[str, object]:
+    view: Dict[str, object] = {}
+    for section in _SITE_CONFIG_VIEW_SECTIONS:
+        value = raw.get(section)
+        if value is None:
+            continue
+        view[section] = copy.deepcopy(value)
+    view.setdefault(
+        "runtime",
+        {
+            "environment": config.runtime.environment,
+            "bacnet_mode": config.runtime.bacnet_mode,
+            "real_writes_enabled": config.runtime.real_writes_enabled,
+        },
+    )
+    api = dict(view.get("api") if isinstance(view.get("api"), dict) else {})
+    api.update(
+        {
+            "enabled": config.api.enabled,
+            "host": config.api.host,
+            "port": config.api.port,
+            "history_default_limit": config.api.history_default_limit,
+        }
+    )
+    api.pop("config_admin_token", None)
+    view["api"] = api
+    view.setdefault(
+        "watchdog",
+        {"max_cycle_age_seconds": config.watchdog.max_cycle_age_seconds},
+    )
+    view.setdefault(
+        "safety",
+        {
+            "fail_safe_output": config.safety.fail_safe_output,
+            "comm_error_safe_mode_threshold": config.safety.comm_error_safe_mode_threshold,
+        },
+    )
+    return view
+
+
+def _looks_like_full_config(payload: Dict[str, object]) -> bool:
+    return _FULL_CONFIG_REQUIRED_SECTIONS.issubset(payload.keys())
+
+
+def _deep_merge_dicts(base: Dict[str, object], patch: Dict[str, object]) -> Dict[str, object]:
+    result = copy.deepcopy(base)
+    for key, value in patch.items():
+        current = result.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            result[key] = _deep_merge_dicts(current, value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
 
 
 def _write_json_preserve_order(path: Path, payload: Dict[str, object]) -> None:

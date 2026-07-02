@@ -14,6 +14,7 @@
       }
     })();
   </script>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/vendor/uPlot.min.css">
   <link rel="stylesheet" href="/dashboard.css">
 </head>
@@ -33,6 +34,9 @@
         </a>
         <a href="#/berichte" class="nav-link" data-page="berichte">
           <span class="nav-icon" aria-hidden="true">▣</span>Berichte
+        </a>
+        <a href="#/konfiguration" class="nav-link" data-page="konfiguration">
+          <span class="nav-icon" aria-hidden="true">◎</span>Konfiguration
         </a>
         <a href="#/system" class="nav-link" data-page="system">
           <span class="nav-icon" aria-hidden="true">◉</span>System
@@ -256,6 +260,242 @@
             <div class="preview-sections" id="report-preview"></div>
           </div>
         </div>
+      </section>
+
+      <!-- ============ KONFIGURATION ============ -->
+      <section class="page" data-page="konfiguration" aria-label="Admin-Konfiguration">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Administration</span>
+            <h2>Anlagenkonfiguration</h2>
+          </div>
+          <div class="export-actions">
+            <div class="health-line" id="site-config-source">Prototypvorlage</div>
+          </div>
+        </div>
+
+        <form class="site-config-form" id="site-config-form">
+          <div class="config-toolbar">
+            <label class="token-field">
+              Admin-Token
+              <input id="site-config-token" type="password" autocomplete="off" placeholder="Token für Speichern">
+            </label>
+            <button class="button" id="site-config-validate" type="button">Konfiguration prüfen</button>
+            <button class="button primary" id="site-config-save" type="button">Speichern</button>
+          </div>
+          <div class="config-feedback" id="site-config-feedback" role="status">Noch nicht geprüft.</div>
+
+          <div class="admin-config-layout">
+            <article class="tool-panel config-card config-card-wide config-card-priority">
+              <div class="panel-head">
+                <div>
+                  <h3>Datenquellen und Messpunkte</h3>
+                  <p>Welche Werte abgefragt werden und wie sie technisch adressiert sind.</p>
+                </div>
+              </div>
+              <div class="config-channel-list" id="config-channel-list"></div>
+            </article>
+
+            <article class="tool-panel config-card">
+              <div class="panel-head">
+                <div>
+                  <h3>Standort und Zugriff</h3>
+                  <p>Betreiberansicht für Standort, Zugriff und Betriebsumgebung.</p>
+                </div>
+              </div>
+              <div class="config-field-grid">
+                <label>
+                  Standortname
+                  <input id="config-site-name" type="text" value="Mini EMS Standort">
+                </label>
+                <label>
+                  Zugriffsstatus
+                  <select id="config-access-status">
+                    <option value="local">Lokal erreichbar</option>
+                    <option value="secomea">Secomea-Zugriff vorgesehen</option>
+                    <option value="restricted">Nur internes Netz</option>
+                  </select>
+                </label>
+                <label>
+                  Betriebsumgebung
+                  <select id="config-runtime-environment">
+                    <option value="local">Laptop-Simulation</option>
+                    <option value="ipc">Produktiver IPC</option>
+                    <option value="test">Testumgebung</option>
+                  </select>
+                </label>
+                <label>
+                  Bedienhinweis
+                  <input id="config-operator-note" type="text" value="Keine echte Schalthandlung aus dieser Oberfläche.">
+                </label>
+              </div>
+            </article>
+
+            <article class="tool-panel config-card">
+              <div class="panel-head">
+                <div>
+                  <h3>Netzwerk und API</h3>
+                  <p>Erreichbarkeit des Dashboards und Zieladresse der Anlagenkommunikation.</p>
+                </div>
+              </div>
+              <div class="config-field-grid">
+                <label>
+                  Dashboard/API-Adresse
+                  <input id="config-api-host" type="text" value="127.0.0.1">
+                </label>
+                <label>
+                  Dashboard/API-Port
+                  <input id="config-api-port" type="number" min="1" max="65535" value="8090">
+                </label>
+                <label>
+                  Zielgerät Anlage
+                  <input id="config-controller-ip" type="text" value="127.0.0.1">
+                </label>
+                <label>
+                  Kommunikationsport
+                  <input id="config-controller-port" type="number" min="1" max="65535" value="47808">
+                </label>
+                <label>
+                  Lokale Schnittstelle
+                  <input id="config-local-ip" type="text" value="127.0.0.1">
+                </label>
+                <label>
+                  Lokaler Port
+                  <input id="config-local-port" type="number" min="1" max="65535" value="47809">
+                </label>
+                <label>
+                  Anlagenkommunikation
+                  <select id="config-bacnet-mode">
+                    <option value="simulated">Simulation ohne echte Schreibfreigabe</option>
+                    <option value="real">Produktive Anlagenkommunikation</option>
+                  </select>
+                </label>
+                <label class="check config-check">
+                  <input id="config-real-writes-enabled" type="checkbox">
+                  <span>Schreibfreigabe am IPC vorbereiten</span>
+                </label>
+              </div>
+              <p class="config-note">Diese Oberfläche löst selbst keine BACnet-Schaltaktion aus. Sie bereitet nur die spätere Server-Konfiguration vor.</p>
+            </article>
+
+            <article class="tool-panel config-card">
+              <div class="panel-head">
+                <div>
+                  <h3>Zyklus und Timing</h3>
+                  <p>Regelzyklus, Leseabstand und Aktualitätsprüfung.</p>
+                </div>
+              </div>
+              <div class="config-field-grid compact">
+                <label>
+                  Regelzyklus in Sekunden
+                  <input id="config-cycle-seconds" type="number" min="1" value="60">
+                </label>
+                <label>
+                  Leseabstand in Sekunden
+                  <input id="config-inter-read-delay" type="number" min="0" step="0.1" value="0">
+                </label>
+                <label>
+                  Max. Alter Systemstatus in Sekunden
+                  <input id="config-watchdog-seconds" type="number" min="1" value="300">
+                </label>
+                <label>
+                  Standardlimit Historie
+                  <input id="config-history-limit" type="number" min="1" value="96">
+                </label>
+              </div>
+            </article>
+
+            <article class="tool-panel config-card">
+              <div class="panel-head">
+                <div>
+                  <h3>Preisquelle</h3>
+                  <p>Day-Ahead-Preise für die Preisfenster und die Übergabe an die Anlage.</p>
+                </div>
+              </div>
+              <div class="config-field-grid compact">
+                <label>
+                  Anbieter
+                  <select id="config-price-provider">
+                    <option value="smard">SMARD</option>
+                  </select>
+                </label>
+                <label>
+                  Marktgebiet
+                  <input id="config-price-region" type="text" value="DE-LU">
+                </label>
+                <label>
+                  Auflösung
+                  <select id="config-price-resolution">
+                    <option value="quarterhour">Viertelstunden</option>
+                    <option value="hour">Stundenwerte</option>
+                  </select>
+                </label>
+                <label>
+                  Datenfilter
+                  <input id="config-price-filter" type="number" value="4169">
+                </label>
+                <label>
+                  Timeout in Sekunden
+                  <input id="config-price-timeout" type="number" min="1" value="30">
+                </label>
+                <label>
+                  Preisfaktor
+                  <input id="config-price-factor" type="number" min="0.0001" step="0.0001" value="0.1">
+                </label>
+              </div>
+            </article>
+
+            <article class="tool-panel config-card">
+              <div class="panel-head">
+                <div>
+                  <h3>Reglerparameter</h3>
+                  <p>Grenzwerte und Mindestdaten für Netzschutz und Preissteuerung.</p>
+                </div>
+              </div>
+              <div class="config-field-grid">
+                <label class="check config-check">
+                  <input id="config-grid-enabled" type="checkbox">
+                  <span>Netzschutz auswerten</span>
+                </label>
+                <label>
+                  Netzschwelle in kW
+                  <input id="config-grid-threshold" type="number" min="0" step="0.1" value="5">
+                </label>
+                <label>
+                  Rückkehrschwelle in kW
+                  <input id="config-grid-clear-threshold" type="number" min="0" step="0.1" value="5.5">
+                </label>
+                <label>
+                  Beruhigte Zyklen
+                  <input id="config-grid-clear-cycles" type="number" min="1" value="3">
+                </label>
+                <label>
+                  Negative Viertelstunden in Folge
+                  <input id="config-spotmarket-consecutive" type="number" min="1" value="8">
+                </label>
+                <label>
+                  Mindestwerte pro Tag
+                  <input id="config-spotmarket-min-valid" type="number" min="1" value="96">
+                </label>
+                <label>
+                  Ersatzwert bei ungültigem Preis
+                  <input id="config-invalid-price-sentinel" type="number" step="0.001" placeholder="leer lassen">
+                </label>
+                <label>
+                  Kommunikationsfehler bis sicherer Modus
+                  <input id="config-safe-mode-threshold" type="number" min="1" value="2">
+                </label>
+              </div>
+            </article>
+
+            <article class="tool-panel config-card config-card-wide">
+              <details class="technical-preview">
+                <summary>Technische Vorschau anzeigen</summary>
+                <pre id="site-config-preview"></pre>
+              </details>
+            </article>
+          </div>
+        </form>
       </section>
 
       <!-- ============ SYSTEM ============ -->
