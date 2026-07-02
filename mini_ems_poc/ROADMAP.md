@@ -149,7 +149,7 @@ Leitentscheidungen:
 
 ## Strategische To-do-Linie: Geschütztes Kundenhosting
 
-- [ ] **H1. Zielbild und Sicherheitsgrenze festlegen**
+- [x] **H1. Zielbild und Sicherheitsgrenze festlegen**
   - **Was:** Festlegen, dass Mini EMS auf kundeneigener IPC-Hardware laufen kann, aber nicht als frei einsehbarer
     Entwicklerordner ausgeliefert wird. Zugriff auf UI und API bleibt auf Kundennetz, VPN oder Secomea beschränkt.
   - **Nutzen:** Klärt die Erwartung: Es geht nicht um absolute Geheimhaltung gegen Administratoren, sondern um professionellen
@@ -158,6 +158,9 @@ Leitentscheidungen:
   - **Aufwand:** S
   - **Risiken:** Keine Sicherheitsversprechen formulieren, die auf einer kundeneigenen IPC mit Admin-Zugriff nicht haltbar sind.
   - **Definition of Done:** Es ist dokumentiert, wer UI, Runtime-Dateien, Standortkonfiguration, Logs und Betriebsdaten sehen darf.
+  - **Erledigt:** Zielbild, Sichtbarkeits-/Änderungsmatrix (normaler Windows-Nutzer, Viewer, Operator, Admin – konsistent
+    zum UX-Rollenmodell) und die ehrliche Risiko-Abgrenzung stehen in `HOSTING_SICHERHEIT.md`, Teil 1; querverwiesen aus
+    `README.md` und `MINI_EMS_ANLEITUNG.md`.
 
 - [ ] **H2. Mini EMS als Release-Paket statt Git-Checkout ausliefern**
   - **Was:** Die Kunden-IPC bekommt kein vollständiges Repository mehr, sondern ein versioniertes Release-Paket, z. B.
@@ -296,6 +299,10 @@ Leitentscheidungen:
   - **Definition of Done:** Es gibt eine dokumentierte Minimalvariante für das erste Online-Hosting, z. B. Secomea/VPN-Zugriff
     auf das bestehende Dashboard oder ein read-only Cloud-Export mit Login; der Pfad zeigt echte IPC-Daten auf einem zweiten
     Rechner; Schreibfunktionen bleiben gesperrt oder explizit außerhalb des Online-UI.
+  - **Stand:** Das dokumentierte Minimalkonzept (beide Pfade, freizugebende read-only und zu sperrende Endpunkte,
+    Empfehlung Secomea/VPN zuerst, Pilot-Checkliste, Leitplanken) liegt in `HOSTING_SICHERHEIT.md`, Teil 2, vor.
+    Offen bleibt der reale Nachweis auf einem zweiten Rechner am Standort – das kann nur der Betreiber/Nutzer vor Ort
+    erbringen; deshalb bleibt dieses To-do offen.
 
 - [x] **4. Runtime-Watchdog mit echtem Alarm (Offene Punkte #3)**
   - **Was:** Aus dem reinen Beobachtungs-Snapshot (`_watchdog_snapshot`, `last_healthy_at`) eine echte Liveness-Bewertung

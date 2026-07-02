@@ -575,6 +575,8 @@ und spätere Schreib-Endpunkte brauchen einen geschützten Admin-/Operator-Pfad 
 Internet freigegeben werden. Die lokale Simulation bleibt auf `127.0.0.1` und darf keinen Pfad mit realen
 BACnet-Writes bekommen.
 
+Wer, welche Rolle und welcher Netzzugang UI, Konfiguration, Logs und Betriebsdaten sehen darf, sowie die Minimalvariante für ein erstes read-only Online-Hosting (Secomea/VPN vs. externer Hosting-Punkt, freizugebende und zu sperrende Endpunkte, Leitplanken) sind in [HOSTING_SICHERHEIT.md](./HOSTING_SICHERHEIT.md) beschrieben.
+
 Wichtige Endpunkte:
 
 - `/`
