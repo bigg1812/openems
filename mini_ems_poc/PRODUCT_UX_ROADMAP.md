@@ -128,7 +128,27 @@ Leitentscheidungen:
   - **Risiken:** Rollen nicht zu früh technisch überbauen; zuerst UX- und Sicherheitsgrenzen klären.
   - **Definition of Done:** Für jede Rolle ist dokumentiert, welche Seiten, Aktionen und Daten sichtbar sind.
 
-- [ ] **UX12. Ersten Demo-Flow für bezahlten Pilot bauen**
+- [ ] **UX12. Rollenbasierte Konfigurationsseite als Freigabeprozess gestalten**
+  - **Was:** Eine spätere Konfigurationsseite nicht als freien JSON-Editor denken, sondern als geführten
+    Entwurfs-, Prüf- und Freigabeprozess:
+    - **Viewer:** sieht nur freigegebene, aktive Konfigurationszusammenfassungen, letzte Änderung, Status und
+      Hinweise auf ausstehende Neustarts; keine Bearbeitung, keine Geheimnisse, keine Rohdateien.
+    - **Operator:** darf betriebliche Einstellungen als Entwurf vorbereiten oder prüfen, z. B. Anzeige- und
+      Planungsparameter; er speichert aber keine aktive Standortkonfiguration und ändert keine Safety-Flags.
+    - **Konfigurator/Admin:** darf validierte Entwürfe freigeben und speichern, nachdem Rechte bzw. Token geprüft
+      wurden; er sieht Validierungsfehler, Backup-Status, Audit-Hinweise und Neustartbedarf.
+  - **Nutzen:** Konfiguration wird bedienbar und nachvollziehbar, ohne die harte Grenze zwischen Anzeige,
+    Bedienung und Anlagen-/Systemadministration aufzuweichen.
+  - **Betroffen:** Admin-/Systemansicht, Rollenmodell, Formularzustände, Validierungs- und Freigabetexte;
+    technische API-, Backup- und Token-Regeln bleiben in `ROADMAP.md`.
+  - **Aufwand:** M
+  - **Risiken:** Die UI darf keine Scheinsicherheit erzeugen. Was im Netzwerk nur read-only erreichbar sein soll,
+    darf dort auch nicht über eine versteckte Konfigurationsaktion möglich werden.
+  - **Definition of Done:** Für jede Rolle ist klar sichtbar, ob sie nur liest, einen Entwurf vorbereitet oder eine
+    geprüfte Konfiguration aktiv speichert; aktive Konfiguration, Entwurf, Validierungsfehler, Backup und
+    Neustartbedarf sind fachlich unterscheidbar.
+
+- [ ] **UX13. Ersten Demo-Flow für bezahlten Pilot bauen**
   - **Was:** Einen klaren Vorführpfad definieren: Dashboard öffnen, Zustand verstehen, Tagesreport erzeugen,
     Auffälligkeit erklären, Systemstatus prüfen.
   - **Nutzen:** Mini EMS wird leichter verkaufbar, weil der Nutzen in wenigen Minuten sichtbar wird.

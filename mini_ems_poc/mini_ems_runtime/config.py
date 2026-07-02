@@ -179,6 +179,7 @@ class ApiConfig:
     host: str
     port: int
     history_default_limit: int
+    config_admin_token: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -278,7 +279,14 @@ class MiniEmsConfig:
 
 
 def load_config(path: Path) -> MiniEmsConfig:
-    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    config_path = Path(path)
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    return validate_raw_config(raw, base_dir=config_path.resolve().parent)
+
+
+def validate_raw_config(raw: Dict[str, Any], *, base_dir: Path) -> MiniEmsConfig:
+    if not isinstance(raw, dict):
+        raise ValueError("Config root must be a JSON object")
 
     network = _require_dict(raw, "network")
     points = _require_dict(raw, "points")
@@ -298,7 +306,7 @@ def load_config(path: Path) -> MiniEmsConfig:
     logging = _require_dict(raw, "logging")
 
     config = MiniEmsConfig(
-        base_dir=Path(path).resolve().parent,
+        base_dir=Path(base_dir).resolve(),
         network=NetworkConfig(
             controller_ip=str(network["controller_ip"]),
             controller_port=int(network["controller_port"]),
@@ -384,6 +392,7 @@ def load_config(path: Path) -> MiniEmsConfig:
             host=str(api.get("host", "127.0.0.1")),
             port=int(api.get("port", 8090)),
             history_default_limit=int(api.get("history_default_limit", 96)),
+            config_admin_token=_optional_text(api.get("config_admin_token")),
         ),
         runtime=RuntimeConfig(
             environment=str(runtime.get("environment", "ipc")).lower(),

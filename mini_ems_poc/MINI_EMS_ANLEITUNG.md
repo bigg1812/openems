@@ -188,6 +188,27 @@ Der Sicherheitsmechanismus ist bewusst hart:
 
 ## Konfiguration
 
+### Perspektive: Konfiguration über UI
+
+Aktuell bleiben `config.json` für den IPC-Betrieb und `config.local.json` für die Laptop-Simulation die
+verbindlichen Konfigurationsdateien. Eine spätere Konfigurationsseite soll diese Dateien nicht blind ersetzen,
+sondern validierte Konfigurationsentwürfe erzeugen:
+
+- Viewer sehen nur freigegebene Konfigurationszusammenfassungen und Statushinweise.
+- Operator können betriebliche Änderungen als Entwurf vorbereiten, aber keine aktive Standortkonfiguration speichern.
+- Konfigurator/Admin übernehmen geprüfte Entwürfe mit Admin-Recht bzw. Token.
+
+Vor jeder Übernahme wird die aktive Konfiguration gesichert. Ungültige Entwürfe dürfen die aktive Konfiguration
+nicht überschreiben. Änderungen an Feldern, die beim Start geladen werden, werden erst nach einem geplanten
+Mini-EMS-Neustart aktiv und müssen in UI und Betriebsablauf als "Neustart erforderlich" erkennbar bleiben.
+
+Vor echtem IPC-Betrieb braucht jede neue oder geänderte Konfiguration mindestens diese Abnahme:
+
+1. lokale Prüfung mit `config.local.json`, simuliertem BACnet und ohne reale Writes
+2. Review der geänderten Felder, Rollenfreigabe, Backup- und Rollback-Pfad
+3. IPC-Prüfung von Bind-Adresse, Secomea/VPN-Zugriff, Firewall und geplantem Task
+4. kurzer Funktionstest mit `health.json`, Logdatei und Dashboard, bevor echte Schreibfunktionen freigegeben werden
+
 ### Netzwerk
 
 ```json
@@ -548,6 +569,11 @@ Moegliche Wege:
 Wenn `api.enabled = true`, startet die Runtime einen HTTP-Server auf der in `api.host` konfigurierten Adresse.
 
 Für reinen Lokalbetrieb bleibt `127.0.0.1` die sichere Wahl. Wenn Secomea oder ein anderes Remote-Tool zugreifen soll, binde die API an die konkrete EMS-LAN-IP, zum Beispiel `192.168.244.10`. Das ist sauberer und sicherer als `0.0.0.0`, weil der Dienst nur auf dem vorgesehenen Interface erreichbar ist.
+
+Für Netzwerkzugriff gilt zuerst read-only: Dashboard, Status, Historie und Reports. Diagnose-, Konfigurations-
+und spätere Schreib-Endpunkte brauchen einen geschützten Admin-/Operator-Pfad und dürfen nicht direkt ins
+Internet freigegeben werden. Die lokale Simulation bleibt auf `127.0.0.1` und darf keinen Pfad mit realen
+BACnet-Writes bekommen.
 
 Wichtige Endpunkte:
 
