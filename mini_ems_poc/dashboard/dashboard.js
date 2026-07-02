@@ -84,6 +84,8 @@ const PAGE_SUBTITLES = {
   system: "Systemzustand, Kommunikation und letzte Läufe kontrollieren.",
 };
 
+/* Priorisierte Reihenfolge (UX4): erst Wirtschaftlichkeit (Preis, Preissteuerung),
+   dann Live-Betrieb (Netzleistung), dann Schutzfunktionen und Ergänzungen. */
 const KPI_CATALOG = [
   { id: "price", label: "Aktueller Strompreis", accent: "accent-blue",
     value: (h) => formatNumber(h.current_price_ct_kwh, "ct/kWh", 3),
@@ -91,12 +93,12 @@ const KPI_CATALOG = [
   { id: "spotmarket", label: "Preissteuerung", accent: "accent-green",
     value: (h) => formatBool(h.spotmarket_active_now),
     sub: (h) => (h.spotmarket_active_now ? "Preissteuerung aktiv" : "Normalbetrieb") },
-  { id: "grid_lockout", label: "Netzschutz", accent: "accent-amber",
-    value: (h) => (h.grid_lockout_active === null || h.grid_lockout_active === undefined ? "deaktiviert" : formatBool(h.grid_lockout_active)),
-    sub: (h) => friendlyState(h.grid_lockout_state) },
   { id: "grid_power", label: "Netzleistung", accent: "accent-slate",
     value: (h) => formatNumber(h.grid_active_power_kw, "kW", 2),
     sub: (h) => (h.grid_read_status ? friendlyState(h.grid_read_status) : "derzeit nicht aktiv") },
+  { id: "grid_lockout", label: "Netzschutz", accent: "accent-amber",
+    value: (h) => (h.grid_lockout_active === null || h.grid_lockout_active === undefined ? "deaktiviert" : formatBool(h.grid_lockout_active)),
+    sub: (h) => friendlyState(h.grid_lockout_state) },
   { id: "weather_temp", label: "Außentemperatur", accent: "accent-slate",
     value: (_h, ctx) => formatNumber(ctx.weather?.current?.temperature_c, "C", 1),
     sub: (_h, ctx) => ctx.weather?.current?.weather_label || "Wetter" },
@@ -115,7 +117,7 @@ const DASHBOARD_WIDGETS = [
 ];
 
 const DEFAULT_DASHBOARD = {
-  kpis: ["price", "spotmarket", "grid_lockout", "grid_power"],
+  kpis: ["price", "spotmarket", "grid_power", "grid_lockout"],
   widgets: { price: true, weather: true, windows: true },
   charts: [],
 };
@@ -441,18 +443,53 @@ function normalizeChannels(rawChannels) {
 
 function renderStatus(payload) {
   const health = payload.health || {};
-  const state = payload.state || {};
   const status = health.status || "-";
+  const message = buildMainMessage(payload);
   setText("global-status", friendlyState(status));
   document.getElementById("global-status-dot").className = `status-dot ${cssToken(status)}`;
-  updateOperatorMessageForPage(currentPageFromHash(), health);
+  updateOperatorMessageForPage(currentPageFromHash(), payload);
   setText("last-updated", health.timestamp ? `Stand ${formatTimestamp(health.timestamp)}` : "-");
+  renderStatusHero(message, health);
+  renderStartHints(buildStartHints(payload));
+  // Technische Detailzeile auf der Systemseite: Zeitfenster/Preis (vorher im Kopfbereich),
+  // sicherer Modus und Morgen-Preise bleiben hier vollständig sichtbar.
   setText("health-line", [
+    `Zeitfenster ${health.current_slot_label || "-"}: ${formatNumber(health.current_price_ct_kwh, "ct/kWh", 3)}`,
     `Sicherer Modus: ${health.safe_mode_reason ? "aktiv" : "aus"}`,
     `Morgen: ${health.tomorrow_prices_available ? "Preise verfügbar" : "wartet"}`,
   ].join(" / "));
 
   setText("spotmarket-summary", buildPriceWindowSummary(health, appState.statusPayload?.spotmarket_plan || {}));
+}
+
+function renderStatusHero(message, health) {
+  const target = document.getElementById("status-hero");
+  if (!target) {
+    return;
+  }
+  target.className = `status-hero ${message.level}`;
+  const stand = health && health.timestamp ? `Stand ${formatTimestamp(health.timestamp)}` : "Noch keine Daten";
+  target.innerHTML = `
+    <div class="status-hero-text">
+      <strong>${escapeHtml(message.headline)}</strong>
+      <p>${escapeHtml(message.detail)}</p>
+    </div>
+    <span class="status-hero-meta">${escapeHtml(stand)}</span>
+  `;
+}
+
+function renderStartHints(hints) {
+  const target = document.getElementById("dashboard-hints");
+  if (!target) {
+    return;
+  }
+  if (!hints.length) {
+    target.innerHTML = '<div class="hint-item neutral">Keine besonderen Hinweise.</div>';
+    return;
+  }
+  target.innerHTML = hints.map((hint) => `
+    <div class="hint-item ${escapeHtml(hint.level)}">${escapeHtml(hint.text)}</div>
+  `).join("");
 }
 
 function renderKpis(payload) {
@@ -2388,19 +2425,180 @@ function reportTile(label, value) {
   return `<article class="report-tile"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? "-")}</strong></article>`;
 }
 
-function buildOperatorMessage(health) {
-  if (health.safe_mode_reason) {
-    return "Die Anlage ist im sicheren Modus. Bitte den Systemzustand prüfen.";
+/* Hauptbotschaft der Startseite (UX4): genau eine Aussage zu "Läuft die Anlage?",
+   abgeleitet aus Health-Status, sicherem Modus und Datenqualität.
+   Formulierungen aus PRODUCT_UX_KONZEPT.md, Abschnitt 2 (UX10-Wording-Set).
+   Robust gegen fehlende/teilweise Payloads (ältere health.json, null-Werte). */
+function buildMainMessage(payload) {
+  const health = payload && typeof payload.health === "object" && payload.health !== null ? payload.health : {};
+  const status = typeof health.status === "string" ? health.status.toLowerCase() : "";
+
+  if (!status) {
+    return {
+      level: "warn",
+      headline: "Keine aktuellen Daten vom System.",
+      detail: "Das System hat noch keinen Zustand gemeldet. Die angezeigten Werte können veraltet sein. Bitte den Betrieb der Steuerung prüfen.",
+    };
   }
-  const price = formatNumber(health.current_price_ct_kwh, "ct/kWh", 3);
-  const slot = health.current_slot_label ? ` für das Zeitfenster ${health.current_slot_label}` : "";
-  const tomorrow = health.tomorrow_prices_available ? "Die Preise für morgen sind vorhanden." : "Die Preise für morgen werden noch erwartet.";
-  return `Aktueller Strompreis${slot}: ${price}. ${tomorrow}`;
+  if (health.stale_runtime === true) {
+    return {
+      level: "warn",
+      headline: "Keine aktuellen Daten vom System.",
+      detail: "Das System hat sich seit einiger Zeit nicht gemeldet. Die angezeigten Werte können veraltet sein. Bitte den Betrieb der Steuerung prüfen.",
+    };
+  }
+  if (status === "safe_mode" || health.safe_mode_reason) {
+    const reason = String(health.safe_mode_reason || "");
+    if (reason.startsWith("startup_validation")) {
+      return {
+        level: "warn",
+        headline: "Anlaufprüfung aktiv.",
+        detail: "Nach dem Start prüft das System zuerst alle Verbindungen und Werte, bevor es eingreift.",
+      };
+    }
+    if (reason.startsWith("price_provider")) {
+      return {
+        level: "alert",
+        headline: "Sicherer Modus: Preisdaten nicht verfügbar.",
+        detail: "Die aktuellen Strompreise konnten nicht abgerufen werden. Die Steuerung pausiert, bis wieder Preise vorliegen.",
+      };
+    }
+    if (reason.startsWith("grid_read")) {
+      return {
+        level: "alert",
+        headline: "Sicherer Modus: Netzleistung nicht lesbar.",
+        detail: "Der Messwert der Netzleistung kommt nicht an. Bitte die Verbindung zur Anlage prüfen.",
+      };
+    }
+    if (reason.startsWith("write_failure")) {
+      return {
+        level: "alert",
+        headline: "Sicherer Modus: Übergabe an die Anlage gestört.",
+        detail: "Werte konnten nicht an die Anlage übergeben werden. Bitte die Verbindung zur Anlage prüfen.",
+      };
+    }
+    return {
+      level: "alert",
+      headline: "Die Anlage ist im sicheren Modus.",
+      detail: "Die Steuerung wurde vorsorglich angehalten. Die Anlage läuft eigenständig weiter. Bitte den Systemzustand prüfen.",
+    };
+  }
+  if (status === "degraded") {
+    return {
+      level: "warn",
+      headline: "Die Anlage läuft im eingeschränkten Betrieb.",
+      detail: "Einzelne Werte konnten nicht übertragen werden. Details stehen im Systemzustand.",
+    };
+  }
+  if (collectQualityChannels(health, "bad").length) {
+    return {
+      level: "warn",
+      headline: "Die Anlage läuft, aber einzelne Messwerte sind gestört.",
+      detail: "Für mindestens einen Messpunkt liegt kein gültiger Wert vor. Bitte die Verbindung zur Anlage prüfen.",
+    };
+  }
+  if (status === "healthy") {
+    return {
+      level: "ok",
+      headline: "Die Anlage läuft im Normalbetrieb.",
+      detail: "Alle Werte werden regelmäßig gelesen und übergeben.",
+    };
+  }
+  return {
+    level: "neutral",
+    headline: "Der Anlagenzustand wird ermittelt.",
+    detail: "Der letzte Lauf meldet keinen bekannten Zustand. Details stehen im Systemzustand.",
+  };
 }
 
-function updateOperatorMessageForPage(page, health = appState.statusPayload?.health || {}) {
+/* Konkrete Hinweise der Startseite (UX4): Preisfenster, Datenqualität,
+   Übergabe an die Anlage und Morgen-Preise — in Betreiber-Sprache, ohne interne IDs. */
+function buildStartHints(payload) {
+  const source = payload && typeof payload === "object" && payload !== null ? payload : {};
+  const health = typeof source.health === "object" && source.health !== null ? source.health : {};
+  const plan = typeof source.spotmarket_plan === "object" && source.spotmarket_plan !== null ? source.spotmarket_plan : {};
+  const hints = [];
+
+  // Preisfenster: aktiv, als Nächstes geplant oder ehrlich "keine geplant".
+  const todayWindows = Array.isArray(plan.today?.windows) ? plan.today.windows : [];
+  const tomorrowWindows = Array.isArray(plan.tomorrow?.windows) ? plan.tomorrow.windows : [];
+  const nextWindow = pickWindow(health.spotmarket_next_window) || pickWindow(plan.next_today_window);
+  if (health.spotmarket_active_now === true) {
+    const until = nextWindow ? ` bis ${nextWindow.end_label_exclusive} Uhr` : "";
+    hints.push({ level: "ok", text: `Preissteuerung aktiv: Die Anlage befindet sich gerade in einem geplanten Preisfenster${until}.` });
+  } else if (nextWindow) {
+    hints.push({ level: "neutral", text: `Nächstes günstiges Preisfenster heute: ${nextWindow.start_label} bis ${nextWindow.end_label_exclusive} Uhr.` });
+  } else if (pickWindow(tomorrowWindows[0])) {
+    const first = pickWindow(tomorrowWindows[0]);
+    hints.push({ level: "neutral", text: `Nächstes günstiges Preisfenster morgen: ${first.start_label} bis ${first.end_label_exclusive} Uhr.` });
+  } else if (plan.today?.date && !todayWindows.length && !tomorrowWindows.length) {
+    hints.push({ level: "neutral", text: "Für heute und morgen sind keine günstigen Preisfenster geplant." });
+  }
+
+  // Datenqualität einzelner Messwerte: das Badge-Muster ("Wert veraltet", "Messwert gestört") fortführen.
+  const badInputs = collectQualityChannels(health, "bad");
+  if (badInputs.length) {
+    hints.push({ level: "alert", text: `Messwert gestört: ${describeQualityChannels(badInputs)}. Bitte die Verbindung zur Anlage prüfen.` });
+  }
+  const staleInputs = collectQualityChannels(health, "stale");
+  if (staleInputs.length) {
+    hints.push({ level: "warn", text: `Wert veraltet: ${describeQualityChannels(staleInputs)}. Diese Werte werden angezeigt, aber nicht mehr für Entscheidungen genutzt.` });
+  }
+
+  // Übergabe des Strompreises an die Anlage.
+  const writeStatus = typeof health.write_status === "object" && health.write_status !== null ? health.write_status : {};
+  const currentPrice = typeof writeStatus.current_price === "object" && writeStatus.current_price !== null ? writeStatus.current_price : {};
+  if (currentPrice.last_error) {
+    hints.push({ level: "alert", text: "Übergabe an die Anlage gestört: Der letzte Übertragungsversuch ist fehlgeschlagen. Details stehen im Systemzustand." });
+  } else if (currentPrice.confirmed === false) {
+    hints.push({ level: "warn", text: "Die Preisübergabe wartet auf Bestätigung der Anlage." });
+  }
+
+  // Preise für morgen.
+  if (health.tomorrow_prices_available === false) {
+    hints.push({ level: "neutral", text: "Die Strompreise für morgen werden noch erwartet." });
+  }
+
+  return hints;
+}
+
+function pickWindow(window) {
+  if (!window || typeof window !== "object") {
+    return null;
+  }
+  if (typeof window.start_label !== "string" || typeof window.end_label_exclusive !== "string") {
+    return null;
+  }
+  return window;
+}
+
+function collectQualityChannels(health, quality) {
+  const inputs = health && typeof health.additional_inputs === "object" && health.additional_inputs !== null
+    ? health.additional_inputs
+    : {};
+  return Object.entries(inputs)
+    .filter(([, entry]) => entry && typeof entry === "object" && typeof entry.quality === "string" && entry.quality.toLowerCase() === quality)
+    .map(([channelId, entry]) => ({ channelId, ageSeconds: toNumber(entry.age_seconds) }));
+}
+
+/* Messpunkte in Betreiber-Sprache aufzählen — unbekannte Kanäle nie als interne ID zeigen. */
+function describeQualityChannels(entries) {
+  const labels = entries
+    .map((entry) => CUSTOMER_CHANNEL_LABELS.get(entry.channelId)?.label)
+    .filter(Boolean);
+  const unknownCount = entries.length - labels.length;
+  if (!labels.length) {
+    return entries.length === 1 ? "ein Messpunkt" : `${entries.length} Messpunkte`;
+  }
+  if (unknownCount > 0) {
+    return `${labels.join(", ")} und ${unknownCount} ${unknownCount === 1 ? "weiterer Messpunkt" : "weitere Messpunkte"}`;
+  }
+  return labels.join(", ");
+}
+
+function updateOperatorMessageForPage(page, payload = appState.statusPayload || {}) {
   const message = page === "dashboard"
-    ? buildOperatorMessage(health)
+    ? buildMainMessage(payload).headline
     : PAGE_SUBTITLES[page] || "Mini EMS Leitstand";
   setText("operator-message", message);
 }
@@ -2599,9 +2797,15 @@ function reportSectionLabel(component) {
 }
 
 function renderGlobalError(error) {
-  setText("operator-message", "Die Daten konnten nicht geladen werden. Bitte die Verbindung zur lokalen Anlage prüfen.");
+  setText("operator-message", "Verbindung unterbrochen.");
   setText("global-status", "Fehler");
   document.getElementById("global-status-dot").className = "status-dot error";
+  renderStatusHero({
+    level: "alert",
+    headline: "Verbindung unterbrochen.",
+    detail: "Die Daten konnten nicht geladen werden. Bitte die Verbindung zur lokalen Anlage prüfen.",
+  }, {});
+  renderStartHints([]);
 }
 
 function setText(id, value) {

@@ -1,7 +1,8 @@
 /* Mini EMS Leitstand — Design-System
    Tokens fuer Light/Dark ueber [data-theme], 4/8-Spacing-Scale,
    eine Tiefenebene (Border statt Schatten), semantische Statusfarben.
-   Schrift: Inter, lokal aus /vendor ausgeliefert (offline-faehig am IPC). */
+   Schrift: Inter, lokal aus /vendor ausgeliefert (offline-faehig am IPC).
+   Verbindliche Referenz: UI_STYLEGUIDE.md (UX7). */
 
 @font-face {
   font-family: "Inter";
@@ -83,6 +84,10 @@
   --series-8: #b83280;
 
   --ring: 0 0 0 3px rgba(23, 105, 214, 0.22);
+
+  /* Schatten nur fuer schwebende Ebenen (Tooltip, Modal) — Karten bleiben flach. */
+  --shadow-raised: 0 6px 20px rgba(0, 0, 0, 0.14);
+  --shadow-overlay: 0 24px 60px rgba(0, 0, 0, 0.28);
 }
 
 :root[data-theme="dark"] {
@@ -126,6 +131,9 @@
   --series-8: #f472b6;
 
   --ring: 0 0 0 3px rgba(79, 155, 255, 0.30);
+
+  --shadow-raised: 0 6px 20px rgba(0, 0, 0, 0.45);
+  --shadow-overlay: 0 24px 60px rgba(0, 0, 0, 0.60);
 }
 
 * {
@@ -456,6 +464,21 @@ h3 {
   opacity: 0.6;
 }
 
+/* Fokus-Zustaende: sichtbarer Ring fuer Tastaturbedienung, konsistent mit Eingabefeldern. */
+.button:focus-visible,
+.link-button:focus-visible,
+.nav-link:focus-visible,
+.selected-chip button:focus-visible,
+input[type="checkbox"]:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.theme-toggle button:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
 .link-button {
   min-height: auto;
   padding: 0;
@@ -469,11 +492,99 @@ h3 {
   text-decoration: underline;
 }
 
+/* Startseite: Hauptbotschaft (UX4) — eine Aussage, Statusfarbe links, nächster Schritt. */
+.status-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--neutral);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.status-hero-text strong {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.status-hero-text p {
+  margin: var(--sp-1) 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.status-hero-meta {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.status-hero.ok {
+  border-left-color: var(--ok);
+}
+
+.status-hero.warn {
+  border-left-color: var(--warn);
+}
+
+.status-hero.alert {
+  border-left-color: var(--alert);
+}
+
+/* Startseite: konkrete Hinweise (UX4) — kurze Sätze, Statusfarbe links, keine Aktion nötig. */
+.hint-panel {
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.hint-panel .micro-label {
+  display: block;
+  margin-bottom: var(--sp-2);
+}
+
+.hint-list {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.hint-item {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--neutral);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.hint-item.ok {
+  border-left-color: var(--ok);
+}
+
+.hint-item.warn {
+  border-left-color: var(--warn);
+}
+
+.hint-item.alert {
+  border-left-color: var(--alert);
+}
+
 /* KPI cards */
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
 }
 
 .metric-card {
@@ -720,7 +831,7 @@ h3 {
   font-size: 12px;
   line-height: 1.4;
   pointer-events: none;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+  box-shadow: var(--shadow-raised);
 }
 
 .ems-tooltip b {
@@ -1018,6 +1129,12 @@ select:focus {
 .technical-preview summary {
   cursor: pointer;
   font-weight: 600;
+}
+
+.technical-preview summary:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: var(--radius-sm);
 }
 
 .technical-preview pre {
@@ -1553,7 +1670,7 @@ textarea:focus {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-overlay);
 }
 
 .modal-head {
@@ -1673,6 +1790,11 @@ textarea:focus {
 
   .nav-status {
     margin-left: 0;
+  }
+
+  .status-hero {
+    flex-direction: column;
+    gap: var(--sp-2);
   }
 
   .kpi-grid,

@@ -55,7 +55,8 @@ Leitentscheidungen:
 
 ## Strategische To-do-Linie: Einfachere Bedienung
 
-- [ ] **UX4. Betreiber-Startseite neu strukturieren**
+- [x] **UX4. Betreiber-Startseite neu strukturieren** — erledigt: Startseite mit einer Hauptbotschaft,
+  priorisierten Kennzahlen und Hinweisliste („Heute wichtig"); technische Details auf der Systemseite.
   - **Was:** Die erste Dashboard-Ansicht auf wenige Fragen zuspitzen: Läuft die Anlage? Gibt es Handlungsbedarf?
     Was ist heute wirtschaftlich oder energetisch auffällig?
   - **Nutzen:** Der Nutzer muss nicht interpretieren, sondern bekommt sofort Orientierung.
@@ -147,7 +148,8 @@ Leitentscheidungen:
 
 ## Strategische To-do-Linie: Modernes minimalistisches UI
 
-- [ ] **UX7. Visuelle Designrichtung festlegen**
+- [x] **UX7. Visuelle Designrichtung festlegen** — erledigt, siehe `UI_STYLEGUIDE.md` (verbindliche
+  Token-Referenz aus `dashboard.css`) und die überarbeitete Startseite im neuen Stil.
   - **Was:** Eine ruhige, moderne und minimalistische Designsprache definieren: Farben, Typografie, Abstände,
     Karten, Tabellen, Diagramme, Statusfarben und Interaktionszustände.
   - **Nutzen:** Mini EMS wirkt weniger wie ein Prototyp und mehr wie ein professionelles Betreiberprodukt.
