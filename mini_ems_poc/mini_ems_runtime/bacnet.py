@@ -7,7 +7,7 @@ from typing import Optional
 from .channels import BACNET_AV, BACNET_BV, PointConfig
 from .config import NetworkConfig
 from .logging_utils import log_event
-from .protocol import WriteConfirmation
+from .protocol import AdapterError, WriteConfirmation
 
 # Backwards-compatible alias: the confirmation type is now protocol-neutral.
 BacnetWriteConfirmation = WriteConfirmation
@@ -18,7 +18,7 @@ READ_PROPERTY_SERVICE_CHOICE = 0x0C
 WRITE_PROPERTY_SERVICE_CHOICE = 0x0F
 
 
-class BacnetError(Exception):
+class BacnetError(AdapterError):
     """Base class for BACnet adapter errors."""
 
 

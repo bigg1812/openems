@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional
 
-from .config import AdditionalInputConfig, PointsConfig
+from .config import PROTOCOL_BACNET, AdditionalInputConfig, ModbusPointConfig, PointsConfig
 
 BACNET_AI = 0
 BACNET_AV = 2
@@ -17,8 +17,9 @@ HEALTH_CHANNEL = "system.health"
 @dataclass(frozen=True)
 class PointConfig:
     channel_id: str
-    object_type: int
-    instance: int
+    # BACnet raw address; None for points read via another protocol (S4).
+    object_type: Optional[int]
+    instance: Optional[int]
     access: str
     description: str
     controller_ip: Optional[str] = None
@@ -28,6 +29,10 @@ class PointConfig:
     include_in_health: bool = False
     read_interval_cycles: int = 1
     max_age_seconds: Optional[float] = None
+    # Protocol routing (S4): the runtime picks the adapter per point via
+    # ProtocolRoutingAdapter; "bacnet" keeps the existing behaviour.
+    protocol: str = PROTOCOL_BACNET
+    modbus: Optional[ModbusPointConfig] = None
 
     def can_read(self) -> bool:
         return self.access in ("read", "readwrite")
@@ -98,6 +103,8 @@ class ChannelRegistry:
                 include_in_health=input_config.include_in_health,
                 read_interval_cycles=input_config.read_interval_cycles,
                 max_age_seconds=input_config.max_age_seconds,
+                protocol=input_config.protocol,
+                modbus=input_config.modbus,
             )
             additional_input_channel_ids.append(channel_id)
         return cls(registry, additional_input_channel_ids=additional_input_channel_ids)

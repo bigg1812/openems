@@ -79,7 +79,7 @@ Leitentscheidungen:
   - **Definition of Done:** Es gibt eine klare Vorlage, welche Rohpunkte, Einheiten, Rollen, Plausibilitätsgrenzen,
     Aktualitätsregeln und optionalen Schreibrechte ein Hauptzähler braucht.
 
-- [ ] **S4. Danach Modbus TCP read-only als erster neuer Adapter**
+- [x] **S4. Danach Modbus TCP read-only als erster neuer Adapter**
   - **Was:** Erst nach S1-S3 einen read-only Modbus-TCP-Adapter für ein Leistungsmessgerät ergänzen.
   - **Nutzen:** Beweist, dass das Modell wirklich protokollneutral ist, ohne sofort neue Schreibrisiken einzubauen.
   - **Betroffen:** `protocol.py`, neuer Adapter, Config, Tests, Simulation.
