@@ -77,6 +77,13 @@ const PAGES = {
   system: "System",
 };
 
+const PAGE_SUBTITLES = {
+  analyse: "Messwerte und Datenqualität über frei wählbare Zeiträume prüfen.",
+  berichte: "Betriebsberichte aus den gewünschten Datenpunkten zusammenstellen.",
+  konfiguration: "Datenquellen, Messpunkte und Betriebsparameter prüfen und vorbereiten.",
+  system: "Systemzustand, Kommunikation und letzte Läufe kontrollieren.",
+};
+
 const KPI_CATALOG = [
   { id: "price", label: "Aktueller Strompreis", accent: "accent-blue",
     value: (h) => formatNumber(h.current_price_ct_kwh, "ct/kWh", 3),
@@ -326,6 +333,7 @@ function showPage(page) {
     link.classList.toggle("active", link.dataset.page === page);
   });
   setText("page-title", PAGES[page] || "Dashboard");
+  updateOperatorMessageForPage(page);
   if (page === "dashboard") {
     rebuildPriceChart();
     redrawDashboardCharts();
@@ -437,7 +445,7 @@ function renderStatus(payload) {
   const status = health.status || "-";
   setText("global-status", friendlyState(status));
   document.getElementById("global-status-dot").className = `status-dot ${cssToken(status)}`;
-  setText("operator-message", buildOperatorMessage(health));
+  updateOperatorMessageForPage(currentPageFromHash(), health);
   setText("last-updated", health.timestamp ? `Stand ${formatTimestamp(health.timestamp)}` : "-");
   setText("health-line", [
     `Sicherer Modus: ${health.safe_mode_reason ? "aktiv" : "aus"}`,
@@ -1410,43 +1418,67 @@ function renderSiteConfigChannels(channels) {
     const meta = channelMeta(channel.channel_id);
     const title = meta.label || channel.description || "Zusatzkanal";
     const detail = [meta.group || "Messpunkt", meta.unit || valueKindLabel(meta.kind)].filter(Boolean).join(" / ");
+    const description = channel.description || title;
     return `
-      <div class="config-channel-row" data-channel-id="${escapeHtml(channel.channel_id)}">
-        <label class="check config-channel-main">
-          <input type="checkbox" data-config-field="enabled" ${checkedAttribute(channel.enabled !== false)}>
-          <span>
-            <strong>${escapeHtml(title)}</strong>
-            <small>${escapeHtml(detail)}<br><span class="config-channel-key">${escapeHtml(channel.channel_id)}</span></small>
-          </span>
-        </label>
-        <label>
-          Quelle
-          <select data-config-field="object_type">
-            <option value="ai" ${selectedAttribute(channel.object_type === "ai")}>Analogmesswert</option>
-            <option value="av" ${selectedAttribute(channel.object_type === "av")}>Analogwert</option>
-            <option value="bv" ${selectedAttribute(channel.object_type === "bv")}>Statuswert</option>
-          </select>
-        </label>
-        <label>
-          Adresse
-          <input type="number" min="0" data-config-field="instance" value="${escapeHtml(inputValue(channel.instance))}">
-        </label>
-        <label>
-          Max. Alter (s)
-          <input type="number" min="1" data-config-field="max_age_seconds" value="${escapeHtml(inputValue(channel.max_age_seconds))}">
-        </label>
-        <label>
-          Plausibel von
-          <input type="number" step="0.1" data-config-field="plausible_min" value="${escapeHtml(inputValue(channel.plausible_min))}">
-        </label>
-        <label>
-          Plausibel bis
-          <input type="number" step="0.1" data-config-field="plausible_max" value="${escapeHtml(inputValue(channel.plausible_max))}">
-        </label>
-        <label class="check config-check">
-          <input type="checkbox" data-config-field="include_in_health" ${checkedAttribute(channel.include_in_health)}>
-          <span>Im Status überwachen</span>
-        </label>
+      <div class="config-channel-row" data-channel-id="${escapeHtml(channel.channel_id)}" data-description="${escapeHtml(description)}">
+        <div class="config-channel-row-head">
+          <label class="check config-channel-main">
+            <input type="checkbox" data-config-field="enabled" ${checkedAttribute(channel.enabled !== false)}>
+            <span>
+              <strong>${escapeHtml(title)}</strong>
+              <small>${escapeHtml(detail)}<br><span class="config-channel-key">${escapeHtml(channel.channel_id)}</span></small>
+            </span>
+          </label>
+          <span class="config-channel-summary">${escapeHtml(formatPointSummary(channel))}</span>
+        </div>
+        <div class="config-point-fields">
+          <label>
+            Protokoll
+            <select data-config-field="protocol">
+              <option value="bacnet" ${selectedAttribute(channel.protocol === "bacnet")}>BACnet</option>
+            </select>
+          </label>
+          <label>
+            Zielgerät
+            <input type="text" data-config-field="controller_ip" placeholder="Standardgerät" value="${escapeHtml(inputValue(channel.controller_ip))}">
+          </label>
+          <label>
+            Port
+            <input type="number" min="1" max="65535" data-config-field="controller_port" placeholder="Standard" value="${escapeHtml(inputValue(channel.controller_port))}">
+          </label>
+          <label>
+            Objekttyp
+            <select data-config-field="object_type">
+              <option value="ai" ${selectedAttribute(channel.object_type === "ai")}>AI Messwert</option>
+              <option value="av" ${selectedAttribute(channel.object_type === "av")}>AV Wert</option>
+              <option value="bv" ${selectedAttribute(channel.object_type === "bv")}>BV Status</option>
+            </select>
+          </label>
+          <label>
+            Adresse / Instanz
+            <input type="number" min="0" data-config-field="instance" value="${escapeHtml(inputValue(channel.instance))}">
+          </label>
+          <label>
+            Abfrageintervall
+            <input type="number" min="1" data-config-field="read_interval_cycles" value="${escapeHtml(inputValue(channel.read_interval_cycles))}">
+          </label>
+          <label>
+            Max. Alter (s)
+            <input type="number" min="1" data-config-field="max_age_seconds" value="${escapeHtml(inputValue(channel.max_age_seconds))}">
+          </label>
+          <label>
+            Plausibel von
+            <input type="number" step="0.1" data-config-field="plausible_min" value="${escapeHtml(inputValue(channel.plausible_min))}">
+          </label>
+          <label>
+            Plausibel bis
+            <input type="number" step="0.1" data-config-field="plausible_max" value="${escapeHtml(inputValue(channel.plausible_max))}">
+          </label>
+          <label class="check config-check config-point-health">
+            <input type="checkbox" data-config-field="include_in_health" ${checkedAttribute(channel.include_in_health)}>
+            <span>Im Status überwachen</span>
+          </label>
+        </div>
       </div>
     `;
   }).join("");
@@ -1460,7 +1492,13 @@ function normalizeSiteConfigChannels(channels) {
       return;
     }
     const current = byId.get(channel.channel_id) || defaultChannelConfig(channel.channel_id);
-    byId.set(channel.channel_id, { ...current, ...channel, enabled: channel.enabled !== false });
+    byId.set(channel.channel_id, {
+      ...current,
+      ...channel,
+      protocol: protocolValue(channel.protocol || current.protocol),
+      object_type: bacnetObjectTypeValue(channel.object_type || current.object_type),
+      enabled: channel.enabled !== false,
+    });
   });
   return [...byId.values()].sort((a, b) => {
     const metaA = channelMeta(a.channel_id);
@@ -1476,9 +1514,12 @@ function defaultChannelConfig(channelId) {
   const isState = meta.kind === "state";
   return {
     channel_id: channelId,
+    protocol: "bacnet",
     object_type: isState ? "bv" : isEnergy ? "av" : "ai",
     instance: "",
     description: meta.label || "Zusatzkanal",
+    controller_ip: "",
+    controller_port: "",
     plausible_min: isEnergy ? 0 : "",
     plausible_max: isEnergy ? 1000000000 : "",
     include_in_health: false,
@@ -1558,13 +1599,16 @@ function readSiteConfigChannels() {
     }
     return {
       channel_id: row.dataset.channelId,
+      protocol: row.querySelector("[data-config-field='protocol']")?.value || "bacnet",
       object_type: row.querySelector("[data-config-field='object_type']")?.value || "ai",
       instance: integerFromElement(row.querySelector("[data-config-field='instance']"), 0),
-      description: channelMeta(row.dataset.channelId).label || "Zusatzkanal",
+      description: row.dataset.description || channelMeta(row.dataset.channelId).label || "Zusatzkanal",
+      controller_ip: optionalTextFromElement(row.querySelector("[data-config-field='controller_ip']")),
+      controller_port: optionalIntegerFromElement(row.querySelector("[data-config-field='controller_port']")),
       plausible_min: optionalNumberFromElement(row.querySelector("[data-config-field='plausible_min']")),
       plausible_max: optionalNumberFromElement(row.querySelector("[data-config-field='plausible_max']")),
       include_in_health: row.querySelector("[data-config-field='include_in_health']")?.checked === true,
-      read_interval_cycles: 1,
+      read_interval_cycles: integerFromElement(row.querySelector("[data-config-field='read_interval_cycles']"), 1),
       max_age_seconds: integerFromElement(row.querySelector("[data-config-field='max_age_seconds']"), 120),
     };
   }).filter(Boolean);
@@ -1787,6 +1831,24 @@ function optionalNumberFromElement(element) {
   }
   const value = Number(raw);
   return Number.isFinite(value) ? value : null;
+}
+
+function optionalIntegerFromElement(element) {
+  const raw = element?.value;
+  if (raw === undefined || raw === null || raw === "") {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) ? Math.round(value) : null;
+}
+
+function optionalTextFromElement(element) {
+  const raw = element?.value;
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+  const value = String(raw).trim();
+  return value || null;
 }
 
 function inputValue(value) {
@@ -2334,6 +2396,57 @@ function buildOperatorMessage(health) {
   const slot = health.current_slot_label ? ` für das Zeitfenster ${health.current_slot_label}` : "";
   const tomorrow = health.tomorrow_prices_available ? "Die Preise für morgen sind vorhanden." : "Die Preise für morgen werden noch erwartet.";
   return `Aktueller Strompreis${slot}: ${price}. ${tomorrow}`;
+}
+
+function updateOperatorMessageForPage(page, health = appState.statusPayload?.health || {}) {
+  const message = page === "dashboard"
+    ? buildOperatorMessage(health)
+    : PAGE_SUBTITLES[page] || "Mini EMS Leitstand";
+  setText("operator-message", message);
+}
+
+function protocolValue(value) {
+  const normalized = String(value || "bacnet").trim().toLowerCase();
+  return normalized || "bacnet";
+}
+
+function protocolLabel(value) {
+  return protocolValue(value) === "bacnet" ? "BACnet" : String(value || "Protokoll");
+}
+
+function bacnetObjectTypeValue(value) {
+  if (value === 0) {
+    return "ai";
+  }
+  if (value === 2) {
+    return "av";
+  }
+  if (value === 5) {
+    return "bv";
+  }
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["analog_input", "analog-input", "ai"].includes(normalized)) {
+    return "ai";
+  }
+  if (["analog_value", "analog-value", "av"].includes(normalized)) {
+    return "av";
+  }
+  if (["binary_value", "binary-value", "bv"].includes(normalized)) {
+    return "bv";
+  }
+  return "ai";
+}
+
+function bacnetObjectTypeLabel(value) {
+  return { ai: "AI", av: "AV", bv: "BV" }[bacnetObjectTypeValue(value)] || "AI";
+}
+
+function formatPointSummary(channel) {
+  const target = channel.controller_ip
+    ? `${channel.controller_ip}${channel.controller_port ? `:${channel.controller_port}` : ""}`
+    : "Standardgerät";
+  const instance = inputValue(channel.instance) === "" ? "-" : channel.instance;
+  return `${protocolLabel(channel.protocol)} / ${target} / ${bacnetObjectTypeLabel(channel.object_type)} ${instance}`;
 }
 
 function buildPriceWindowSummary(health, plan) {

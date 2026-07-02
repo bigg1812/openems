@@ -137,6 +137,81 @@ class ConfigApiTest(unittest.TestCase):
         self.assertFalse(payload["valid"])
         self.assertIn("simulated BACnet mode requires real_writes_enabled=false", payload["message"])
 
+    def test_validate_accepts_additional_input_protocol_and_target_fields(self) -> None:
+        server = self._build_server(make_raw_config())
+
+        payload = server.validate_site_config_payload(
+            {
+                "patch": {
+                    "additional_inputs": [
+                        {
+                            "channel_id": "site.outdoor_temperature_c",
+                            "protocol": "bacnet",
+                            "object_type": "ai",
+                            "instance": 1801,
+                            "description": "Outdoor temperature",
+                            "controller_ip": "192.168.1.200",
+                            "controller_port": 47810,
+                            "plausible_min": -30.0,
+                            "plausible_max": 60.0,
+                            "read_interval_cycles": 2,
+                            "max_age_seconds": 180,
+                        }
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(payload, {"valid": True})
+
+    def test_validate_still_checks_plausibility_when_point_target_uses_default(self) -> None:
+        server = self._build_server(make_raw_config())
+
+        payload = server.validate_site_config_payload(
+            {
+                "patch": {
+                    "additional_inputs": [
+                        {
+                            "channel_id": "site.outdoor_temperature_c",
+                            "protocol": "bacnet",
+                            "object_type": "ai",
+                            "instance": 1801,
+                            "description": "Outdoor temperature",
+                            "controller_ip": None,
+                            "controller_port": None,
+                            "plausible_min": 80.0,
+                            "plausible_max": 60.0,
+                        }
+                    ]
+                }
+            }
+        )
+
+        self.assertFalse(payload["valid"])
+        self.assertIn("plausible_min must be <= plausible_max", payload["message"])
+
+    def test_validate_rejects_unsupported_additional_input_protocol(self) -> None:
+        server = self._build_server(make_raw_config())
+
+        payload = server.validate_site_config_payload(
+            {
+                "patch": {
+                    "additional_inputs": [
+                        {
+                            "channel_id": "site.outdoor_temperature_c",
+                            "protocol": "modbus_tcp",
+                            "object_type": "ai",
+                            "instance": 1801,
+                            "description": "Outdoor temperature",
+                        }
+                    ]
+                }
+            }
+        )
+
+        self.assertFalse(payload["valid"])
+        self.assertIn("protocol must be 'bacnet'", payload["message"])
+
     def test_site_config_view_strips_admin_token_and_keeps_editable_sections(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
 
