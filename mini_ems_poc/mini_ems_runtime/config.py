@@ -22,13 +22,51 @@ class PointsConfig:
     spotmarket_lockout_bv: int
 
 
+# Supported per-point protocols; "bacnet" is the default so existing configs
+# without a protocol field behave exactly as before.
+PROTOCOL_BACNET = "bacnet"
+PROTOCOL_MODBUS_TCP = "modbus_tcp"
+
+# Registers per Modbus encoding; the register count is derived from the
+# encoding instead of being configured separately, so both can never disagree.
+MODBUS_REGISTER_COUNTS = {
+    "int16": 1,
+    "uint16": 1,
+    "int32": 2,
+    "uint32": 2,
+    "float32": 2,
+}
+
+
+@dataclass(frozen=True)
+class ModbusPointConfig:
+    """Modbus TCP address of a single read-only raw point.
+
+    Mirrors the protocol-neutral Variante B in EDGE_INTEGRATION_CONTRACT.md:
+    the canonical channel stays in the surrounding input config, this block
+    only describes where and how the raw value is read.
+    """
+
+    host: str
+    register: int
+    port: int = 502
+    unit_id: int = 1
+    function_code: int = 3
+    encoding: str = "float32"
+    word_order: str = "big"
+    scale: float = 1.0
+
+    @property
+    def register_count(self) -> int:
+        return MODBUS_REGISTER_COUNTS[self.encoding]
+
+
 @dataclass(frozen=True)
 class AdditionalInputConfig:
     channel_id: str
-    object_type: int
-    instance: int
+    object_type: Optional[int]
+    instance: Optional[int]
     description: str
-    protocol: str = "bacnet"
     controller_ip: Optional[str] = None
     controller_port: Optional[int] = None
     plausible_min: Optional[float] = None
@@ -36,6 +74,10 @@ class AdditionalInputConfig:
     include_in_health: bool = False
     read_interval_cycles: int = 1
     max_age_seconds: Optional[float] = None
+    # Per-point protocol selection (S4): "bacnet" keeps the existing BACnet
+    # path untouched, "modbus_tcp" reads via the read-only Modbus adapter.
+    protocol: str = PROTOCOL_BACNET
+    modbus: Optional[ModbusPointConfig] = None
 
 
 @dataclass(frozen=True)
@@ -417,11 +459,27 @@ def _load_additional_inputs(
         if not isinstance(entry, dict):
             raise ValueError("each additional_inputs entry must be an object")
         channel_id = str(entry["channel_id"])
+        protocol = str(entry.get("protocol", PROTOCOL_BACNET)).lower()
+        if protocol not in (PROTOCOL_BACNET, PROTOCOL_MODBUS_TCP):
+            raise ValueError(
+                "additional_inputs protocol must be one of ['bacnet', 'modbus_tcp'] for {0}".format(channel_id)
+            )
+        if protocol == PROTOCOL_MODBUS_TCP:
+            # Modbus points carry their raw address in the modbus block;
+            # BACnet-specific fields do not apply.
+            object_type = None
+            instance = None
+            modbus = _load_modbus_point(entry.get("modbus"), channel_id)
+        else:
+            # Default path: unchanged BACnet parsing, including the hard
+            # requirement for object_type and instance.
+            object_type = _parse_object_type(entry["object_type"])
+            instance = int(entry["instance"])
+            modbus = None
         additional_inputs[channel_id] = AdditionalInputConfig(
             channel_id=channel_id,
-            protocol=str(entry.get("protocol", "bacnet")).strip().lower() or "bacnet",
-            object_type=_parse_object_type(entry["object_type"]),
-            instance=int(entry["instance"]),
+            object_type=object_type,
+            instance=instance,
             description=str(entry.get("description", channel_id)),
             controller_ip=_optional_text(entry.get("controller_ip")),
             controller_port=_optional_int(entry.get("controller_port", default_controller_port)),
@@ -430,8 +488,27 @@ def _load_additional_inputs(
             include_in_health=bool(entry.get("include_in_health", False)),
             read_interval_cycles=int(entry.get("read_interval_cycles", 1)),
             max_age_seconds=_optional_float(entry.get("max_age_seconds")),
+            protocol=protocol,
+            modbus=modbus,
         )
     return additional_inputs
+
+
+def _load_modbus_point(raw: object, channel_id: str) -> ModbusPointConfig:
+    if not isinstance(raw, dict):
+        raise ValueError(
+            "additional_inputs entry {0} with protocol=modbus_tcp requires a modbus object".format(channel_id)
+        )
+    return ModbusPointConfig(
+        host=str(raw["host"]),
+        register=int(raw["register"]),
+        port=int(raw.get("port", 502)),
+        unit_id=int(raw.get("unit_id", 1)),
+        function_code=int(raw.get("function_code", 3)),
+        encoding=str(raw.get("encoding", "float32")).lower(),
+        word_order=str(raw.get("word_order", "big")).lower(),
+        scale=float(raw.get("scale", 1.0)),
+    )
 
 
 def _parse_object_type(value: object) -> int:
@@ -571,10 +648,7 @@ def _validate_config(config: MiniEmsConfig) -> None:
     for channel_id, input_config in config.additional_inputs.items():
         if channel_id in core_channels:
             raise ValueError("additional_inputs channel_id duplicates a core channel: {0}".format(channel_id))
-        if input_config.protocol != "bacnet":
-            raise ValueError(
-                "additional_inputs protocol must be 'bacnet' for {0}".format(channel_id)
-            )
+        _validate_additional_input_protocol(channel_id, input_config)
         if (
             input_config.controller_port is not None
             and (input_config.controller_port <= 0 or input_config.controller_port > 65535)
@@ -598,3 +672,40 @@ def _validate_config(config: MiniEmsConfig) -> None:
             raise ValueError(
                 "additional_inputs max_age_seconds must be > 0 for {0}".format(channel_id)
             )
+
+
+def _validate_additional_input_protocol(channel_id: str, input_config: AdditionalInputConfig) -> None:
+    if input_config.protocol not in (PROTOCOL_BACNET, PROTOCOL_MODBUS_TCP):
+        raise ValueError(
+            "additional_inputs protocol must be one of ['bacnet', 'modbus_tcp'] for {0}".format(channel_id)
+        )
+    if input_config.protocol == PROTOCOL_BACNET:
+        return
+    modbus = input_config.modbus
+    if modbus is None:
+        raise ValueError(
+            "additional_inputs entry {0} with protocol=modbus_tcp requires a modbus object".format(channel_id)
+        )
+    if not modbus.host:
+        raise ValueError("modbus host must not be empty for {0}".format(channel_id))
+    if modbus.port <= 0 or modbus.port > 65535:
+        raise ValueError("modbus port must be between 1 and 65535 for {0}".format(channel_id))
+    if modbus.unit_id < 0 or modbus.unit_id > 255:
+        raise ValueError("modbus unit_id must be between 0 and 255 for {0}".format(channel_id))
+    if modbus.function_code not in (3, 4):
+        raise ValueError(
+            "modbus function_code must be 3 (holding) or 4 (input registers) for {0}".format(channel_id)
+        )
+    if modbus.encoding not in MODBUS_REGISTER_COUNTS:
+        raise ValueError(
+            "modbus encoding must be one of {0} for {1}".format(
+                sorted(MODBUS_REGISTER_COUNTS),
+                channel_id,
+            )
+        )
+    if modbus.word_order not in ("big", "little"):
+        raise ValueError("modbus word_order must be 'big' or 'little' for {0}".format(channel_id))
+    if modbus.register < 0 or modbus.register + modbus.register_count > 65536:
+        raise ValueError("modbus register range out of bounds for {0}".format(channel_id))
+    if modbus.scale == 0:
+        raise ValueError("modbus scale must not be 0 for {0}".format(channel_id))

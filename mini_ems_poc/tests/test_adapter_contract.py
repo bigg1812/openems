@@ -1,14 +1,16 @@
 """Protocol-neutral ProtocolAdapter contract test.
 
 Runs the same assertions against every concrete adapter so that any
-adapter (BACnet today, Modbus tomorrow) honours the same behavioural
-contract. Deterministic and offline:
+adapter (BACnet and Modbus, real and simulated) honours the same
+behavioural contract. Deterministic and offline:
 
-- The simulated adapter is the primary subject (no I/O at all).
+- The simulated adapters are the primary subjects (no I/O at all).
 - The real ``BacnetAdapter`` is exercised only on paths that need no
   network round-trip (permission/normalization checks), and even then it
   is constructed with an injected dummy socket so its ``__init__`` never
   opens a real UDP socket.
+- The real ``ModbusTcpAdapter`` opens connections only inside ``read_float``
+  after the permission check, so the covered paths never touch the network.
 """
 
 import json
@@ -25,9 +27,23 @@ from mini_ems_poc.mini_ems_runtime.channels import (
     SPOTMARKET_LOCKOUT_CHANNEL,
     ChannelRegistry,
 )
-from mini_ems_poc.mini_ems_runtime.config import NetworkConfig, PointsConfig
-from mini_ems_poc.mini_ems_runtime.protocol import ProtocolAdapter, WriteConfirmation
-from mini_ems_poc.mini_ems_runtime.simulation import SimulatedBacnetAdapter
+from mini_ems_poc.mini_ems_runtime.config import (
+    PROTOCOL_BACNET,
+    PROTOCOL_MODBUS_TCP,
+    NetworkConfig,
+    PointsConfig,
+)
+from mini_ems_poc.mini_ems_runtime.modbus import ModbusPermissionError, ModbusTcpAdapter
+from mini_ems_poc.mini_ems_runtime.protocol import (
+    ProtocolAdapter,
+    ProtocolRoutingAdapter,
+    WriteConfirmation,
+)
+from mini_ems_poc.mini_ems_runtime.simulation import SimulatedBacnetAdapter, SimulatedModbusAdapter
+
+# Permission failures are protocol-specific classes but one behavioural rule;
+# the contract only requires that some adapter permission error is raised.
+_PERMISSION_ERRORS = (BacnetPermissionError, ModbusPermissionError)
 
 
 class DummySocket:
@@ -117,10 +133,28 @@ class AdapterContractTest(unittest.TestCase):
         )
         return BacnetAdapter(network, self.logger, sock=DummySocket())
 
+    def _modbus_adapter(self) -> ModbusTcpAdapter:
+        # No I/O in __init__; the contract paths below fail on permission
+        # checks before any TCP connection would be opened.
+        return ModbusTcpAdapter(self.logger, response_timeout_seconds=0.05, retries=0)
+
+    def _simulated_modbus_adapter(self) -> SimulatedModbusAdapter:
+        return SimulatedModbusAdapter(self._values_path, self.logger)
+
+    def _routing_adapter(self) -> ProtocolRoutingAdapter:
+        # The dispatcher itself must satisfy the same contract as any adapter.
+        return ProtocolRoutingAdapter({
+            PROTOCOL_BACNET: self._simulated_adapter(),
+            PROTOCOL_MODBUS_TCP: self._simulated_modbus_adapter(),
+        })
+
     def _all_adapters(self):
         # (label, factory, exercises_io) — io adapters skip network paths.
         yield "simulated", self._simulated_adapter, True
         yield "bacnet", self._real_adapter, False
+        yield "modbus", self._modbus_adapter, False
+        yield "simulated_modbus", self._simulated_modbus_adapter, True
+        yield "routing", self._routing_adapter, True
 
     # -- structural conformance ------------------------------------------
 
@@ -143,7 +177,7 @@ class AdapterContractTest(unittest.TestCase):
         for label, factory, _io in self._all_adapters():
             with self.subTest(adapter=label):
                 adapter = factory()
-                with self.assertRaises(BacnetPermissionError):
+                with self.assertRaises(_PERMISSION_ERRORS):
                     adapter.read_float(point)
 
     # -- write-permission enforcement ------------------------------------
@@ -154,12 +188,32 @@ class AdapterContractTest(unittest.TestCase):
         for label, factory, _io in self._all_adapters():
             with self.subTest(adapter=label):
                 adapter = factory()
-                with self.assertRaises(BacnetPermissionError):
+                with self.assertRaises(_PERMISSION_ERRORS):
                     adapter.write_with_confirmation(
                         point=point,
                         desired_value=1.0,
                         confirmation_mode="ack",
                     )
+
+    # -- Modbus is categorically read-only (S4) ---------------------------
+
+    def test_modbus_adapters_refuse_writes_even_on_writable_points(self) -> None:
+        # tariff.current_price_ct_kwh is access="readwrite", yet the Modbus
+        # adapters must refuse: the S4 write path simply does not exist.
+        point = self.registry.get(CURRENT_PRICE_CHANNEL)
+        for label, factory in (
+            ("modbus", self._modbus_adapter),
+            ("simulated_modbus", self._simulated_modbus_adapter),
+        ):
+            with self.subTest(adapter=label):
+                adapter = factory()
+                with self.assertRaises(ModbusPermissionError) as context:
+                    adapter.write_with_confirmation(
+                        point=point,
+                        desired_value=1.0,
+                        confirmation_mode="ack_or_readback",
+                    )
+                self.assertIn("read-only", str(context.exception))
 
     # -- normalization: AV -> float, BV -> bool --------------------------
 

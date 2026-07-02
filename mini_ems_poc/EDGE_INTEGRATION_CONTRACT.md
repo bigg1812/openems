@@ -29,13 +29,14 @@ Container laufen können (siehe `ROADMAP.md`, Abschnitt "Strategische Ergänzung
 | Fallback | definiertes Verhalten im Fehlerfall | `safe_mode`/`degraded`-Logik in `cycle.py`, Preis-Cache-Fallback in `price_cache.py` |
 | Audit Trail | Nachvollziehbarkeit jedes Lese-/Schreibereignisses | strukturierte Log-Events (`log_event`), `runtime/health.json`, `runtime/state.json`, SQLite `bacnet_events` |
 
-Der reale Datenfluss (heute nur BACnet, Vertrag aber protokollneutral):
+Der reale Datenfluss (BACnet und Modbus TCP, Vertrag protokollneutral):
 
 ```text
 config.json
 -> PointsConfig / AdditionalInputConfig        (config.py)
 -> ChannelRegistry / PointConfig               (channels.py)
--> ProtocolAdapter                             (protocol.py; real: BacnetAdapter, lokal: SimulatedBacnetAdapter)
+-> ProtocolRoutingAdapter                      (protocol.py: wählt je Punkt den Adapter über das protocol-Feld)
+-> ProtocolAdapter                             (real: BacnetAdapter / ModbusTcpAdapter, lokal: Simulated*Adapter)
 -> ChannelReadDiagnosticsService               (read_diagnostics.py: Plausibilität + Freshness/Quality)
 -> CycleRunner                                 (cycle.py: Regelung, Safe Write Path, safe_mode/degraded)
 -> StateStore + health.json + RuntimeDatabase  (state_store.py, runtime_db.py)
@@ -230,9 +231,10 @@ Fachlich lässt sich die Regelung vollständig ohne Protokollbegriffe beschreibe
 - `CycleRunner` kennt nur `channel_id`s und den neutralen Adapter-Vertrag aus `protocol.py`
   (`read_float(point)`, `write_with_confirmation(point, desired_value, confirmation_mode)`, `close()`).
 
-Dass darunter BACnet liegt, ist austauschbar: heute erfüllen `BacnetAdapter` (real) und
-`SimulatedBacnetAdapter` (lokal) denselben Vertrag; ein Modbus-Adapter (Roadmap S4) käme als dritte
-Implementierung hinzu, ohne dass Regelung, Historie oder API sich ändern.
+Dass darunter BACnet liegt, ist austauschbar: `BacnetAdapter` (real) und `SimulatedBacnetAdapter`
+(lokal) erfüllen denselben Vertrag, und seit S4 auch `ModbusTcpAdapter` bzw. `SimulatedModbusAdapter`
+(siehe Abschnitt "Modbus TCP als zweites Protokoll") — ohne dass Regelung, Historie oder API sich
+ändern.
 
 ## Geräte-Template: Hauptzähler / Netzanschlusspunkt (S3)
 
@@ -366,6 +368,66 @@ Roadmap S4); Feldnamen wie in den Mapping-Vorlagen in `EMS-Mapping.md`:
 
 Beide Varianten erfüllen denselben Vertrag: gleiche Kanalnamen, gleiche Qualitätsregeln, gleiche
 Historie — nur der `ProtocolAdapter` darunter unterscheidet sich.
+
+## Modbus TCP als zweites Protokoll (S4)
+
+Seit S4 instanziiert Modbus TCP den Vertrag als zweites Protokoll neben BACnet. Die Umsetzung ist
+bewusst minimal und **read-only**:
+
+- **Adapter:** `ModbusTcpAdapter` (`modbus.py`) erfüllt den neutralen Vertrag aus `protocol.py`
+  mit reiner Python-Standardbibliothek (socket + struct, kein pymodbus). Gelesen wird per MBAP-Framing
+  über TCP mit Transaction-ID-, Protocol-ID-, Unit-ID- und Längenprüfung; Function Codes `3`
+  (Holding Registers) und `4` (Input Registers); Encodings `int16`, `uint16`, `int32`, `uint32` und
+  `float32` (zwei Register) mit konfigurierbarer Word-Order (`big` = höherwertiges Wort zuerst,
+  `little` = Word-Swap) und Skalierungsfaktor.
+- **Schreibpfad verweigert:** `write_with_confirmation()` wirft immer `ModbusPermissionError`
+  ("Modbus adapter is read-only"), noch vor jeder Netzwerkkommunikation. Modbus bringt damit keine
+  neuen Schreibrisiken; alle Ausgänge bleiben BACnet.
+- **Fehlerklassen:** `ModbusError`/`ModbusPermissionError`/`ModbusCommunicationError`/
+  `ModbusProtocolError` spiegeln die BACnet-Hierarchie und erben von der neutralen Basisklasse
+  `AdapterError` (`protocol.py`), von der auch `BacnetError` erbt. `ChannelReadDiagnosticsService`
+  fängt nur noch `AdapterError`: jeder fehlgeschlagene Modbus-Read wird exakt wie ein BACnet-Fehler
+  als Lesefehler eingestuft (`status="error"`, `quality="bad"`).
+- **Routing:** `ProtocolRoutingAdapter` (`protocol.py`) erfüllt selbst den Vertrag und delegiert je
+  Punkt anhand von `PointConfig.protocol` an den registrierten Adapter. `cycle.py` und
+  `read_diagnostics.py` bleiben unverändert protokollagnostisch; `app.py` registriert real
+  `BacnetAdapter` + `ModbusTcpAdapter` (Timeout/Retries aus `network.*`), lokal
+  `SimulatedBacnetAdapter` + `SimulatedModbusAdapter`.
+- **Simulation:** `SimulatedModbusAdapter` (`simulation.py`) liest wie der simulierte BACnet-Adapter
+  kanalweise aus der Values-Datei, verweigert Schreibzugriffe aber exakt wie der reale
+  Modbus-Adapter. Tests nutzen zusätzlich einen In-Process-Fake-Modbus-TCP-Server auf
+  `127.0.0.1` (`tests/test_modbus_adapter.py`).
+
+Konfiguriert wird ein Modbus-Punkt als `additional_inputs`-Eintrag mit `protocol`-Feld und
+`modbus`-Block; Einträge ohne `protocol`-Feld bleiben unverändert BACnet (Default). Die
+Registeranzahl wird aus dem Encoding abgeleitet und ist nicht separat konfigurierbar:
+
+```json
+{
+  "channel_id": "meter.grid.active_power_kw",
+  "protocol": "modbus_tcp",
+  "description": "Hauptzähler Wirkleistung Netzanschluss",
+  "modbus": {
+    "host": "192.168.244.60",
+    "port": 502,
+    "unit_id": 1,
+    "function_code": 3,
+    "register": 19026,
+    "encoding": "float32",
+    "word_order": "big",
+    "scale": 0.001
+  },
+  "plausible_min": -750.0,
+  "plausible_max": 750.0,
+  "include_in_health": true,
+  "read_interval_cycles": 1,
+  "max_age_seconds": 120
+}
+```
+
+Damit ist die Definition of Done aus `ROADMAP.md` S4 erfüllt: derselbe kanonische Kanal (z. B.
+`meter.grid.active_power_kw`) kann wahlweise aus BACnet (Variante A) oder Modbus (dieser Block)
+stammen — Regelung, Diagnose, Historie und API kennen nur den Kanalnamen und den neutralen Vertrag.
 
 ## Querverweise
 

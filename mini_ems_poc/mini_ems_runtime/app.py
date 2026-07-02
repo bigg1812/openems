@@ -6,15 +6,17 @@ from pathlib import Path
 
 from .bacnet import BacnetAdapter, BacnetCommunicationError
 from .channels import ChannelRegistry
-from .config import load_config
+from .config import PROTOCOL_BACNET, PROTOCOL_MODBUS_TCP, load_config
 from .cycle import CycleRunner
 from .http_api import MiniEmsApiServer
 from .logging_utils import log_event, setup_logging
+from .modbus import ModbusTcpAdapter
 from .price_cache import SpotmarketPriceCacheService
 from .price_provider_smard import SmardPriceProvider
+from .protocol import ProtocolRoutingAdapter
 from .read_diagnostics import ChannelReadDiagnosticsService
 from .runtime_db import RuntimeDatabase
-from .simulation import SimulatedBacnetAdapter, SimulatedSpotmarketPriceService
+from .simulation import SimulatedBacnetAdapter, SimulatedModbusAdapter, SimulatedSpotmarketPriceService
 from .spotmarket_plan import SpotmarketManualOverrideStore, SpotmarketPlanWriter
 from .state_store import StateStore
 
@@ -29,7 +31,7 @@ def main() -> int:
     runtime_db = RuntimeDatabase(config.database_path)
 
     try:
-        adapter = _build_bacnet_adapter(config, logger)
+        adapter = _build_protocol_adapter(config, logger)
     except BacnetCommunicationError as error:
         log_event(logger, logging.ERROR, "app.start_failed", error=str(error))
         return 1
@@ -118,7 +120,10 @@ def main() -> int:
         adapter.close()
 
 
-def _build_bacnet_adapter(config, logger):
+def _build_protocol_adapter(config, logger):
+    # One routing adapter in front of the concrete adapters keeps cycle and
+    # diagnostics protocol-agnostic; each point selects its adapter via the
+    # protocol field (default "bacnet", so existing configs are unchanged).
     if config.runtime.bacnet_mode == "simulated":
         log_event(
             logger,
@@ -127,8 +132,18 @@ def _build_bacnet_adapter(config, logger):
             values_file=str(config.simulation_values_path),
             real_writes_enabled=config.runtime.real_writes_enabled,
         )
-        return SimulatedBacnetAdapter(config.simulation_values_path, logger)
-    return BacnetAdapter(config.network, logger)
+        return ProtocolRoutingAdapter({
+            PROTOCOL_BACNET: SimulatedBacnetAdapter(config.simulation_values_path, logger),
+            PROTOCOL_MODBUS_TCP: SimulatedModbusAdapter(config.simulation_values_path, logger),
+        })
+    return ProtocolRoutingAdapter({
+        PROTOCOL_BACNET: BacnetAdapter(config.network, logger),
+        PROTOCOL_MODBUS_TCP: ModbusTcpAdapter(
+            logger,
+            response_timeout_seconds=config.network.response_timeout_seconds,
+            retries=config.network.retries,
+        ),
+    })
 
 
 def _build_price_service(config, logger):

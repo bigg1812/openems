@@ -4,10 +4,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional
 
-from .bacnet import BacnetError
 from .channels import ChannelRegistry
 from .logging_utils import log_event
-from .protocol import ProtocolAdapter
+from .protocol import AdapterError, ProtocolAdapter
 
 # Quality flags carried by every read; surfaced into health.json / SQLite / dashboard.
 QUALITY_GOOD = "good"
@@ -116,7 +115,9 @@ class ChannelReadDiagnosticsService:
                 collected_samples.append(
                     ChannelReadSample(timestamp=_to_iso(moment), value=float(value))
                 )
-            except BacnetError as error:
+            except AdapterError as error:
+                # Neutral base: BACnet and Modbus read failures are classified
+                # identically (status="error" -> quality="bad").
                 errors.append(str(error))
                 break
 

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional
 
-from .config import AdditionalInputConfig, PointsConfig
+from .config import PROTOCOL_BACNET, AdditionalInputConfig, ModbusPointConfig, PointsConfig
 
 BACNET_AI = 0
 BACNET_AV = 2
@@ -17,9 +17,9 @@ HEALTH_CHANNEL = "system.health"
 @dataclass(frozen=True)
 class PointConfig:
     channel_id: str
-    protocol: str
-    object_type: int
-    instance: int
+    # BACnet raw address; None for points read via another protocol (S4).
+    object_type: Optional[int]
+    instance: Optional[int]
     access: str
     description: str
     controller_ip: Optional[str] = None
@@ -29,6 +29,10 @@ class PointConfig:
     include_in_health: bool = False
     read_interval_cycles: int = 1
     max_age_seconds: Optional[float] = None
+    # Protocol routing (S4): the runtime picks the adapter per point via
+    # ProtocolRoutingAdapter; "bacnet" keeps the existing behaviour.
+    protocol: str = PROTOCOL_BACNET
+    modbus: Optional[ModbusPointConfig] = None
 
     def can_read(self) -> bool:
         return self.access in ("read", "readwrite")
@@ -55,7 +59,6 @@ class ChannelRegistry:
         registry = {
             GRID_ACTIVE_POWER_CHANNEL: PointConfig(
                 channel_id=GRID_ACTIVE_POWER_CHANNEL,
-                protocol="bacnet",
                 object_type=BACNET_AV,
                 instance=points.grid_active_power_kw,
                 access="read",
@@ -65,7 +68,6 @@ class ChannelRegistry:
             ),
             CURRENT_PRICE_CHANNEL: PointConfig(
                 channel_id=CURRENT_PRICE_CHANNEL,
-                protocol="bacnet",
                 object_type=BACNET_AV,
                 instance=points.current_price_av,
                 access="readwrite",
@@ -73,7 +75,6 @@ class ChannelRegistry:
             ),
             GRID_LOCKOUT_CHANNEL: PointConfig(
                 channel_id=GRID_LOCKOUT_CHANNEL,
-                protocol="bacnet",
                 object_type=BACNET_BV,
                 instance=points.grid_lockout_bv,
                 access="write",
@@ -81,7 +82,6 @@ class ChannelRegistry:
             ),
             SPOTMARKET_LOCKOUT_CHANNEL: PointConfig(
                 channel_id=SPOTMARKET_LOCKOUT_CHANNEL,
-                protocol="bacnet",
                 object_type=BACNET_BV,
                 instance=points.spotmarket_lockout_bv,
                 access="write",
@@ -92,7 +92,6 @@ class ChannelRegistry:
         for channel_id, input_config in (additional_inputs or {}).items():
             registry[channel_id] = PointConfig(
                 channel_id=channel_id,
-                protocol=input_config.protocol,
                 object_type=input_config.object_type,
                 instance=input_config.instance,
                 access="read",
@@ -104,6 +103,8 @@ class ChannelRegistry:
                 include_in_health=input_config.include_in_health,
                 read_interval_cycles=input_config.read_interval_cycles,
                 max_age_seconds=input_config.max_age_seconds,
+                protocol=input_config.protocol,
+                modbus=input_config.modbus,
             )
             additional_input_channel_ids.append(channel_id)
         return cls(registry, additional_input_channel_ids=additional_input_channel_ids)

@@ -108,7 +108,16 @@ Leitentscheidungen:
   - **Definition of Done:** Es gibt eine klare Vorlage, welche Rohpunkte, Einheiten, Rollen, Plausibilitätsgrenzen,
     Aktualitätsregeln und optionalen Schreibrechte ein Hauptzähler braucht.
 
-- [ ] **S4. Mapping-Entwurfsmodell als Konfigurationskern ausbauen**
+- [x] **S4. Danach Modbus TCP read-only als erster neuer Adapter**
+  - **Was:** Erst nach S1-S3 einen read-only Modbus-TCP-Adapter für ein Leistungsmessgerät ergänzen.
+  - **Nutzen:** Beweist, dass das Modell wirklich protokollneutral ist, ohne sofort neue Schreibrisiken einzubauen.
+  - **Betroffen:** `protocol.py`, neuer Adapter, Config, Tests, Simulation.
+  - **Aufwand:** M/L
+  - **Risiken:** Registerlisten, Skalierung, Byte-/Word-Order und Vorzeichen müssen sauber geprüft werden.
+  - **Definition of Done:** Ein kanonischer Kanal wie `meter.grid.active_power_kw` kann wahlweise aus BACnet oder Modbus
+    stammen, ohne dass die Regelungslogik das Protokoll kennen muss.
+
+- [ ] **S5. Mapping-Entwurfsmodell als Konfigurationskern ausbauen**
   - **Was:** Das vorhandene Preview-Modell (`devices`, `raw_points`, `mappings`) zur zentralen Grundlage der
     Konfigurations-UI machen. Ein Mapping-Entwurf beschreibt Geräte/Datenquellen, gefundene oder manuell
     angelegte Rohpunkte und deren Zuordnung zu kanonischen Mini-EMS-Kanälen. Die Runtime arbeitet weiter mit
@@ -120,12 +129,13 @@ Leitentscheidungen:
     `MINI_EMS_ANLEITUNG.md`.
   - **Aufwand:** M
   - **Risiken:** Das Modell darf nicht zu früh zur generischen Plattform anwachsen. Für Version 1 nur BACnet,
-    manuelle Rohpunkte und einfache Preview/Validierung; keine vorgetäuschte Unterstützung für Modbus/MQTT/OPC UA.
+    manuelle Rohpunkte und einfache Preview/Validierung; Modbus-Rohpunkte kommen über den in S4 ergänzten
+    Modbus-Adapter hinzu, nicht als eigenes Mapping-Protokoll.
   - **Definition of Done:** Ein Mapping-Entwurf kann Geräte, Rohpunkte und fachliche Zuordnungen aufnehmen;
     `POST /api/config/mapping/preview` liefert einen validierten Runtime-Config-Patch; Fehler/Warnungen sind
     UI-tauglich; bestehende Runtime-Tests bleiben grün.
 
-- [ ] **S5. Mapping-Aktivierung mit Backup und Audit ergänzen**
+- [ ] **S6. Mapping-Aktivierung mit Backup und Audit ergänzen**
   - **Was:** Nach der Preview einen kontrollierten Aktivierungspfad bauen: Mapping-Entwurf speichern, erzeugten
     Config-Patch prüfen, aktive Config sichern, Änderung mit Admin-Recht übernehmen und Neustartbedarf sichtbar
     markieren. Der Entwurf selbst bleibt als nachvollziehbares Inbetriebnahme-Artefakt erhalten.
@@ -137,15 +147,6 @@ Leitentscheidungen:
     Anlagen-Schreibfreigaben dürfen nicht im Mapping-Entwurf landen.
   - **Definition of Done:** Ungültige Entwürfe können nicht aktiviert werden; jede Aktivierung erzeugt Backup und
     Audit-Eintrag; UI zeigt aktiven Stand, Entwurf, Validierungsstatus und Neustartbedarf getrennt.
-
-- [ ] **S6. Danach Modbus TCP read-only als erster neuer Adapter**
-  - **Was:** Erst nach S1-S5 einen read-only Modbus-TCP-Adapter für ein Leistungsmessgerät ergänzen.
-  - **Nutzen:** Beweist, dass das Modell wirklich protokollneutral ist, ohne sofort neue Schreibrisiken einzubauen.
-  - **Betroffen:** `protocol.py`, neuer Adapter, Config, Tests, Simulation.
-  - **Aufwand:** M/L
-  - **Risiken:** Registerlisten, Skalierung, Byte-/Word-Order und Vorzeichen müssen sauber geprüft werden.
-  - **Definition of Done:** Ein kanonischer Kanal wie `meter.grid.active_power_kw` kann wahlweise aus BACnet oder Modbus
-    stammen, ohne dass die Regelungslogik das Protokoll kennen muss.
 
 ## Strategische To-do-Linie: Geschütztes Kundenhosting
 

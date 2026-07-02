@@ -200,6 +200,30 @@ class ConfigApiTest(unittest.TestCase):
                     "additional_inputs": [
                         {
                             "channel_id": "site.outdoor_temperature_c",
+                            "protocol": "mqtt",
+                            "object_type": "ai",
+                            "instance": 1801,
+                            "description": "Outdoor temperature",
+                        }
+                    ]
+                }
+            }
+        )
+
+        self.assertFalse(payload["valid"])
+        self.assertIn("protocol must be one of", payload["message"])
+
+    def test_validate_rejects_modbus_additional_input_without_address_block(self) -> None:
+        # protocol=modbus_tcp is supported (S4), but still requires the modbus
+        # address block; a bare BACnet-shaped entry must fail clearly.
+        server = self._build_server(make_raw_config())
+
+        payload = server.validate_site_config_payload(
+            {
+                "patch": {
+                    "additional_inputs": [
+                        {
+                            "channel_id": "site.outdoor_temperature_c",
                             "protocol": "modbus_tcp",
                             "object_type": "ai",
                             "instance": 1801,
@@ -211,7 +235,41 @@ class ConfigApiTest(unittest.TestCase):
         )
 
         self.assertFalse(payload["valid"])
-        self.assertIn("protocol must be 'bacnet'", payload["message"])
+        self.assertIn("requires a modbus object", payload["message"])
+
+    def test_validate_accepts_modbus_additional_input_with_address_block(self) -> None:
+        # S4: protocol=modbus_tcp with a complete modbus block is a valid,
+        # read-only alternative to the BACnet path for the same channel shape.
+        server = self._build_server(make_raw_config())
+
+        payload = server.validate_site_config_payload(
+            {
+                "patch": {
+                    "additional_inputs": [
+                        {
+                            "channel_id": "meter.grid.active_power_kw",
+                            "protocol": "modbus_tcp",
+                            "description": "Hauptzaehler Wirkleistung",
+                            "modbus": {
+                                "host": "192.168.244.60",
+                                "port": 502,
+                                "unit_id": 1,
+                                "function_code": 3,
+                                "register": 19026,
+                                "encoding": "float32",
+                                "word_order": "big",
+                                "scale": 0.001,
+                            },
+                            "plausible_min": -750.0,
+                            "plausible_max": 750.0,
+                            "max_age_seconds": 120,
+                        }
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(payload, {"valid": True})
 
     def test_mapping_preview_returns_valid_runtime_config_patch(self) -> None:
         server = self._build_server(make_raw_config())

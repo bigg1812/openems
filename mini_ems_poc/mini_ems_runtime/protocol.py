@@ -17,9 +17,19 @@ depend on ``ProtocolAdapter`` here rather than on the concrete adapter.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Protocol, runtime_checkable
+from typing import Dict, Optional, Protocol, runtime_checkable
 
 from .channels import PointConfig
+
+
+class AdapterError(Exception):
+    """Protocol-neutral base class for adapter errors.
+
+    Every concrete adapter derives its error hierarchy from this class
+    (``BacnetError``, ``ModbusError``), so the runtime — most importantly
+    ``ChannelReadDiagnosticsService`` — can classify any failed read as a
+    read error (``quality="bad"``) without knowing the protocol.
+    """
 
 
 @dataclass(frozen=True)
@@ -78,3 +88,57 @@ class ProtocolAdapter(Protocol):
 
     def close(self) -> None:
         ...
+
+
+class ProtocolRoutingAdapter:
+    """Per-point dispatcher: delegates each call to the adapter of ``point.protocol``.
+
+    Itself satisfies ``ProtocolAdapter``, so ``CycleRunner`` and
+    ``ChannelReadDiagnosticsService`` stay protocol-agnostic: they keep
+    talking to a single adapter while each point declares its protocol in
+    the config (default ``"bacnet"``, so existing configs behave exactly
+    as before).
+    """
+
+    def __init__(self, adapters: Dict[str, "ProtocolAdapter"]):
+        if not adapters:
+            raise ValueError("ProtocolRoutingAdapter requires at least one adapter")
+        self._adapters = dict(adapters)
+
+    def read_float(self, point: PointConfig) -> float:
+        return self._adapter_for(point).read_float(point)
+
+    def write_with_confirmation(
+        self,
+        point: PointConfig,
+        desired_value: object,
+        confirmation_mode: str,
+    ) -> WriteConfirmation:
+        return self._adapter_for(point).write_with_confirmation(
+            point,
+            desired_value,
+            confirmation_mode,
+        )
+
+    def close(self) -> None:
+        # Adapters may be registered under several protocol names (e.g. one
+        # simulated adapter serving both); close each instance only once.
+        seen_ids = set()
+        for adapter in self._adapters.values():
+            if id(adapter) in seen_ids:
+                continue
+            seen_ids.add(id(adapter))
+            adapter.close()
+
+    def _adapter_for(self, point: PointConfig) -> "ProtocolAdapter":
+        adapter = self._adapters.get(point.protocol)
+        if adapter is None:
+            # AdapterError so a routed read on a misconfigured point is
+            # classified as a read error (quality="bad") like any other failure.
+            raise AdapterError(
+                "No adapter registered for protocol {0} (channel {1})".format(
+                    point.protocol,
+                    point.channel_id,
+                )
+            )
+        return adapter

@@ -10,6 +10,7 @@ from .bacnet import (
 )
 from .channels import BACNET_AV, BACNET_BV, PointConfig
 from .logging_utils import log_event
+from .modbus import ModbusPermissionError
 from .protocol import WriteConfirmation
 from .price_cache import CachedDay, PriceCacheFile, PublishedPriceSnapshot
 from .price_provider_smard import PriceProviderError, berlin_now
@@ -113,6 +114,36 @@ class SimulatedBacnetAdapter:
         if not isinstance(values, dict):
             raise BacnetCommunicationError("Simulation values must contain a 'channels' object")
         return values
+
+
+class SimulatedModbusAdapter(SimulatedBacnetAdapter):
+    """Simulated counterpart of the read-only ``ModbusTcpAdapter``.
+
+    Reads come from the same channel-keyed values file as the simulated
+    BACnet adapter (the raw Modbus address is irrelevant locally), but the
+    write refusal of the real Modbus adapter is mirrored exactly so that
+    simulation and IPC behave identically on the write path.
+    """
+
+    def write_bool(self, point: PointConfig, value: bool) -> None:
+        raise ModbusPermissionError(
+            "Modbus adapter is read-only: write denied for channel {0}".format(point.channel_id)
+        )
+
+    def write_float(self, point: PointConfig, value: float) -> None:
+        raise ModbusPermissionError(
+            "Modbus adapter is read-only: write denied for channel {0}".format(point.channel_id)
+        )
+
+    def write_with_confirmation(
+        self,
+        point: PointConfig,
+        desired_value: object,
+        confirmation_mode: str,
+    ) -> WriteConfirmation:
+        raise ModbusPermissionError(
+            "Modbus adapter is read-only: write denied for channel {0}".format(point.channel_id)
+        )
 
 
 class SimulatedSpotmarketPriceService:
