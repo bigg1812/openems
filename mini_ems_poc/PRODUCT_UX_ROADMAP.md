@@ -34,7 +34,8 @@ Leitentscheidungen:
   - **Risiken:** Nicht zu viele Reporttypen parallel anfangen.
   - **Definition of Done:** Es gibt eine priorisierte Liste der ersten 2-3 Reports mit Zielgruppe, Inhalt und Ausgabeformat.
 
-- [ ] **UX2. Schönere Report-Templates bauen**
+- [x] **UX2. Schönere Report-Templates bauen** — erledigt, siehe `report.html.j2` und
+  `runtime_db.py` (`build_report_overview`, `_render_report_html_fallback`).
   - **Was:** HTML/PDF-Templates visuell überarbeiten: klare Titelseite, Standort-/Zeitraum-Kopf, Kennzahlen,
     Diagramme, Auffälligkeiten, kurze Interpretation und technischer Anhang.
   - **Nutzen:** Reports werden präsentierbar für Kunden, Betreiber und interne Abstimmungen.
@@ -42,6 +43,15 @@ Leitentscheidungen:
   - **Aufwand:** M
   - **Risiken:** Optik darf die fachliche Nachvollziehbarkeit nicht verdecken.
   - **Definition of Done:** Ein Tagesreport kann ohne Nachbearbeitung als Kunden-PDF gezeigt werden.
+  - **Umsetzung:** Tagesbericht-Kopf (Titel, Standort, Zeitraum, Erstellzeitpunkt), datengetriebene
+    Hauptbotschaft, Betriebszusammenfassung mit Ampellogik, Strompreis-/Netzleistungs-Kennzahlen,
+    Kommunikationshinweise und Verlaufsdiagramme (Inline-SVG, keine JS-Chart-Lib) vor einem dezent
+    abgesetzten technischen Anhang; A4-`@page`-Setup mit Seitenumbruch-Regeln, System-Font-Stack ohne
+    Webfonts. `render_report_html` baut die Kopfdaten read-only aus den bestehenden Tagesreport-Feldern
+    (`get_daily_report`); JSON-/CSV-Endpunkte bleiben unverändert (siehe Byte-Vergleich im Abschlussbericht
+    des Umsetzungs-Threads). `/api/report/html`/`/api/report/pdf` akzeptieren optional `?date=`, um ohne
+    manuelle Zeitraumwahl den vollen Berichtstag zu rendern; ohne WeasyPrint liefert `/api/report/pdf`
+    dieselbe kundentaugliche HTML-Ansicht als Fallback.
 
 - [ ] **UX3. Report-Konfigurator vereinfachen**
   - **Was:** Der Nutzer kann Zeitraum, Reporttyp und optionale Bausteine einfach auswählen, ohne technische Felder

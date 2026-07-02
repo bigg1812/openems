@@ -2,7 +2,7 @@ import json
 import math
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -301,10 +301,19 @@ class MiniEmsApiServer:
         return self.dashboard_dir.parent / "mini_ems_runtime" / "templates" / "report.html.j2"
 
     def _report_config_from_query(self, query: Dict[str, list[str]]) -> Dict[str, object]:
+        start = _optional_single_value(query, "start")
+        end = _optional_single_value(query, "end")
+        if start is None and end is None:
+            # Tagesbericht (UX2): ohne expliziten Zeitraum wird der volle
+            # Berichtstag verwendet - per ?date=YYYY-MM-DD oder als Standard
+            # der aktuelle Betriebstag aus health.json.
+            day_range = _report_day_range(_single_value(query, "date", self._default_report_date()))
+            if day_range is not None:
+                start, end = day_range
         return {
-            "title": _single_value(query, "title", "Mini EMS Betriebsbericht"),
-            "start": _optional_single_value(query, "start"),
-            "end": _optional_single_value(query, "end"),
+            "title": _single_value(query, "title", "Tagesbericht"),
+            "start": start,
+            "end": end,
             "granularity": _single_value(query, "granularity", "5m"),
             "channels": _multi_value(query, "channels", ["tariff.current_price_ct_kwh", "site.outdoor_temperature_c"]),
             "sections": [
@@ -537,6 +546,19 @@ def _parse_epoch_seconds(value: object) -> Optional[float]:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
     except ValueError:
         return None
+
+
+def _report_day_range(date_iso: str) -> Optional[tuple[str, str]]:
+    """Voller Berichtstag [00:00, 24:00) als UTC-Zeitstempel, sonst None."""
+    try:
+        day = datetime.strptime(str(date_iso), "%Y-%m-%d")
+    except (TypeError, ValueError):
+        return None
+    next_day = day + timedelta(days=1)
+    return (
+        day.strftime("%Y-%m-%dT00:00:00Z"),
+        next_day.strftime("%Y-%m-%dT00:00:00Z"),
+    )
 
 
 def _single_value(query: Dict[str, list[str]], key: str, default: str) -> str:
