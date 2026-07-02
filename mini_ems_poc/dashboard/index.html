@@ -73,7 +73,23 @@
           <button class="button" id="dashboard-config-button" type="button">Dashboard anpassen</button>
         </div>
 
+        <!-- Hauptbotschaft: eine Aussage zu "Läuft die Anlage?" (UX4) -->
+        <article class="status-hero neutral" id="status-hero" aria-live="polite">
+          <div class="status-hero-text">
+            <strong>Anlagenstatus wird geladen.</strong>
+            <p>Die aktuellen Werte werden von der Anlage abgerufen.</p>
+          </div>
+        </article>
+
         <div class="kpi-grid" id="kpi-grid"></div>
+
+        <!-- Konkrete Hinweise: Preisfenster, Datenqualität, Übergabe (UX4) -->
+        <article class="hint-panel" aria-label="Hinweise für heute">
+          <span class="micro-label">Heute wichtig</span>
+          <div class="hint-list" id="dashboard-hints">
+            <div class="hint-item neutral">Hinweise werden geladen.</div>
+          </div>
+        </article>
 
         <div class="dashboard-layout">
           <article class="tool-panel wide" data-widget="price">
