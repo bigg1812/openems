@@ -637,6 +637,13 @@ Wichtig:
 
 Codeaenderungen werden nicht automatisch in den laufenden Python-Prozess geladen. Nach Runtime-Aenderungen muss Mini-EMS neu gestartet werden, damit neuer Code, neue API-Endpunkte oder neue Konfigurationsfelder aktiv werden.
 
+### Update und Wartung
+
+Der vollstaendige Update-Ablauf (stoppen, Backup, Paket ersetzen, starten, Healthcheck, Rollback) sowie
+eine kleine wiederkehrende Wartungsroutine und die Versionierung stehen in
+[UPDATE_WARTUNG.md](./UPDATE_WARTUNG.md). Manuelle Codeaenderungen auf der Kunden-IPC sind damit
+ausgeschlossen; jede Aenderung am Standort kommt ueber ein neues Release-Paket.
+
 ## Verhalten bei IPC-Ausfall
 
 Wenn der IPC komplett aus geht:

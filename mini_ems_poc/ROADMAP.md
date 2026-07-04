@@ -510,7 +510,7 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
   - **Risiken:** Passwörter dürfen nicht in Git oder im ausgelieferten Standardpaket landen; Erstpasswort/Rotation klären.
   - **Definition of Done:** Ohne Zugangsdaten ist das UI nicht erreichbar; Viewer können nur lesen.
 
-- [ ] **H7. Update- und Wartungsprozess definieren**
+- [x] **H7. Update- und Wartungsprozess definieren**
   - **Was:** Updates laufen über versionierte Pakete, Checksums und ein kurzes Install-/Rollback-Verfahren. Keine manuellen
     Codeänderungen auf der Kunden-IPC.
   - **Nutzen:** Macht Mini EMS wartbar und reduziert Risiko durch lokale Änderungen.
@@ -519,6 +519,9 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
   - **Risiken:** Standortkonfiguration und Betriebsdaten dürfen bei Updates nicht überschrieben werden.
   - **Definition of Done:** Es gibt einen dokumentierten Ablauf: stoppen, Backup, Paket ersetzen, starten, Healthcheck prüfen,
     Rollback falls nötig.
+  - **Erledigt:** Der vollständige Ablauf (Grundsätze, Standard-Update-Checkliste, Rollback, Wartungsroutine,
+    Versionierung, Verantwortlichkeiten) steht in `UPDATE_WARTUNG.md`, paketformneutral formuliert mit explizit
+    markierten H2-abhängigen Stellen; querverwiesen aus `HOSTING_SICHERHEIT.md` und `MINI_EMS_ANLEITUNG.md`.
 
 - [ ] **H8. Audit, Nachvollziehbarkeit und Betreiberfreigabe**
   - **Was:** UI-Zugriffe, Runtime-Starts, Konfigurationsänderungen und spätere Schreibaktionen nachvollziehbar loggen.

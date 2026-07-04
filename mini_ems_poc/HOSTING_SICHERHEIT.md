@@ -272,8 +272,10 @@ Diese Punkte bleiben bewusst offen und sind in `ROADMAP.md` als eigene Schritte 
 
 ## Querverweise
 
-- `ROADMAP.md` – strategische To-do-Linie "Geschütztes Kundenhosting" (H1–H8) und To-do 3
+- `ROADMAP.md` – strategische To-do-Linie "Geschütztes Kundenhosting" (H1–H9) und To-do 3
 - `PRODUCT_UX_KONZEPT.md`, Abschnitt 3 – fachliches Rollenmodell Viewer/Operator/Admin
 - `EDGE_INTEGRATION_CONTRACT.md` – Lese-/Schreibrechte, Safety-Flags, Ausfallverhalten
 - `MINI_EMS_ANLEITUNG.md` – Betrieb, `api.host`-Bindung, Endpunktübersicht
 - `mini_ems_runtime/http_api.py` – tatsächliche Endpunkte (Quelle der Einstufung in 2.1)
+- `UPDATE_WARTUNG.md` – Update-, Healthcheck- und Rollback-Ablauf (H7), Verantwortlichkeiten remote
+  (Secomea/VPN) vs. vor Ort, konsistent zur Sichtbarkeits-/Änderungsmatrix in Teil 1
