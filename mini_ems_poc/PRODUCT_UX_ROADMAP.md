@@ -313,7 +313,7 @@ Leitentscheidungen:
     geprüfte Konfiguration aktiv speichert; aktive Konfiguration, Entwurf, Validierungsfehler, Backup und
     Neustartbedarf sind fachlich unterscheidbar.
 
-- [ ] **UX13. Ersten Demo-Flow für bezahlten Pilot bauen**
+- [x] **UX13. Ersten Demo-Flow für bezahlten Pilot bauen** — erledigt, siehe `PILOT_DEMO.md`.
   - **Was:** Einen klaren Vorführpfad definieren: Dashboard öffnen, Zustand verstehen, Tagesreport erzeugen,
     Auffälligkeit erklären, Systemstatus prüfen.
   - **Nutzen:** Mini EMS wird leichter verkaufbar, weil der Nutzen in wenigen Minuten sichtbar wird.
@@ -321,6 +321,12 @@ Leitentscheidungen:
   - **Aufwand:** M
   - **Risiken:** Demo darf keine simulierten Versprechen machen, die der reale Standort noch nicht erfüllt.
   - **Definition of Done:** Es gibt einen 5-Minuten-Demoablauf mit echten oder realistischen Pilotdaten.
+  - **Umsetzung:** `PILOT_DEMO.md` beschreibt Ziel/Zielgruppe, den 5-Minuten-Ablauf in 5 Schritten
+    (Dashboard öffnen, Zustand verstehen, Tagesreport erzeugen, Auffälligkeit erklären, Systemstatus
+    prüfen) mit Kernbotschaft je Schritt, einen Abschnitt „Ehrlichkeit und Grenzen" (keine Versprechen zu
+    Schreibzugriffen, Login/Rollen, Standort-Einrichtung, PDF-Fallback), eine Troubleshooting-Liste und
+    einen technischen Anhang mit Vorbereitungs-Kommandos und Prüf-URLs. Der Ablauf wurde gegen die lokal
+    laufende Simulation (`config.local.json`, `/api/status`, `/api/report/html`, `/api/history`) geprüft.
 
 ## Empfohlener nächster Schritt
 
