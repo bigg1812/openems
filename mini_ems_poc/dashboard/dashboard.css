@@ -347,6 +347,34 @@ h3 {
   white-space: nowrap;
 }
 
+/* Dezenter Ladehinweis (UX6): ruhiger Punkt + Text, kein Spinner. */
+.load-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.load-indicator[hidden] {
+  display: none;
+}
+
+.load-indicator::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  animation: load-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes load-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
 /* Theme toggle */
 .theme-toggle {
   display: inline-flex;

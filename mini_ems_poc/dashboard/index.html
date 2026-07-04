@@ -27,7 +27,7 @@
       </div>
       <nav class="nav-list">
         <a href="#/dashboard" class="nav-link" data-page="dashboard">
-          <span class="nav-icon" aria-hidden="true">▦</span>Dashboard
+          <span class="nav-icon" aria-hidden="true">▦</span>Übersicht
         </a>
         <a href="#/analyse" class="nav-link" data-page="analyse">
           <span class="nav-icon" aria-hidden="true">▤</span>Analyse
@@ -39,7 +39,7 @@
           <span class="nav-icon" aria-hidden="true">◎</span>Konfiguration
         </a>
         <a href="#/system" class="nav-link" data-page="system">
-          <span class="nav-icon" aria-hidden="true">◉</span>System
+          <span class="nav-icon" aria-hidden="true">◉</span>Systemstatus
         </a>
       </nav>
       <div class="nav-status">
@@ -54,10 +54,11 @@
     <main class="main-shell">
       <header class="top-bar">
         <div>
-          <h1 id="page-title">Dashboard</h1>
+          <h1 id="page-title">Übersicht</h1>
           <p id="operator-message">Anlagenstatus wird geladen.</p>
         </div>
         <div class="top-actions">
+          <span class="load-indicator" id="load-indicator" role="status" aria-live="polite" hidden>Daten werden geladen</span>
           <span class="timestamp" id="last-updated">-</span>
           <div class="theme-toggle" role="group" aria-label="Darstellung">
             <button type="button" id="theme-light" data-theme-value="light" aria-pressed="true">Hell</button>
@@ -71,10 +72,10 @@
       <section class="page" data-page="dashboard" aria-label="Dashboard">
         <div class="section-head">
           <div>
-            <span class="section-kicker">Übersicht</span>
+            <span class="section-kicker">Startseite</span>
             <h2>Anlagenüberblick</h2>
           </div>
-          <button class="button" id="dashboard-config-button" type="button">Dashboard anpassen</button>
+          <button class="button" id="dashboard-config-button" type="button">Ansicht anpassen</button>
         </div>
 
         <!-- Hauptbotschaft: eine Aussage zu "Läuft die Anlage?" (UX4) -->
@@ -573,7 +574,7 @@
   <div class="modal-overlay" id="dashboard-config-modal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dashboard-config-title">
       <div class="modal-head">
-        <h3 id="dashboard-config-title">Dashboard anpassen</h3>
+        <h3 id="dashboard-config-title">Übersicht anpassen</h3>
         <button class="link-button" id="dashboard-config-close" type="button" aria-label="Schließen">Schließen</button>
       </div>
       <p class="modal-hint">Wähle, welche Kennzahlen und Bausteine auf dem Dashboard erscheinen.</p>

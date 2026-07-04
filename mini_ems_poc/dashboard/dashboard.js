@@ -70,11 +70,11 @@ const THEME_STORAGE_KEY = "miniEmsTheme";
 const DASHBOARD_STORAGE_KEY = "miniEmsDashboard";
 
 const PAGES = {
-  dashboard: "Dashboard",
+  dashboard: "Übersicht",
   analyse: "Analyse",
   berichte: "Berichte",
   konfiguration: "Konfiguration",
-  system: "System",
+  system: "Systemstatus",
 };
 
 const PAGE_SUBTITLES = {
@@ -372,9 +372,12 @@ function applyTheme(theme, options = {}) {
   redrawDashboardCharts();
 }
 
+let dashboardLoaded = false;
+
 async function refreshDashboard() {
   const button = document.getElementById("refresh-button");
   button.disabled = true;
+  setLoadingIndicator(true);
   try {
     const [statusPayload, dailyReport, weather, reportStudio] = await Promise.all([
       fetchJson("/api/status"),
@@ -400,10 +403,26 @@ async function refreshDashboard() {
     await renderDashboardCharts();
     await refreshWorkbench();
     updateReportLinks();
+    dashboardLoaded = true;
   } catch (error) {
     renderGlobalError(error);
   } finally {
     button.disabled = false;
+    setLoadingIndicator(false);
+  }
+}
+
+/* Dezenter Ladehinweis (UX6): beim ersten Laden und beim Aktualisieren sichtbar,
+   dass Daten kommen — kein Spinner, nur ein ruhiger Text im Kopfbereich. */
+function setLoadingIndicator(active) {
+  const indicator = document.getElementById("load-indicator");
+  if (indicator) {
+    indicator.textContent = dashboardLoaded ? "Daten werden aktualisiert" : "Daten werden geladen";
+    indicator.hidden = !active;
+  }
+  const button = document.getElementById("refresh-button");
+  if (button) {
+    button.textContent = active ? "Lädt …" : "Aktualisieren";
   }
 }
 
@@ -514,7 +533,7 @@ function renderKpis(payload) {
         <small>${escapeHtml(kpi.sub(health, ctx))}</small>
       </article>
     `);
-  target.innerHTML = cards.join("") || '<div class="empty-state">Keine Kennzahlen ausgewählt. Über „Dashboard anpassen“ hinzufügen.</div>';
+  target.innerHTML = cards.join("") || '<div class="empty-state">Noch keine Kennzahlen ausgewählt. Oben rechts über „Ansicht anpassen“ Kennzahlen hinzufügen.</div>';
 }
 
 function applyDashboardWidgets() {
@@ -615,11 +634,11 @@ function drawDashboardChart(chart, index) {
   frame.innerHTML = "";
   const data = dashboardChartData.get(chart.id);
   if (!data || !data.points.length) {
-    frame.innerHTML = `<div class="chart-empty">${escapeHtml(data && data.error ? data.error : "Keine Daten im Zeitraum.")}</div>`;
+    frame.innerHTML = `<div class="chart-empty">${escapeHtml(data && data.error ? data.error : "Für diesen Zeitraum liegen keine Werte vor. Über „Ansicht anpassen“ einen längeren Zeitraum wählen.")}</div>`;
     return;
   }
   if (typeof uPlot === "undefined") {
-    frame.innerHTML = '<div class="chart-empty">Diagramm-Bibliothek nicht geladen.</div>';
+    frame.innerHTML = '<div class="chart-empty">Das Diagramm kann gerade nicht dargestellt werden. Bitte die Seite neu laden.</div>';
     return;
   }
   const colors = reportChartColors();
@@ -690,12 +709,14 @@ function renderSignals(payload) {
     {
       state: todaySlots > 0 ? "ok" : "warn",
       title: "Preisdaten",
-      text: `${todaySlots || "-"} Werte heute / ${tomorrowSlots || "-"} Werte morgen`,
+      text: todaySlots > 0
+        ? `${todaySlots} Werte heute / ${tomorrowSlots || "keine"} Werte morgen`
+        : "Noch keine Preise für heute abgerufen. Bitte die Preisquelle prüfen.",
     },
     {
       state: health.safe_mode_reason ? "error" : "ok",
       title: "Sicherer Betriebszustand",
-      text: health.safe_mode_reason ? "Sicherer Modus ist aktiv" : "Anlage läuft normal",
+      text: health.safe_mode_reason ? safeModeSignalText(health.safe_mode_reason) : "Anlage läuft normal",
     },
   ];
   document.getElementById("signal-list").innerHTML = rows.map((row) => `
@@ -737,7 +758,7 @@ async function renderPriceOverview(payload) {
     step: true,
     windows: timeline.windows,
     now: referenceNow.getTime(),
-    empty: "Keine Preisdaten für die Ansicht vorhanden.",
+    empty: "Für diese Ansicht liegen noch keine Preisdaten vor. Sobald die Day-Ahead-Preise abgerufen wurden, erscheint hier der Verlauf.",
   });
   document.getElementById("price-chart-stats").innerHTML = [
     statCell("Minimum", formatNumber(timeline.min, "ct/kWh", 3)),
@@ -943,7 +964,7 @@ async function fetchHistorySafe(channelId, start, end, granularity, limit) {
   } catch (error) {
     return {
       rows: [],
-      error: "Daten konnten nicht geladen werden.",
+      error: "Verlaufsdaten konnten nicht geladen werden. Bitte die Verbindung zur lokalen Anlage prüfen.",
     };
   }
 }
@@ -960,7 +981,7 @@ function renderPriceChart(target, points, options = {}) {
     return;
   }
   if (typeof uPlot === "undefined") {
-    target.innerHTML = '<div class="chart-empty">Diagramm-Bibliothek konnte nicht geladen werden.</div>';
+    target.innerHTML = '<div class="chart-empty">Das Diagramm kann gerade nicht dargestellt werden. Bitte die Seite neu laden.</div>';
     return;
   }
 
@@ -2061,7 +2082,7 @@ function renderReportBlock(el, component, config, histories) {
     body.appendChild(frame);
     const color = SERIES_COLORS[index % SERIES_COLORS.length];
     if (item.error || !item.points.length) {
-      frame.innerHTML = `<div class="chart-empty">${escapeHtml(item.error || "Keine Daten im Zeitraum.")}</div>`;
+      frame.innerHTML = `<div class="chart-empty">${escapeHtml(item.error || "Für den gewählten Zeitraum liegen keine Werte vor. Bitte einen längeren Zeitraum wählen.")}</div>`;
       return;
     }
     if (component === "bar_chart") {
@@ -2169,7 +2190,7 @@ function buildHeatmapBlock(item) {
   if (!item.points.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state compact";
-    empty.textContent = "Keine Daten im Zeitraum.";
+    empty.textContent = "Für den gewählten Zeitraum liegen keine Werte vor. Bitte einen längeren Zeitraum wählen.";
     wrap.appendChild(empty);
     return wrap;
   }
@@ -2284,22 +2305,28 @@ function updateReportLinks() {
 }
 
 function renderDailyReport(report) {
-  const price = report.price_ct_kwh || {};
-  const statusCounts = report.status_counts || {};
-  document.getElementById("daily-report").innerHTML = [
-    reportTile("Läufe", report.cycle_count),
+  const target = document.getElementById("daily-report");
+  const safeReport = report && typeof report === "object" ? report : {};
+  const price = safeReport.price_ct_kwh || {};
+  const statusCounts = safeReport.status_counts || {};
+  if (!toNumber(safeReport.cycle_count)) {
+    target.innerHTML = '<div class="empty-state">Für heute liegen noch keine Betriebsdaten vor. Sobald die Anlage läuft, erscheinen hier die Tageskennzahlen.</div>';
+    return;
+  }
+  target.innerHTML = [
+    reportTile("Läufe", safeReport.cycle_count),
     reportTile("Normale Läufe", statusCounts.healthy || 0),
-    reportTile("Kommunikationshinweise", report.bacnet_event_count),
+    reportTile("Kommunikationshinweise", safeReport.bacnet_event_count),
     reportTile("Durchschnittspreis", formatNumber(price.average, "ct/kWh", 3)),
     reportTile("Niedrigster Preis", formatNumber(price.min, "ct/kWh", 3)),
-    reportTile("Preisfenster", (report.spotmarket_windows || []).length),
+    reportTile("Preisfenster", (safeReport.spotmarket_windows || []).length),
   ].join("");
 }
 
 function renderRecentCycles(rows) {
   const body = document.getElementById("cycles-body");
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="5">Keine Läufe vorhanden.</td></tr>';
+    body.innerHTML = '<tr><td colspan="5">Noch keine Läufe aufgezeichnet. Sobald die Steuerung läuft, erscheinen hier die letzten Regelzyklen.</td></tr>';
     return;
   }
   body.innerHTML = rows.map((row) => `
@@ -2317,7 +2344,7 @@ function renderWeather(payload) {
   appState.weather = payload;
   const target = document.getElementById("weather-panel");
   if (!payload || payload.status !== "ok") {
-    target.innerHTML = `<div class="empty-state">Wetter nicht verfügbar${payload?.error ? `: ${escapeHtml(payload.error)}` : ""}</div>`;
+    target.innerHTML = '<div class="empty-state">Wetterdaten sind derzeit nicht verfügbar. Sie werden beim nächsten Abruf erneut geladen.</div>';
     return;
   }
   const current = payload.current || {};
@@ -2509,6 +2536,25 @@ function buildMainMessage(payload) {
     headline: "Der Anlagenzustand wird ermittelt.",
     detail: "Der letzte Lauf meldet keinen bekannten Zustand. Details stehen im Systemzustand.",
   };
+}
+
+/* Kurztext für die Signalkarte "Sicherer Betriebszustand" (UX6): benennt den Grund
+   in Betreiber-Sprache und den nächsten Schritt. Wording aus PRODUCT_UX_KONZEPT.md 2.2. */
+function safeModeSignalText(reason) {
+  const value = String(reason || "");
+  if (value.startsWith("startup_validation")) {
+    return "Anlaufprüfung: Verbindungen und Werte werden nach dem Start geprüft.";
+  }
+  if (value.startsWith("price_provider")) {
+    return "Sicherer Modus: Preisdaten fehlen. Pausiert, bis wieder Preise vorliegen.";
+  }
+  if (value.startsWith("grid_read")) {
+    return "Sicherer Modus: Netzleistung nicht lesbar. Bitte Verbindung zur Anlage prüfen.";
+  }
+  if (value.startsWith("write_failure")) {
+    return "Sicherer Modus: Übergabe gestört. Bitte Verbindung zur Anlage prüfen.";
+  }
+  return "Sicherer Modus aktiv. Bitte den Systemzustand prüfen.";
 }
 
 /* Konkrete Hinweise der Startseite (UX4): Preisfenster, Datenqualität,

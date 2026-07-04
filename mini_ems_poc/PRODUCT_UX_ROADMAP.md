@@ -79,7 +79,9 @@ Leitentscheidungen:
   - **Risiken:** Wichtige technische Details dürfen nicht verschwinden, sondern müssen in Diagnose-/Systemansichten wandern.
   - **Definition of Done:** Die Startseite zeigt maximal eine klare Hauptbotschaft, die wichtigsten Kennzahlen und konkrete Hinweise.
 
-- [ ] **UX5. Nutzerführung für normale Bediener vereinfachen**
+- [x] **UX5. Nutzerführung für normale Bediener vereinfachen** — erledigt: Navigation auf Betreiber-Sprache
+  geschärft, leere Zustände durchgängig mit nächstem Schritt versehen, keine internen IDs/Protokollbegriffe
+  in normalen Ansichten.
   - **Was:** Navigation und Begriffe so überarbeiten, dass ein Betreiber ohne Projekthintergrund versteht, was er sieht:
     Übersicht, Analyse, Berichte, Systemstatus.
   - **Nutzen:** Weniger Erklärbedarf bei Pilotkunden und weniger Risiko durch Fehlbedienung.
@@ -87,8 +89,17 @@ Leitentscheidungen:
   - **Aufwand:** S/M
   - **Risiken:** Keine sichtbaren internen IDs, BACnet-Begriffe oder Implementierungsdetails in normalen Nutzeransichten.
   - **Definition of Done:** Ein neuer Nutzer versteht die Hauptnavigation ohne Einweisung.
+  - **Umsetzung:** Navigationslabel „Dashboard" → „Übersicht" und „System" → „Systemstatus" konsistent in
+    `index.html`, `PAGES`-Mapping und `page-title` (Analyse/Berichte/Konfiguration unverändert, hoher
+    Wiedererkennungswert). Startseiten-Kicker auf „Startseite" (vermeidet Dopplung mit „Übersicht"), Button und
+    Modal „Dashboard anpassen" → „Ansicht anpassen"/„Übersicht anpassen". Leere Zustände mit nächstem Schritt
+    nachgerüstet: Kennzahlen ohne Auswahl, Tagesbericht ohne Betriebsdaten, Wetter nicht verfügbar (ohne
+    Rohfehlertext), leere Diagramme (Zeitraum erweitern), keine Läufe. Keine internen IDs, BACnet- oder
+    englischen Zustandswörter in normalen Ansichten (Technikdetails bleiben in der einklappbaren
+    Konfigurations-/Diagnoseansicht).
 
-- [ ] **UX6. Zustände und Warnungen verständlich machen**
+- [x] **UX6. Zustände und Warnungen verständlich machen** — erledigt: jeder kritische Zustand erscheint als
+  verständliche Meldung mit nächstem Schritt; dezenter Ladehinweis beim ersten Laden und beim Aktualisieren.
   - **Was:** Ladezustände, veraltete Daten, Kommunikationsprobleme, sichere Sperren und fehlende Werte in klarer
     Geschäftssprache anzeigen.
   - **Nutzen:** Vertrauen steigt, weil Probleme sichtbar und erklärbar werden.
@@ -96,6 +107,13 @@ Leitentscheidungen:
   - **Aufwand:** M
   - **Risiken:** Warnungen dürfen nicht dramatisieren, aber auch nicht zu harmlos wirken.
   - **Definition of Done:** Jeder kritische Zustand hat eine sichtbare, verständliche Meldung mit nächstem sinnvollen Schritt.
+  - **Umsetzung:** Bestehende Hauptbotschaft (`buildMainMessage`) deckt Ladeanlauf, sicherer Modus (alle Gründe),
+    eingeschränkter Betrieb, stale_runtime, fehlende Werte und Verbindungsabbruch ab. Ergänzt: dezenter
+    Ladehinweis (`load-indicator`, pulsierender Punkt, kein Spinner) plus „Lädt …"-Button-Zustand für Erst- und
+    Folgeladung; Signalkarte „Sicherer Betriebszustand" nennt jetzt Grund und nächsten Schritt
+    (`safeModeSignalText`); Signal „Preisdaten" ohne Werte mit Handlungsempfehlung statt „-"; Wetter-Ausfall und
+    Verlaufsfehler in Betreiber-Sprache mit nächstem Schritt. Neue Texte im Ton des UX10-Wording-Sets formuliert
+    (siehe Abschlussbericht des Umsetzungs-Threads).
 
 ## Strategische To-do-Linie: Standort einrichten und Mapping
 
