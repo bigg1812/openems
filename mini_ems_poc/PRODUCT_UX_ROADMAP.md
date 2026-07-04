@@ -9,6 +9,10 @@ verständlich, vertrauenswürdig und angenehm bedienbar wird.
 Die technische Roadmap beantwortet: Läuft das System sicher und robust?
 Diese Roadmap beantwortet: Versteht der Nutzer sofort, was passiert, warum es wichtig ist und was er tun kann?
 
+Arbeitsregel für neue Architekturimpulse: Wenn technische Zukunftsthemen aus `ROADMAP.md` später eine sichtbare
+Bedien-, Einrichtungs- oder Vertrauenswirkung haben, wird hier der passende UX-Punkt ergänzt. Die UI soll solche
+Themen nicht als Rohtechnik ausstellen, sondern in verständliche Betreiber- und Konfiguratorabläufe übersetzen.
+
 ## Leitbild
 
 Mini EMS soll sich nicht wie ein technisches Diagnosefenster anfühlen, sondern wie ein ruhiger, moderner
@@ -155,6 +159,91 @@ Leitentscheidungen:
     Freigabe, Warnung und ggf. simulierten Test.
   - **Definition of Done:** Der Nutzer kann die Mapping-Qualität ohne Rohlogs bewerten; jede Zeile zeigt Wert,
     Plausibilität, Aktualität und Freigabestatus in Alltagssprache.
+
+- [ ] **UX17. Punktlisten-Import und Discovery als geführten Prüfprozess gestalten**
+  - **Was:** Wenn später BACnet-Discovery, BAC0/BACpypes3, Modbus-Registerlisten oder M-Bus-/MQTT-Importe hinzukommen,
+    darf die UI nicht einfach eine lange technische Rohpunktliste zeigen. Der Nutzer sieht einen geführten Ablauf:
+    Quelle auswählen, Punkte importieren, Kandidaten gruppieren, fachliche Bedeutung zuordnen, Werte testen,
+    Schreibpunkte separat freigeben.
+  - **Nutzen:** Professionelle Protokolltiefe wird bedienbar. Discovery spart Inbetriebnahmezeit, ohne dass Nutzer
+    glauben, automatisch gefundene Punkte seien automatisch richtige EMS-Kanäle.
+  - **Betroffen:** Standort-einrichten-Flow, Mapping-Tabelle, Import-Preview, Test-Ergebnisse, Warntexte; technische
+    Grundlage siehe `ROADMAP.md` S7/S8/S10.
+  - **Aufwand:** M/L
+  - **Risiken:** Discovery darf keine Scheinsicherheit erzeugen. "Gefunden" ist nicht "geprüft". Schreibpunkte müssen
+    deutlich getrennt, gewarnt und aktiv freigegeben werden.
+  - **Definition of Done:** Importierte Punkte erscheinen als Kandidaten mit verständlichem Status: gefunden, zugeordnet,
+    geprüft, unklar, Schreibpunkt/Freigabe nötig. Kein Rohpunkt wird ohne Prüfung aktiv.
+
+- [ ] **UX18. Cloud-/Northbound-Export verständlich und vertrauensbildend anzeigen**
+  - **Was:** Wenn später ein read-only MQTT-/Cloud-Export entsteht, soll die UI klar zeigen, welche Daten wohin
+    exportiert werden, ob der Export aktuell online ist, ob Werte gepuffert sind und dass keine Fernsteuerung aktiv ist.
+  - **Nutzen:** Betreiber verstehen den Unterschied zwischen Monitoring-Datenexport und Anlagensteuerung. Das stärkt
+    Vertrauen bei Pilotkunden und reduziert Sicherheitsbedenken.
+  - **Betroffen:** Systemstatus, Rollenmodell, Export-/Hosting-Status, Wording, spätere Admin-Ansicht; technische
+    Grundlage siehe `ROADMAP.md` S9/S12.
+  - **Aufwand:** M
+  - **Risiken:** Keine Cloud-Begriffe ohne Erklärung. Die UI darf nicht suggerieren, dass Cloud-Ausfall die lokale
+    Regelung stoppt, wenn die lokale Edge weiterlaufen soll.
+  - **Definition of Done:** Ein Betreiber sieht in Alltagssprache: Export aktiv/inaktiv, letzter erfolgreicher Sync,
+    gepufferte Werte, freigegebene Datenklassen und klarer Hinweis "keine Fernsteuerung aktiv" bzw. spätere
+    Remote-Command-Freigabe nur mit Admin-/Betreiberfreigabe.
+
+- [ ] **UX20. Semantik- und Datenqualitätsabdeckung sichtbar machen**
+  - **Was:** Wenn Mini EMS Daten in eine Cloud-/Portfolio-Pipeline exportiert, soll die UI zeigen, welche Kanäle
+    fachlich geprüft sind, welche nur importiert wurden, welche Einheiten/Equipment-Zuordnung noch offen sind und
+    welche Datenqualität für Reports oder Optimierung ausreicht.
+  - **Nutzen:** Nutzer und Konfiguratoren verstehen, warum manche Daten sofort für Reports nutzbar sind, andere aber
+    noch nicht für Regeln, ML oder Write-Back. Semantik wird damit kein unsichtbares Backend-Thema.
+  - **Betroffen:** Standort-einrichten-Flow, Mapping-Tabelle, Systemstatus, spätere Portfolio-/Cloud-Ansicht;
+    technische Grundlage siehe `ROADMAP.md` C1-C5 und S11.
+  - **Aufwand:** M
+  - **Risiken:** Keine Prozentanzeige ohne Bedeutung. "80 % gemappt" ist wertlos, wenn kritische Kanäle wie
+    Netzleistung, Preis, Wärme-/Kältezähler oder Schreibfreigaben fehlen.
+  - **Definition of Done:** Die UI unterscheidet klar: gefunden, semantisch vorgeschlagen, fachlich geprüft,
+    exportiert, reportfähig, optimierungsfähig und schreibfähig.
+
+- [ ] **UX22. Auto-Mapping-Vorschläge prüfbar und erklärbar machen**
+  - **Was:** Wenn später NLP-/ML-gestütztes Auto-Mapping entsteht, soll die UI keine automatische Wahrheit anzeigen,
+    sondern prüfbare Vorschläge: fachlicher Name, vermutete Klasse, Equipment-/Raumbezug, Konfidenz, genutzte
+    Merkmale und klare Aktion "übernehmen", "ändern", "ablehnen" oder "später prüfen".
+  - **Nutzen:** Konfiguratoren sparen Zeit, behalten aber Kontrolle. Ein kryptischer Punkt wie `L3_R12_VL_T` wird
+    nicht blind aktiviert, sondern als verständlicher Kandidat mit Begründung und Prüfstatus behandelt.
+  - **Betroffen:** Punktlisten-Import, Mapping-Tabelle, Semantikstatus, Review-Flow, Audit; technische Grundlage siehe
+    `ROADMAP.md` C8/C9.
+  - **Aufwand:** M/L
+  - **Risiken:** Prozentwerte oder "KI sicher" erzeugen falsches Vertrauen. Schreibpunkte, sicherheitsnahe Punkte und
+    abrechnungs-/nachweisrelevante Werte brauchen strengere Darstellung und dürfen nie automatisch aktiv werden.
+  - **Definition of Done:** Jeder Auto-Mapping-Vorschlag zeigt Quelle, Konfidenz, Begründung und nächsten Prüfschritt.
+    Aktivierte Vorschläge sind auditierbar; abgelehnte Vorschläge verbessern später Templates oder Trainingsdaten.
+
+- [ ] **UX19. Schreibende Eingriffe und lokalen Fallback verständlich anzeigen**
+  - **Was:** Sobald Mini EMS stärker schreibend eingreift, soll die UI nicht nur technische Write-Status zeigen.
+    Betreiber sehen in klarer Sprache: Mini EMS greift aktuell ein / lokale Regelung führt / Fallback aktiv /
+    Eingriff endet um ... / letzte Bestätigung / Freigabe erforderlich.
+  - **Nutzen:** Write-Back wird vertrauenswürdig. Der Nutzer versteht, dass lokale Schutzfunktionen Vorrang haben
+    und dass ein EMS-Eingriff begrenzt, bestätigt und rücknehmbar ist.
+  - **Betroffen:** Startseite, Systemstatus, Admin-/Operator-Ansicht, Audit-/Ereignisliste; technische Grundlage
+    siehe `ROADMAP.md` S13-S16.
+  - **Aufwand:** M
+  - **Risiken:** Keine Darstellung, die Sicherheit nur behauptet. Die UI muss ehrlich zwischen "bestätigt",
+    "wartet auf Bestätigung", "Fallback aktiv" und "unbekannt/gestört" unterscheiden.
+  - **Definition of Done:** Ein Betreiber kann ohne BACnet-Wissen erkennen, ob Mini EMS gerade einen Anlagenwert
+    beeinflusst, wann der Eingriff endet, ob lokale Schutzlogik Vorrang hat und welche Aktion als nächstes sinnvoll ist.
+
+- [ ] **UX21. Datenauflösung, Historie und Verdichtung nachvollziehbar machen**
+  - **Was:** Für Reports, Diagramme und spätere Portfolio-Ansichten klar anzeigen, ob Werte als Rohdaten, 5-Minuten-/
+    15-Minuten-/Stunden-Rollup oder Tageswert dargestellt werden, wie vollständig der Zeitraum ist und ob ältere
+    Rohdaten bereits gelöscht oder nur noch verdichtet verfügbar sind.
+  - **Nutzen:** Nutzer interpretieren historische Kurven, Einsparnachweise und Anlagenvergleiche richtig. Verdichtete
+    Daten wirken nicht wie vermeintlich exakte Rohmessungen, und fehlende Datenqualität bleibt sichtbar.
+  - **Betroffen:** Diagramme, Report-Templates, Portfolio-Dashboard, Exportstatus, Datenqualitätsanzeigen; technische
+    Grundlage siehe `ROADMAP.md` C6/C7.
+  - **Aufwand:** M
+  - **Risiken:** Zu viel Datenbankvokabular überfordert Betreiber. Die UI soll nicht "TimescaleDB" oder "Downsampling"
+    erklären, sondern fachlich zeigen: Auflösung, Zeitraum, Vollständigkeit, Aggregationsart und Datenqualität.
+  - **Definition of Done:** Jede historische Ansicht kann anzeigen, welche Auflösung und Aggregationslogik genutzt wird
+    und ob Rohdaten, Rollups oder lückenhafte Daten die Aussage begrenzen.
 
 ## Strategische To-do-Linie: Modernes minimalistisches UI
 

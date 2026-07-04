@@ -84,6 +84,10 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - `mini_ems_runtime/` contains runtime code. Keep business logic, protocol access, API, persistence, and reporting changes scoped to the relevant module.
 - `windows/`, `run_mini_ems.cmd`, logs, data, and runtime state belong to deployment and operation, not product UX.
 
+When a discussion surfaces a sensible future architecture or product idea, add it to `ROADMAP.md` or
+`PRODUCT_UX_ROADMAP.md` if it is missing or too vague. Mark it as a future option with benefit, risks, and
+scope; do not silently turn it into immediate implementation work.
+
 ## 6. German UI Language
 
 **Use real German umlauts in user-facing German text.**

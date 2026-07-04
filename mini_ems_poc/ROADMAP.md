@@ -12,6 +12,11 @@ Es gibt praktisch keine TODO/FIXME-Marker im Python-Code; offene Punkte stehen i
 Diese Datei behandelt bewusst die technische Betriebs-, Architektur- und Sicherheitsseite. Produktwirkung,
 Reporting-UX, Bedienbarkeit und visuelles UI-Design werden separat in `PRODUCT_UX_ROADMAP.md` geführt.
 
+Arbeitsregel für neue Architekturimpulse: Wenn aus Analyse, Wiki-Recherche oder Systemarchitektur-Gesprächen
+ein sinnvoller späterer Ausbaupunkt entsteht, wird er hier oder in `PRODUCT_UX_ROADMAP.md` festgehalten. Dabei
+gilt: als Zukunftsoption mit Nutzen, Einordnung und Risiken dokumentieren, aber nicht automatisch als nächster
+Implementierungsschritt behandeln.
+
 ## Strategische Ergänzung (2026-07-01)
 
 Die Erkenntnis aus der Architektur- und Marktbetrachtung ist: Mini EMS sollte nicht über den aktuellen
@@ -147,6 +152,296 @@ Leitentscheidungen:
     Anlagen-Schreibfreigaben dürfen nicht im Mapping-Entwurf landen.
   - **Definition of Done:** Ungültige Entwürfe können nicht aktiviert werden; jede Aktivierung erzeugt Backup und
     Audit-Eintrag; UI zeigt aktiven Stand, Entwurf, Validierungsstatus und Neustartbedarf getrennt.
+
+## Strategische To-do-Linie: Professioneller Protokoll- und Cloud-Ausbau
+
+Diese Linie sammelt sinnvolle Ausbauspuren, die für einen späteren professionellen Rollout wichtig werden können.
+Sie sind bewusst **nicht** als nächster Umsetzungsschritt gesetzt. Erst S5/S6 und der sichere Betriebs-/Hostingpfad
+müssen stabil genug sein, damit zusätzliche Protokoll- und Cloud-Komplexität nicht wieder zum Baukasten wird.
+
+- [ ] **S7. BACnet-Profi-Stack evaluieren: BACpypes3 und BAC0**
+  - **Was:** Prüfen, ob der eigene kleine BACnet-Adapter für größere Standorte durch `BACpypes3` oder den Wrapper
+    `BAC0` ergänzt werden sollte. Fokus: viele dynamische BACnet-Punkte, Discovery, Punktlisten-Import,
+    `Who-Is`/`I-Am`, `ReadPropertyMultiple`, BBMD/BACnet-Routing und perspektivisch BACnet/SC.
+  - **Nutzen:** Der aktuelle Adapter ist gut für wenige bekannte Punkte. Für wiederholbare Inbetriebnahme, dynamische
+    Punktlisten und größere GA-Netze kann ein etablierter BACnet-Stack Aufwand und Protokollrisiko senken.
+  - **Betroffen:** neuer Discovery-/Importpfad, Mapping-Preview, Tests mit simulierten BACnet-Geräten; der aktuelle
+    Produktionsadapter bleibt zunächst stabil.
+  - **Aufwand:** M/L
+  - **Risiken:** BAC0 erleichtert Routineaufgaben, kann aber weniger granular sein als direkter BACpypes3-Zugriff.
+    `ReadPropertyMultiple` darf nicht blind für "alles auf einmal" genutzt werden; MS/TP, Segmentierung und Geräte-
+    Grenzen müssen Last und Timeouts begrenzen. Discovery erzeugt nur Rohpunkt-Kandidaten, keine automatisch
+    freigegebenen EMS-Kanäle.
+  - **Definition of Done:** Es gibt eine kurze technische Entscheidung: eigener Adapter weiterführen, BACpypes3 direkt
+    nutzen oder BAC0 für Discovery/Import einsetzen; inklusive Teststrategie und klarer Grenze zu Schreibpfaden.
+
+- [ ] **S8. BACnet-Discovery und Punktlisten-Import als Mapping-Vorstufe bauen**
+  - **Was:** Einen späteren Importpfad entwerfen: erreichbare Controller finden, BACnet-Objekte/Punktlisten einlesen,
+    Kandidaten mit Name, Objekt, Instanz, Einheit und aktueller Probe darstellen und daraus einen Mapping-Entwurf
+    erzeugen.
+  - **Nutzen:** Inbetriebnahme wird schneller und weniger fehleranfällig, ohne dass die Runtime selbst automatisch
+    fremde Punkte übernimmt.
+  - **Betroffen:** Mapping-UI, `mapping_config.py`, neue Diagnose-/Discovery-API, ggf. BACpypes3/BAC0.
+  - **Aufwand:** L
+  - **Risiken:** Broadcasts und Objektlisten können GA-Netze belasten. Discovery muss read-only bleiben und darf keine
+    Schreibpunkte aktivieren. Gefundene Punkte sind nur Kandidaten; fachliche Zuordnung, Plausibilität und
+    Betreiberfreigabe bleiben Pflicht.
+  - **Definition of Done:** Ein Discovery-Lauf erzeugt nur einen Entwurf mit Rohpunkten; Aktivierung läuft weiterhin
+    über S5/S6 mit Validierung, Backup und Audit.
+
+- [ ] **S9. Northbound Outbox und MQTT/Cloud-Export read-only vorbereiten**
+  - **Was:** Einen Exportpfad definieren, der normalisierte Mini-EMS-Werte aus Zeitreihe/Health in eine lokale Outbox
+    schreibt und später per MQTT oder HTTP an einen Cloud-/Business-Dienst sendet. Start read-only: keine Cloud-
+    Commands, keine Remote-Writes.
+  - **Nutzen:** Mini EMS kann echte Standortdaten für Portfolioanalyse, Reports, Monitoring oder Business OS liefern,
+    ohne die lokale Anlagensteuerung von der Cloud abhängig zu machen.
+  - **Betroffen:** Runtime-Datenmodell, lokale Outbox, Exporter-Prozess, Zertifikate/Secrets, Betriebsdoku,
+    später Cloud-Broker oder API.
+  - **Aufwand:** M/L
+  - **Risiken:** Keine direkte Freigabe der Anlagen-API ins Internet. TLS/mTLS, Zertifikatsrotation, Retry/Backoff,
+    Offline-Pufferung, Duplikatvermeidung und Datenminimierung müssen geplant werden. Der Export darf keine
+    Geheimnisse, Admin-Tokens oder unnötigen personenbezogenen Daten enthalten.
+  - **Definition of Done:** Ein read-only Exportmodell beschreibt Payload, Topic/API, Authentifizierung, Offline-
+    Verhalten und Replay-Regeln; lokale Steuerung läuft bei Cloud-Ausfall unverändert weiter.
+
+- [ ] **S10. M-Bus und Wireless M-Bus als langsame Zähler-Integrationen prüfen**
+  - **Was:** Für Wärme-, Wasser-, Gas- oder Stromzähler einen M-Bus-/wM-Bus-Pfad prüfen, z. B. über `libmbus`,
+    `wmbusmeters` oder einen separaten Gateway-/MQTT-Wrapper.
+  - **Nutzen:** Viele Energie- und Wärmeberichte brauchen Zählerwerte, die nicht über BACnet/Modbus vorliegen.
+    M-Bus ist dafür nützlich, aber eher für Monitoring und Bilanzierung als für schnelle Regelung.
+  - **Betroffen:** Mapping-Vorlagen, Import-/Adapterkonzept, Zeitreihe, Reports.
+  - **Aufwand:** M
+  - **Risiken:** M-Bus-Datensätze sind gerätespezifisch; Record-Position, Einheit, Skalierung und Zählerstand müssen
+    immer gegen reale Ausgaben geprüft werden. Keine Abhängigkeit schneller Steuerlogik von langsamen Zählerzyklen.
+  - **Definition of Done:** Es gibt eine Entscheidung, ob Mini EMS direkt liest oder einen externen M-Bus-zu-MQTT/HTTP-
+    Gateway-Pfad nutzt; inklusive Beispiel-Mapping und Qualitätsregeln.
+
+- [ ] **S11. Haystack-/Brick-/REC-kompatiblen Semantik-Export vorbereiten**
+  - **Was:** Das interne Modell (`Canonical Channel`, `equipment_id`, `role`, `unit`, `tags`, Standortbezug) so
+    formulieren, dass später ein Export nach Project Haystack, Brick Schema oder RealEstateCore möglich ist.
+  - **Nutzen:** Semantik wird anschlussfähig für größere Gebäudeportfolios, Partnerplattformen, Wissensgraphen und
+    wiederverwendbare Algorithmen.
+  - **Betroffen:** Mapping-Modell, Gerätetemplates, Dokumentation, spätere Northbound API.
+  - **Aufwand:** M
+  - **Risiken:** Haystack/Brick/REC nicht als sofortige Runtime-Abhängigkeit einführen. Für den aktuellen
+    Mini-EMS-Stand reicht ein kleines internes Modell; externe Ontologien bleiben Export-/Integrationsziel.
+  - **Definition of Done:** Für die wichtigsten Kanal- und Gerätetypen gibt es eine Mapping-Tabelle von Mini-EMS-
+    Feldern zu Haystack-Tags, Brick-Klassen/Beziehungen und REC-Entitäten/Relationen, ohne die Runtime umzubauen.
+
+- [ ] **S12. Remote-Command-Pfad erst nach read-only Export separat bewerten**
+  - **Was:** Erst nach stabilem read-only Export prüfen, ob Cloud- oder Business-Systeme Befehle, Fahrpläne oder
+    Optimierungsvorschläge an Mini EMS senden dürfen.
+  - **Nutzen:** Hält die klare Sicherheitsgrenze: Datenexport ist nicht automatisch Fernsteuerung.
+  - **Betroffen:** Safe Write Path, Rollen/Rechte, Betreiberfreigabe, Audit, Fallback, Kommunikationssicherheit.
+  - **Aufwand:** L
+  - **Risiken:** Remote-Commands sind eine andere Risikoklasse als Monitoring. Jeder Befehl braucht Authentifizierung,
+    Autorisierung, Plausibilisierung, lokale Freigabe, Audit, Fallback und ggf. manuelle Betreiberabnahme.
+  - **Definition of Done:** Vor Code gibt es ein Sicherheits- und Betriebsdokument, das Remote-Commands entweder
+    explizit ausschließt oder mit klaren Grenzen, Tests und Betreiberfreigaben erlaubt.
+
+## Strategische To-do-Linie: Cloud Data Pipeline und semantisches Mapping
+
+Diese Linie beschreibt die spätere Cloud-Seite hinter dem read-only Export aus S9. Für Mini EMS bleibt zuerst
+wichtig: stabile Edge-Daten, klare Payloads, lokale Outbox und semantisch saubere Kanäle. MQTT-Broker, Kafka,
+Schema Registry oder Portfolio-Semantik werden erst relevant, wenn mehrere Standorte zuverlässig Daten liefern
+und diese Daten von Reporting, Analyse, Regeln oder ML-Jobs parallel genutzt werden.
+
+- [ ] **C1. Northbound Payload-Vertrag versionieren**
+  - **Was:** Ein stabiles Exportformat definieren, bevor ein Cloud-Broker ausgewählt wird: `edge_device_id`,
+    Standort-/Anlagenbezug, `channel_id`, `equipment_id`, Zeitstempel, Wert, Einheit, Qualität, Quelle,
+    Sequenznummer, Mapping-Version und Payload-Schema-Version.
+  - **Nutzen:** Cloud-Ingestion, Historie, Semantik und spätere Replays bleiben nutzbar, auch wenn sich
+    Protokolladapter oder Mapping-Details ändern.
+  - **Betroffen:** Outbox aus S9, `EDGE_INTEGRATION_CONTRACT.md`, spätere Cloud-API/MQTT-Topics, Tests.
+  - **Aufwand:** M
+  - **Risiken:** Payload darf nicht rohe MSR-Kryptik nach oben durchreichen. Rohadresse kann im technischen Anhang
+    enthalten sein, aber die primäre Bedeutung muss über kanonische Kanäle und Semantik kommen.
+  - **Definition of Done:** Es gibt ein versioniertes JSON-Schema oder vergleichbares Datenvertragsdokument mit
+    Beispielpayloads für Messwert, Health/Event und Mapping-Änderung.
+
+- [ ] **C2. MQTT-Broker-Schicht nach Skalierungspfad bewerten**
+  - **Was:** Für erste Piloten reicht ein einfacher read-only Export oder ein kleiner Broker. Für Flottenbetrieb
+    müssen Enterprise-Broker wie EMQX oder HiveMQ gegen Mosquitto, Managed IoT-Plattformen und Betriebsaufwand
+    bewertet werden.
+  - **Nutzen:** Mini EMS springt nicht zu früh in Enterprise-Infrastruktur, hat aber eine klare Spur für TLS,
+    MQTT v5, Sessions, Topics, Zertifikate, Clustering und horizontale Skalierung.
+  - **Betroffen:** Cloud-Architektur, Zertifikats-/Device-Identity-Konzept, Topic-Namensraum, Betriebskosten.
+  - **Aufwand:** M
+  - **Risiken:** Brokerwahl löst keine Semantik- oder Datenqualitätsprobleme. EMQX/HiveMQ sind für größere IoT-
+    Flotten plausibel; für einen einzelnen Standort wäre das Overengineering. Mosquitto bleibt als simpler
+    Test-/Pilotbroker denkbar, aber nicht als HA-Flottenziel.
+  - **Definition of Done:** Entscheidungsmatrix mit Pilot-, Portfolio- und Enterprise-Pfad; inklusive TLS/mTLS,
+    Zertifikatsrotation, QoS, Retained Messages, Session Expiry und Betriebsmodell.
+
+- [ ] **C3. Kafka/Event-Log erst für Replay- und Multi-Consumer-Bedarf einplanen**
+  - **Was:** Kafka oder ein vergleichbarer Event-Streaming-Layer wird erst bewertet, wenn mehrere unabhängige
+    Konsumenten dieselben Gebäudedaten brauchen: Zeitreihenspeicher, Reporting, Rule Engine, ML-Training,
+    Alerting und Abrechnung.
+  - **Nutzen:** Entkoppelt Ingestion-Rate von Verarbeitung, erlaubt Replays historischer Datenströme und macht
+    spätere Algorithmus-Iterationen reproduzierbarer.
+  - **Betroffen:** Cloud-Ingestion, Speicherstrategie, Schema Registry, Consumer-Gruppen, Retention, Reprocessing.
+  - **Aufwand:** L
+  - **Risiken:** Kafka ist kein Ersatz für Zeitreihendatenbank, Semantik oder Data Quality. Falsche Partitionierung,
+    fehlende Schemas oder ungeklärte Retention machen Replay später wertlos.
+  - **Definition of Done:** Vor Umsetzung gibt es einen Datenflussplan: MQTT/Broker → Ingestion → Event Log →
+    Zeitreihe/Semantik/Analytics, inklusive Topic-/Partition-Key, Retention, Schema-Evolution und Reprocessing-Regeln.
+
+- [ ] **C4. Semantische Cloud-Klassifikation als eigenen Dienst denken**
+  - **Was:** Cloud-seitig einen Mapping-/Semantikdienst vorbereiten, der Edge-Kanäle, Rohpunkte, Equipment,
+    Standortstruktur, Einheiten, Qualität und Rollen zusammenführt. Haystack, Brick und RealEstateCore bleiben
+    mögliche Export- oder Integrationsformate, nicht zwingend die Edge-Runtime.
+  - **Nutzen:** Kryptische MSR-Namen werden portfoliofähig. Reports, Regeln und ML-Jobs arbeiten auf
+    `meter.grid.active_power_kw`, `heat.buffer.top_temperature_c` oder Equipment-Rollen statt auf `AV:300`.
+  - **Betroffen:** Mapping-Modell, `S11`, Cloud-Datenmodell, Portfolio-/Mandantenstruktur, spätere Admin-UI.
+  - **Aufwand:** L
+  - **Risiken:** Automatische Klassifikation darf keine ungeprüfte Wahrheit erzeugen. Semantik braucht Versionierung,
+    Prüfstatus, Quelle und Betreiber-/Konfiguratorfreigabe.
+  - **Definition of Done:** Es gibt ein Cloud-Semantikmodell mit Status je Kanal: importiert, vorgeschlagen,
+    geprüft, aktiv, veraltet; Änderungen sind versioniert und auf Zeitreihendaten zurückverfolgbar.
+
+- [ ] **C5. Zeitreihen- und Speicherstrategie getrennt vom Event-Log wählen**
+  - **Was:** Festlegen, welche Daten im Event Log, in einer Zeitreihendatenbank, in Objekt-/Parquet-Speicher und
+    in relationalen Metadaten liegen. Edge-SQLite bleibt lokale Betriebs- und Diagnosehistorie, nicht das
+    Portfolio-Backend.
+  - **Nutzen:** Große Datenmengen bleiben abfragbar, kosteneffizient und auditierbar. Trainingsdaten, Reports und
+    Betreiberansichten bekommen jeweils passende Speicherformen.
+  - **Betroffen:** Cloud-Backend, Retention, Downsampling/Rollups, Datenschutz, Exportformate.
+  - **Aufwand:** L
+  - **Risiken:** Alles in Kafka oder alles in einer Datenbank zu halten, vermischt Zwecke. Zeitreihen brauchen
+    andere Abfrage- und Retention-Regeln als Semantik, Audit oder ML-Rohdaten.
+  - **Definition of Done:** Speicherklassen sind definiert: Raw events, normalisierte Zeitreihen, Rollups,
+    semantische Metadaten, Audit und ML-Trainingssnapshots.
+
+- [ ] **C6. TSDB-Auswahl für Portfolio-Zeitreihen evaluieren**
+  - **Was:** Für die Cloud-/Portfolio-Schicht TimescaleDB, VictoriaMetrics und InfluxDB 3 anhand echter Mini-EMS-
+    Workloads bewerten: Ingestion-Rate, Kardinalität, Abfragemuster, Retention, Downsampling, Kosten, Betriebsmodell
+    und SQL-/Analytics-Ökosystem.
+  - **Nutzen:** Verhindert eine frühe Datenbankentscheidung nach Marketingclaims. Die richtige TSDB hängt davon ab,
+    ob wir eher SQL-nahe Reports, massive Sensor-Metriken, analytische Parquet-/Arrow-Abfragen oder ML-Replays
+    priorisieren.
+  - **Betroffen:** Cloud-Backend, Zeitreihenmodell, Reporting, Portfolioanalyse, ML-/Forecast-Pipeline,
+    DevOps/Betriebskosten.
+  - **Aufwand:** M/L
+  - **Risiken:** TimescaleDB ist attraktiv, wenn PostgreSQL/SQL, relationale Metadaten und Reportabfragen zentral sind;
+    bei sehr hoher Serienkardinalität und Metrik-Workloads können VictoriaMetrics oder InfluxDB 3 besser passen.
+    Benchmark-Ergebnisse müssen mit Mini-EMS-ähnlichen Daten entstehen: viele Standorte, viele Kanäle, gemischte
+    Abfragen, Quality-Felder, Rollups und Semantik-Joins.
+  - **Definition of Done:** Es gibt eine Entscheidungsmatrix und einen kleinen reproduzierbaren Benchmark mit
+    mindestens drei Workloads: aktueller Standortreport, Portfolio-Dashboard und Langzeitabfrage über verdichtete Daten.
+
+- [ ] **C7. Retention- und Downsampling-Policy fachlich definieren**
+  - **Was:** Festlegen, wie lange Rohwerte, 1-Minuten-/5-Minuten-/15-Minuten-/Stunden-Rollups, Tageswerte,
+    Ereignisse und Audit-Daten aufbewahrt werden. Dabei muss fachlich geklärt werden, welche Aggregationen
+    zulässig sind: Durchschnitt, Min/Max, letzter Wert, Delta bei Zählerständen, Qualitätsanteil und Anzahl Samples.
+  - **Nutzen:** Speicher bleibt bezahlbar, ohne Reports, Abrechnung, Anlagenanalyse oder ML-Training wertlos zu
+    machen. Downsampling wird nicht nur technische Datendünnung, sondern fachlich korrekte Verdichtung.
+  - **Betroffen:** lokale Rollups, Cloud-TSDB, Report-API, Datenexport, Datenschutz/Retention, ML-Snapshots.
+  - **Aufwand:** M
+  - **Risiken:** Einfache Downsampling-Strategien wie "erster Wert pro Intervall" können für Temperaturen oder
+    Zustände brauchbar sein, aber für Energiezähler, Leistungsspitzen, Sperrzeiten oder Qualitätsmetriken falsch.
+    Zähler brauchen Delta-/Reset-Logik; Peak-Shaving braucht Min/Max bzw. Spitzenwerte; Data Quality muss in
+    Rollups erhalten bleiben.
+  - **Definition of Done:** Pro Kanaltyp ist definiert, welche Verdichtung erlaubt ist und welche Rohdaten wie lange
+    bleiben. Die Policy enthält Beispiele für Temperatur, Leistung, Energiezähler, Status/Lockout und Events.
+
+- [ ] **C8. Semantik-Speicherform entscheiden: RDF/Graph vs. relationale Projektion**
+  - **Was:** Für die Cloud-/Portfolio-Schicht entscheiden, ob der semantische Gebäudemodell-Teil als echter
+    RDF-/Property-Graph, als relationale Tabellenstruktur, als JSONB-Metadaten an Zeitreihen oder als hybride
+    Projektion betrieben wird.
+  - **Nutzen:** Brick/REC beschreiben Beziehungen wie Equipment, Location, Point, `hasPoint`, `feeds` oder
+    `locatedIn` sauber als Graph. Reports, Dashboards und Zeitreihenabfragen brauchen aber oft schnelle Joins
+    gegen Standort-, Equipment- und Kanalmetadaten. Die Speicherform muss beide Welten bewusst verbinden.
+  - **Betroffen:** Cloud-Semantikdienst, TSDB-Auswahl aus C6, Mapping-Versionierung, Portfolio-Queries,
+    Partner-API, Datenexport.
+  - **Aufwand:** M/L
+  - **Risiken:** Ein reiner Graph kann für Standardreports unnötig komplex werden; reine JSONB-Metadaten verlieren
+    schnell Beziehungslogik, Validierung und Ontologie-Kompatibilität. Die erste Umsetzung sollte deshalb eine
+    kleine interne Modellquelle mit exportierbaren Brick-/REC-Projektionen bevorzugen.
+  - **Definition of Done:** Es gibt eine Architekturentscheidung mit Beispielqueries: "alle Punkte eines Geräts",
+    "alle Vorlauftemperaturen eines Heizkreises", "alle Kanäle eines Raums/Geschosses" und "alle Zeitreihen für
+    einen Portfolio-Report"; inklusive Entscheidung, welche Daten in Graph, SQL/JSONB und TSDB liegen.
+
+- [ ] **C9. Auto-Mapping als Assistenzsystem mit Human-in-the-loop vorbereiten**
+  - **Was:** Einen späteren Auto-Mapping-Prozess entwerfen, der Rohpunktnamen, BACnet-Objekttypen, Units,
+    Read/Write-Properties, Zeitreihenmuster, Standortstruktur und bestehende Templates zu semantischen Kandidaten
+    verdichtet. NLP/LLM-/Transformer-Modelle dürfen Vorschläge machen, aktivieren aber keine EMS-Kanäle allein.
+  - **Nutzen:** Tausende kryptische MSR-Punkte werden schneller onboardingfähig, ohne fachliche Prüfung zu ersetzen.
+    Auto-Mapping hilft besonders bei wiederkehrenden Namensmustern, Geräteklassen und Standort-Templates.
+  - **Betroffen:** Discovery/Import aus S8, Mapping-Entwurfsmodell aus S5, Semantikdienst aus C4, UX22,
+    Trainings-/Evaluationsdaten, Audit.
+  - **Aufwand:** L
+  - **Risiken:** Hohe F1-Werte aus einzelnen Studien oder Vendor-Demos sind nicht automatisch auf unsere Gebäude,
+    Namenskonventionen und Gewerke übertragbar. Schreibpunkte, Safety-relevante Kanäle und Abrechnungs-/Nachweiswerte
+    brauchen strengere Freigabe als reine Monitoringpunkte.
+  - **Definition of Done:** Auto-Mapping liefert pro Kandidat Klasse, Equipment/Location-Bezug, Konfidenz,
+    Begründungsmerkmale und Prüfstatus. Aktivierung erfolgt nur über S6 mit Audit; unklare oder sicherheitsrelevante
+    Punkte bleiben blockiert, bis ein Mensch sie freigibt.
+
+## Strategische To-do-Linie: Professioneller Write-Back und Anlagen-Safety
+
+Der heutige Mini-EMS-Schreibpfad ist bewusst eng: wenige BACnet-Ausgänge, feste Priorität `14`, ACK/Readback,
+Criticality, Safe Mode und keine echten Writes in der lokalen Simulation. Für prädiktive Regelung, Cloud-Commands
+oder größere Eingriffe reicht das langfristig nicht. Dann muss Write-Back als eigener Sicherheitsvertrag mit der
+MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
+
+- [ ] **S13. BACnet-Priority-Array-Strategie pro Schreibpunkt definieren**
+  - **Was:** Die aktuell feste BACnet-Schreibpriorität `14` durch eine explizite, validierte Schreibpunkt-Strategie
+    ersetzen oder zumindest dokumentiert bestätigen. Pro Ausgangspunkt wird festgelegt: genutzte Priorität,
+    Bedeutung, zulässiger Wertebereich, bestätigte Schutzprioritäten darüber und Betreiberfreigabe.
+  - **Nutzen:** Mini EMS kann lokale Sicherheitsketten nicht aus Versehen übersteuern. Die MSR behält Vorrang für
+    Frostschutz, Rauch-/Brandfall, Mindestlaufzeiten, lokale Verriegelungen und DDC-interne Schutzlogik.
+  - **Betroffen:** `bacnet.py` (`WRITE_PRIORITY`), `config.py`, `EDGE_INTEGRATION_CONTRACT.md`, Tests,
+    Inbetriebnahme-/MSR-Abnahme.
+  - **Aufwand:** M
+  - **Risiken:** Priorität `8` ("Manual Operator") ist in vielen BACnet-Konzepten plausibel, aber nicht automatisch
+    richtig für jeden Standort. Prioritäten `1`, `2` und andere hardwarenahe Schutzebenen müssen tabu bleiben.
+    Die Wahl muss mit der MSR-Programmierung abgestimmt werden, nicht nur im EMS-Code.
+  - **Definition of Done:** Jeder beschreibbare BACnet-Punkt hat eine dokumentierte Priorität; reservierte
+    Schutzprioritäten werden durch Config-Validierung verhindert; Tests prüfen die erzeugten BACnet-Pakete und
+    die Dokumentation beschreibt, welche lokale Logik Mini EMS niemals übersteuert.
+
+- [ ] **S14. Relinquish/Null-Schreibpfad für BACnet-Prioritäten entwerfen**
+  - **Was:** Einen sicheren Weg definieren, wie Mini EMS seine eigene BACnet-Priorität wieder freigibt, also auf
+    derselben Prioritätsstufe `NULL` schreibt und damit auf den nächsten aktiven Wert oder `Relinquish_Default`
+    zurückfallen lässt.
+  - **Nutzen:** Ein EMS-Eingriff bleibt nicht dauerhaft im Priority Array hängen, wenn die Prognose endet, ein
+    Operator zurück auf lokale Regelung will oder eine Fallback-Situation sauber aufgelöst werden soll.
+  - **Betroffen:** BACnet-Write-Encoder, Output-State, Safe-Mode-/Shutdown-Verhalten, Audit-Log, MSR-Abnahmetest.
+  - **Aufwand:** M/L
+  - **Risiken:** Relinquish ist selbst ein Write und darf nur auf der eigenen, freigegebenen Priorität passieren.
+    Ein falscher Null-Write kann gewünschte lokale Betriebszustände ändern. Vor Umsetzung muss klar sein, welche
+    DDC-Punkte überhaupt Priority Array und `Relinquish_Default` korrekt nutzen.
+  - **Definition of Done:** Für konfigurierte Schreibpunkte kann Mini EMS seine eigene Priorität kontrolliert
+    freigeben; Freigabe wird bestätigt, geloggt und getestet; Punkte ohne geprüften Relinquish-Mechanismus bleiben
+    ausgeschlossen.
+
+- [ ] **S15. Edge-DDC-Heartbeat mit DDC-seitigem Fallback prüfen**
+  - **Was:** Einen dedizierten BACnet-Heartbeat-Punkt und eine dazugehörige DDC-Watchdog-Logik entwerfen: Mini EMS
+    aktualisiert zyklisch einen Counter/Timestamp; die DDC erkennt Timeout und fällt lokal auf Notlauf, lokale
+    Heizkurven oder Basis-Sollwerte zurück.
+  - **Nutzen:** Der Anlagen-Fallback hängt nicht vom Edge-Prozess ab. Wenn IPC, Netzwerk, VPN oder Cloud ausfallen,
+    kann die DDC autark entscheiden und Mini-EMS-Einflüsse zurücknehmen.
+  - **Betroffen:** zusätzlicher BACnet-Schreibpunkt, DDC-/GLT-Programmierung, Betriebskonzept, Tests am Standort,
+    `MINI_EMS_ANLEITUNG.md`.
+  - **Aufwand:** L
+  - **Risiken:** Das ist kein reines Python-Feature. Es braucht MSR-Zugriff, Betreiberfreigabe und einen echten
+    Abnahmetest. Der Heartbeat darf nicht mit Cloud-Erreichbarkeit verwechselt werden: lokale Edge kann gesund sein,
+    auch wenn Cloud/Internet ausfällt.
+  - **Definition of Done:** DDC-Timeout wird in Simulation bzw. Testanlage nachgewiesen; bei ausbleibendem Heartbeat
+    entfernt die lokale Steuerung Mini-EMS-Einfluss oder ignoriert ihn und läuft auf definierten lokalen Fallbacks.
+
+- [ ] **S16. Zeitlich begrenzte Write-Back-Leases für prädiktive Regelung einführen**
+  - **Was:** Jeder prädiktive Eingriff bekommt eine Laufzeit, Gültigkeitsbedingung und Rückfallregel. Beispiel:
+    "Sollwertverschiebung gültig bis 15:30, nur wenn Messwerte frisch sind, nur innerhalb Komfort-/Anlagengrenzen,
+    danach Relinquish oder lokaler Basiswert."
+  - **Nutzen:** Prognosefehler, alte Daten oder Kommunikationsabbrüche hinterlassen keine unbegrenzten Eingriffe in
+    der Anlage. Write-Back wird von einem Zustand zu einem befristeten, prüfbaren Auftrag.
+  - **Betroffen:** Controller-Logik, Output-State, Audit, UI-Status, Safe Write Path, ggf. Northbound Commands.
+  - **Aufwand:** L
+  - **Risiken:** Leases dürfen nicht nur in der Cloud liegen; die lokale Edge muss sie durchsetzen können. Für echte
+    Anlagen braucht jeder Lease-Typ klare Grenzen, Abbruchbedingungen und Betreiberfreigabe.
+  - **Definition of Done:** Schreibende Optimierungen laufen nur als befristete, lokal prüfbare Aufträge; abgelaufene
+    oder ungültige Aufträge werden nicht weitergeschrieben und erzeugen einen nachvollziehbaren Fallback-Status.
 
 ## Strategische To-do-Linie: Geschütztes Kundenhosting
 
