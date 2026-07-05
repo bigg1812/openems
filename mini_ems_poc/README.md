@@ -100,18 +100,21 @@ Es will nicht sofort alles abdecken:
 
 ## Dokumentation
 
-- [Technische Anleitung](./MINI_EMS_ANLEITUNG.md)
-- [Edge Integration Contract](./EDGE_INTEGRATION_CONTRACT.md)
-- [Hosting und Sicherheitsgrenze](./HOSTING_SICHERHEIT.md)
-- [Technische Roadmap](./ROADMAP.md)
-- [Product & UX Roadmap](./PRODUCT_UX_ROADMAP.md)
+Diese README ist der Einstieg fuer das schnelle Gesamtverstaendnis. Fuer alles Weitere gilt: Der Code ist die
+Wahrheit, die folgenden Dokumente vertiefen jeweils einen Teilaspekt.
 
-Die Anleitung ist bewusst tiefer und beschreibt Architektur, Konfiguration und Betrieb im Detail.
-Der Edge Integration Contract definiert verbindlich, was die Edge garantiert: gültige Messwerte, Qualität, Lese-/Schreibrechte und Ausfallverhalten.
-Hosting und Sicherheitsgrenze legt fest, wer UI, Konfiguration, Logs und Betriebsdaten sehen darf, und beschreibt die Minimalvariante für ein erstes read-only Online-Hosting.
-Die technische Roadmap hält Betriebs-, Architektur-, Sicherheits- und Deployment-Schritte fest.
-Die Product & UX Roadmap behandelt Reporting, Bedienbarkeit, moderne UI-Richtung, Sprache und Demo-Fähigkeit.
-Diese README ist der Einstieg fuer das schnelle Gesamtverstaendnis.
+| Dokument | Zweck |
+| --- | --- |
+| [MINI_EMS_ANLEITUNG.md](./MINI_EMS_ANLEITUNG.md) | Technische Anleitung: Architektur, Konfiguration und Betrieb im Detail. |
+| [ROADMAP.md](./ROADMAP.md) | Technische Roadmap: Betriebs-, Architektur-, Sicherheits- und Deployment-Schritte. |
+| [PRODUCT_UX_ROADMAP.md](./PRODUCT_UX_ROADMAP.md) | Product & UX Roadmap: Reporting, Bedienbarkeit, moderne UI-Richtung, Sprache und Demo-Faehigkeit. |
+| [PRODUCT_UX_KONZEPT.md](./PRODUCT_UX_KONZEPT.md) | Ausgearbeitetes Konzept zu Reporting-Zielbild, Wording-Set und Rollenmodell (UX1/UX10/UX11). |
+| [EDGE_INTEGRATION_CONTRACT.md](./EDGE_INTEGRATION_CONTRACT.md) | Verbindlicher Integrationsvertrag: gueltige Messwerte, Qualitaet, Lese-/Schreibrechte, Ausfallverhalten. |
+| [HOSTING_SICHERHEIT.md](./HOSTING_SICHERHEIT.md) | Sicherheitsgrenze und Sichtbarkeitsmatrix fuers Kundenhosting plus Minimalkonzept fuer erstes read-only Online-Hosting. |
+| [UPDATE_WARTUNG.md](./UPDATE_WARTUNG.md) | Update-, Healthcheck- und Rollback-Ablauf fuer die Kunden-IPC (H7). |
+| [UI_STYLEGUIDE.md](./UI_STYLEGUIDE.md) | Verbindliche Design-Referenz: Farben, Typografie, Abstaende, Komponenten-Tokens aus `dashboard.css`. |
+| [PILOT_DEMO.md](./PILOT_DEMO.md) | 5-Minuten-Demoablauf fuer einen bezahlten Pilotkunden (UX13). |
+| [EMS-Mapping.md](./EMS-Mapping.md) | Arbeitskarte, wie OpenEMS-Vorbilder Messgeraete/Protokolle auf EMS-Kanaele abbilden und wie mini_ems_poc BACnet nutzt. |
 
 ## Ordnerstruktur
 

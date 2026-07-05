@@ -639,16 +639,21 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
 
 ## Empfohlener nächster Schritt
 
-**Strategisch zuerst: S1 Edge Integration Contract dokumentieren.** Damit wird die Richtung vom PoC zum portablen
-Edge-Integrationskern festgehalten, ohne den aktuellen Windows-IPC-Pilot infrage zu stellen.
+**Strategisches Zentrum: S5/S6 Mapping-Kern zu Ende bauen.** S1-S4 haben den Edge-Integrationskern und das erste
+Modbus-Referenzmodell etabliert; jetzt entscheidet sich, ob Inbetriebnahme wirklich als fachlicher Mapping-Prozess
+statt JSON-Pflege funktioniert. S5 (Mapping-Entwurf als Konfigurationskern) und S6 (Aktivierung mit Backup/Audit)
+sind die aktive Arbeitslinie und tragen direkt die UX14-16-Umsetzung in `PRODUCT_UX_ROADMAP.md`. Alles danach
+(S7 Discovery-Stack, S8 Import, S9ff. Cloud-Pipeline) bleibt bewusst nachgeordnet, damit der Konfigurationskern
+nicht vor seiner Fertigstellung wieder aufgeweicht wird.
 
-**Operativ direkt danach: To-do 1 Freshness-Gate scharf schalten.** Höchstes Nutzen-x-Umsetzbarkeit-Verhältnis im
-bestehenden Code: Der Quality-Gate ist bereits vollständig implementiert und getestet, aber durch fehlende
-`max_age_seconds`-Werte in beiden Configs faktisch inaktiv. Mit reiner, risikoarmer Konfiguration (kein Logikeingriff,
-keine Safety-Flags) wird ein zentrales Betriebs-Feature sofort wirksam. Anschließend logisch gefolgt von To-do 2
-(Sichtbarmachung im Dashboard).
+**Betriebspfad parallel: H2 abschließen.** Die Entscheidung ist gefallen (Release-Paket, initial PyInstaller,
+später Nuitka-kompatibel); offen ist die Umsetzung: Windows-Build-Pipeline, Bereinigung der Installationsskripte
+unter `windows/` und der reale Test-IPC-Nachweis, dass Mini EMS ohne Git-Checkout startet. Der Test-IPC-Nachweis
+selbst ist nur am Standort erbringbar. H3-H6/H8 (Dateirechte, API-Bindung, Login/Rollen, Audit) folgen erst, wenn
+H2 steht, damit nicht auf einem noch wechselnden Auslieferungsformat aufgesetzt wird.
 
-**Parallel als Betriebs-/Kundenpfad: H1, H2 und H4 vorbereiten.** Erst Sicherheitsgrenze und Auslieferungsmodell
-festlegen, dann Release-Paket und geschützten UI-Zugriff im Kundennetz sauber beschreiben. Das schafft die Grundlage,
-um echtes Monitoring außerhalb der lokalen Simulation zu zeigen, ohne die Anlagen-API oder den Quellcode unnötig
-offenzulegen.
+**Nur am Standort möglich: To-do 3 Online-Hosting-Nachweis.** Das Minimalkonzept liegt vollständig in
+`HOSTING_SICHERHEIT.md`, Teil 2, vor; es fehlt nur noch der reale Nachweis auf einem zweiten Rechner beim Kunden.
+Kein weiterer Konzeptaufwand nötig, nur Durchführung vor Ort. S7 (BACnet-Stack-Evaluierung) läuft unabhängig davon
+bereits als Prüfung, ohne den produktiven Adapter anzufassen. S8-S16 sowie die komplette Cloud-Data-Pipeline-Linie
+(C1-C9) bleiben geparkte Zukunftsoptionen und werden erst nach stabilem Mapping-Kern und Betriebspfad neu bewertet.
