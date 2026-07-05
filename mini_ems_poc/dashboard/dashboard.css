@@ -375,8 +375,9 @@ h3 {
   50% { opacity: 1; }
 }
 
-/* Theme toggle */
-.theme-toggle {
+/* Theme toggle + Segmented Control (gleiches Muster, z. B. Berichtstag-Wahl) */
+.theme-toggle,
+.segmented {
   display: inline-flex;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
@@ -384,7 +385,8 @@ h3 {
   background: var(--surface);
 }
 
-.theme-toggle button {
+.theme-toggle button,
+.segmented button {
   min-height: 34px;
   padding: 0 var(--sp-3);
   border: 0;
@@ -395,7 +397,8 @@ h3 {
   cursor: pointer;
 }
 
-.theme-toggle button[aria-pressed="true"] {
+.theme-toggle button[aria-pressed="true"],
+.segmented button[aria-pressed="true"] {
   background: var(--accent);
   color: var(--accent-ink);
 }
@@ -502,7 +505,8 @@ input[type="checkbox"]:focus-visible {
   box-shadow: var(--ring);
 }
 
-.theme-toggle button:focus-visible {
+.theme-toggle button:focus-visible,
+.segmented button:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 2px var(--accent);
 }
@@ -872,6 +876,47 @@ input[type="checkbox"]:focus-visible {
 .ems-tooltip .ems-tooltip-value {
   font-size: 14px;
   font-weight: 600;
+}
+
+.ems-tooltip-flag {
+  display: block;
+  margin-top: 2px;
+  color: var(--ok);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Diagramm-Erklärzeile (UX8): Markierungen in Betreiber-Sprache statt nur Farbe. */
+.chart-caption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  margin-top: var(--sp-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chart-caption[hidden] {
+  display: none;
+}
+
+.caption-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.caption-swatch {
+  width: 14px;
+  height: 10px;
+  border: 1px solid var(--ok);
+  border-radius: 2px;
+  background: var(--ok-soft);
+}
+
+.caption-now {
+  width: 14px;
+  border-top: 2px dashed var(--neutral);
 }
 
 .chart-stats {
@@ -1474,6 +1519,104 @@ legend {
   color: var(--ink);
 }
 
+/* Berichte: Standardweg Tagesbericht (UX3) — Tag wählen, Bericht anzeigen. */
+.report-quick {
+  margin-bottom: var(--sp-3);
+}
+
+.report-day-block {
+  display: grid;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+.report-day-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.report-day-row #report-date {
+  width: auto;
+  min-width: 170px;
+}
+
+.report-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+.report-day-summary .micro-label {
+  display: block;
+  margin-bottom: var(--sp-2);
+}
+
+.report-quick .daily-report {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 0;
+}
+
+.report-quick-note {
+  margin: var(--sp-4) 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.report-quick-note a {
+  color: var(--accent);
+}
+
+/* Erweiterte Einstellungen (UX3): technische Optionen einklappbar, voll funktionsfähig. */
+.report-advanced {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.report-advanced > summary {
+  padding: var(--sp-4);
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.report-advanced > summary:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: var(--radius-lg);
+}
+
+.report-advanced[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.report-advanced-body {
+  padding: var(--sp-4);
+}
+
+.report-advanced-hint {
+  margin: 0 0 var(--sp-4);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.report-advanced .report-builder,
+.report-advanced .report-preview {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.report-builder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
 /* Heatmap */
 .heatmap-block {
   margin-bottom: var(--sp-3);
@@ -1798,6 +1941,10 @@ textarea:focus {
   .tool-panel.wide {
     grid-row: auto;
   }
+
+  .report-quick .daily-report {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -1835,9 +1982,15 @@ textarea:focus {
   .window-columns,
   .chart-stats,
   .daily-report,
+  .report-quick .daily-report,
   .preview-sections,
   .report-channel-list {
     grid-template-columns: 1fr;
+  }
+
+  .report-quick-actions .button,
+  .report-builder-actions .button {
+    flex: 1 1 auto;
   }
 
   .config-toolbar .button,

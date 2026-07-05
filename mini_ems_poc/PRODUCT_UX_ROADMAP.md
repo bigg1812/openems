@@ -58,7 +58,8 @@ Leitentscheidungen:
     manuelle Zeitraumwahl den vollen Berichtstag zu rendern; ohne WeasyPrint liefert `/api/report/pdf`
     dieselbe kundentaugliche HTML-Ansicht als Fallback.
 
-- [ ] **UX3. Report-Konfigurator vereinfachen**
+- [x] **UX3. Report-Konfigurator vereinfachen** — erledigt: Standardweg „Tagesbericht" mit Berichtstag-Wahl
+  (Heute/Gestern/Anderer Tag) und einem Primärbutton „Bericht anzeigen"; technische Optionen einklappbar.
   - **Was:** Der Nutzer kann Zeitraum, Reporttyp und optionale Bausteine einfach auswählen, ohne technische Felder
     oder interne IDs zu sehen.
   - **Nutzen:** Reports werden bedienbar, nicht nur generierbar.
@@ -66,6 +67,15 @@ Leitentscheidungen:
   - **Aufwand:** M
   - **Risiken:** Zu viele Optionen machen das Tool wieder kompliziert.
   - **Definition of Done:** Ein nicht-technischer Nutzer kann einen sinnvollen Report in weniger als einer Minute erzeugen.
+  - **Umsetzung:** Berichte-Seite führt mit der Karte „Tagesbericht" (Wording aus `PRODUCT_UX_KONZEPT.md` 2.6):
+    Berichtstag als Preset (Heute/Gestern/Anderer Tag mit Datumswahl), dann „Bericht anzeigen"
+    (`/api/report/html`, bei Bedarf `?date=`), sekundär „PDF herunterladen" und „Daten als CSV"
+    (`/api/report/daily.csv`); Tageskennzahlen des gewählten Tags direkt in der Karte. Klickpfad:
+    Berichte öffnen → Bericht anzeigen (2 Interaktionen; +1 für Gestern/Datum). Der komplette
+    Report-Baukasten (Titel, freier Zeitraum, Zeitraster, Bausteine, Datenpunkte, Vorschau) bleibt
+    voll funktionsfähig unter „Erweiterte Einstellungen" (einklappbar, fachliche Labels, keine
+    internen IDs). Anlagenstatus wird ehrlich als Live-Ansicht (Systemstatus) verlinkt, die
+    Wochenübersicht nicht vorgetäuscht (API markiert sie als „nicht bereit"). Keine Backend-Änderungen.
 
 ## Strategische To-do-Linie: Einfachere Bedienung
 
@@ -275,7 +285,8 @@ Leitentscheidungen:
   - **Risiken:** Design darf nicht dekorativ werden; Scannbarkeit und Betriebssicherheit sind wichtiger als Show.
   - **Definition of Done:** Es gibt einen kleinen UI-Styleguide und eine überarbeitete Startseite im neuen Stil.
 
-- [ ] **UX8. Diagramme und Kennzahlen lesbarer machen**
+- [x] **UX8. Diagramme und Kennzahlen lesbarer machen** — erledigt: Einheiten und Markierungen in
+  Betreiber-Sprache, Lücken unterbrechen die Linie statt zu interpolieren, eine Kurve pro Diagramm.
   - **Was:** Diagramme klarer beschriften, sinnvolle Einheiten zeigen, relevante Zeiträume vorauswählen und
     Ausreißer/Preisfenster verständlicher markieren.
   - **Nutzen:** Nutzer erkennen schneller, was passiert ist und warum es relevant ist.
@@ -283,6 +294,15 @@ Leitentscheidungen:
   - **Aufwand:** M
   - **Risiken:** Zu viele Linien oder Farben machen die Ansicht schwer lesbar.
   - **Definition of Done:** Die wichtigsten Diagramme sind ohne technische Erklärung interpretierbar.
+  - **Umsetzung:** Preisdiagramm mit Einheit im Panel-Kopf („Viertelstundenpreise · ct/kWh"),
+    Erklärzeile für die Markierungen („Günstiges Preisfenster", „Jetzt (aktuelle Viertelstunde)"),
+    Tooltip mit Zeit, Preis und Preisfenster-Hinweis, Kennzahlen als „Günstigster/Höchster Preis";
+    Temperaturen durchgängig in °C. X-Achsen zeigen am Tageswechsel das Datum. Datenlücken
+    (Abstand > 2,5-faches Zeitraster) unterbrechen Linien in uPlot (null-Werte) und
+    SVG-Sparklines (neues Segment) statt zu interpolieren. Übersichts-Diagrammkacheln nennen
+    Zeitraum und Einheit im Kopf; Analyse-Karten führen Gruppe/Einheit ohne Dopplung.
+    Reihenfarben kommen zur Laufzeit aus den `--series-*`-Tokens (Light/Dark), Linien-Disziplin:
+    eine Kurve pro Diagramm (Analyse-Sparklines, Berichts- und Übersichts-Charts).
 
 - [ ] **UX9. Responsive und Vor-Ort-taugliche Ansicht prüfen**
   - **Was:** UI auf Laptop, großem Monitor und Tablet prüfen; wichtige Bedienflächen, Tabellen und Diagramme
