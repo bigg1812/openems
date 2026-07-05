@@ -3,19 +3,19 @@ const PRICE_SLOT_MS = 15 * 60 * 1000;
 const DEFAULT_CHANNELS = [
   { id: "tariff.current_price_ct_kwh", label: "Strompreis", unit: "ct/kWh", group: "Markt", kind: "average" },
   { id: "grid.active_power_kw", label: "Netzleistung", unit: "kW", group: "Netz", kind: "average" },
-  { id: "site.outdoor_temperature_c", label: "Außentemperatur", unit: "C", group: "Wetter", kind: "average" },
-  { id: "site.buffer_1_top_temperature_c", label: "Puffer 1 oben", unit: "C", group: "Puffer", kind: "average" },
-  { id: "site.buffer_1_bottom_temperature_c", label: "Puffer 1 unten", unit: "C", group: "Puffer", kind: "average" },
-  { id: "site.buffer_2_top_temperature_c", label: "Puffer 2 oben", unit: "C", group: "Puffer", kind: "average" },
-  { id: "site.buffer_2_bottom_temperature_c", label: "Puffer 2 unten", unit: "C", group: "Puffer", kind: "average" },
-  { id: "site.heat_generation_flow_temperature_c", label: "Wärmeerzeugung Vorlauf", unit: "C", group: "Wärme", kind: "average" },
-  { id: "site.heat_generation_return_temperature_c", label: "Wärmeerzeugung Rücklauf", unit: "C", group: "Wärme", kind: "average" },
-  { id: "site.boiler_1_flow_temperature_c", label: "Gaskessel Vorlauf", unit: "C", group: "Gaskessel", kind: "average" },
-  { id: "site.boiler_1_return_temperature_c", label: "Gaskessel Rücklauf", unit: "C", group: "Gaskessel", kind: "average" },
-  { id: "site.boiler_2_flow_temperature_c", label: "Pelletkessel Vorlauf", unit: "C", group: "Pellet", kind: "average" },
-  { id: "site.boiler_2_return_temperature_c", label: "Pelletkessel Rücklauf", unit: "C", group: "Pellet", kind: "average" },
-  { id: "site.chp_flow_temperature_c", label: "BHKW Vorlauf", unit: "C", group: "BHKW", kind: "average" },
-  { id: "site.chp_return_temperature_c", label: "BHKW Rücklauf", unit: "C", group: "BHKW", kind: "average" },
+  { id: "site.outdoor_temperature_c", label: "Außentemperatur", unit: "°C", group: "Wetter", kind: "average" },
+  { id: "site.buffer_1_top_temperature_c", label: "Puffer 1 oben", unit: "°C", group: "Puffer", kind: "average" },
+  { id: "site.buffer_1_bottom_temperature_c", label: "Puffer 1 unten", unit: "°C", group: "Puffer", kind: "average" },
+  { id: "site.buffer_2_top_temperature_c", label: "Puffer 2 oben", unit: "°C", group: "Puffer", kind: "average" },
+  { id: "site.buffer_2_bottom_temperature_c", label: "Puffer 2 unten", unit: "°C", group: "Puffer", kind: "average" },
+  { id: "site.heat_generation_flow_temperature_c", label: "Wärmeerzeugung Vorlauf", unit: "°C", group: "Wärme", kind: "average" },
+  { id: "site.heat_generation_return_temperature_c", label: "Wärmeerzeugung Rücklauf", unit: "°C", group: "Wärme", kind: "average" },
+  { id: "site.boiler_1_flow_temperature_c", label: "Gaskessel Vorlauf", unit: "°C", group: "Gaskessel", kind: "average" },
+  { id: "site.boiler_1_return_temperature_c", label: "Gaskessel Rücklauf", unit: "°C", group: "Gaskessel", kind: "average" },
+  { id: "site.boiler_2_flow_temperature_c", label: "Pelletkessel Vorlauf", unit: "°C", group: "Pellet", kind: "average" },
+  { id: "site.boiler_2_return_temperature_c", label: "Pelletkessel Rücklauf", unit: "°C", group: "Pellet", kind: "average" },
+  { id: "site.chp_flow_temperature_c", label: "BHKW Vorlauf", unit: "°C", group: "BHKW", kind: "average" },
+  { id: "site.chp_return_temperature_c", label: "BHKW Rücklauf", unit: "°C", group: "BHKW", kind: "average" },
   { id: "site.chp_electric_energy_kwh", label: "BHKW elektrisch", unit: "kWh", group: "Energie", kind: "energy_counter" },
   { id: "site.chp_thermal_energy_kwh", label: "BHKW thermisch", unit: "kWh", group: "Energie", kind: "energy_counter" },
   { id: "site.pellet_thermal_energy_kwh", label: "Pellet thermisch", unit: "kWh", group: "Energie", kind: "energy_counter" },
@@ -62,9 +62,12 @@ const VIEW_PRESETS = [
   },
 ];
 
+/* Fallback-Farben, falls die --series-*-Tokens nicht lesbar sind (siehe seriesColor). */
 const SERIES_COLORS = ["#2563eb", "#16875a", "#b7791f", "#bf3f36", "#40556b", "#7c3aed", "#0891b2", "#be185d"];
 const DATE_TIME = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const TIME_ONLY = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
+const DAY_ONLY = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit" });
+const DAY_DATE = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 const THEME_STORAGE_KEY = "miniEmsTheme";
 const DASHBOARD_STORAGE_KEY = "miniEmsDashboard";
@@ -79,7 +82,7 @@ const PAGES = {
 
 const PAGE_SUBTITLES = {
   analyse: "Messwerte und Datenqualität über frei wählbare Zeiträume prüfen.",
-  berichte: "Betriebsberichte aus den gewünschten Datenpunkten zusammenstellen.",
+  berichte: "Tagesbericht anzeigen, herunterladen oder einen eigenen Bericht zusammenstellen.",
   konfiguration: "Datenquellen, Messpunkte und Betriebsparameter prüfen und vorbereiten.",
   system: "Systemzustand, Kommunikation und letzte Läufe kontrollieren.",
 };
@@ -100,7 +103,7 @@ const KPI_CATALOG = [
     value: (h) => (h.grid_lockout_active === null || h.grid_lockout_active === undefined ? "deaktiviert" : formatBool(h.grid_lockout_active)),
     sub: (h) => friendlyState(h.grid_lockout_state) },
   { id: "weather_temp", label: "Außentemperatur", accent: "accent-slate",
-    value: (_h, ctx) => formatNumber(ctx.weather?.current?.temperature_c, "C", 1),
+    value: (_h, ctx) => formatNumber(ctx.weather?.current?.temperature_c, "°C", 1),
     sub: (_h, ctx) => ctx.weather?.current?.weather_label || "Wetter" },
   { id: "price_min", label: "Günstigster Preis heute", accent: "accent-green",
     value: (_h, ctx) => formatNumber(ctx.priceMin, "ct/kWh", 3), sub: () => "im Tagesverlauf" },
@@ -241,6 +244,8 @@ const appState = {
   priceStats: null,
   dashboard: { ...DEFAULT_DASHBOARD },
   siteConfig: { config: null, dirty: false },
+  /* Standardweg Berichte (UX3): gewählter Berichtstag für den Tagesbericht. */
+  reportDay: { mode: "today", date: "" },
 };
 
 const priceChart = {
@@ -291,6 +296,16 @@ function bindUi() {
     }
   });
   document.getElementById("save-view-button").addEventListener("click", saveCurrentView);
+  document.querySelectorAll("[data-report-day]").forEach((button) => {
+    button.addEventListener("click", () => setReportDayMode(button.dataset.reportDay));
+  });
+  const reportDateInput = document.getElementById("report-date");
+  if (reportDateInput) {
+    reportDateInput.addEventListener("change", () => {
+      appState.reportDay.date = reportDateInput.value;
+      updateReportQuickView();
+    });
+  }
   document.getElementById("report-form").addEventListener("submit", previewReport);
   document.getElementById("report-title").addEventListener("input", updateReportLinks);
   document.getElementById("report-start").addEventListener("change", updateReportLinks);
@@ -370,6 +385,11 @@ function applyTheme(theme, options = {}) {
   }
   rebuildPriceChart();
   redrawDashboardCharts();
+  /* Analyse-Sparklines neu zeichnen, damit die Reihenfarben aus den Tokens
+     des aktiven Themes kommen (UI_STYLEGUIDE, 7.1). */
+  if (appState.activeHistories.size) {
+    renderSeriesGrid([...appState.activeHistories.values()]);
+  }
 }
 
 let dashboardLoaded = false;
@@ -393,7 +413,7 @@ async function refreshDashboard() {
     renderSignals(statusPayload);
     renderWindows(statusPayload.spotmarket_plan || {});
     renderRecentCycles(statusPayload.recent_cycles || []);
-    renderDailyReport(dailyReport);
+    updateReportQuickView(dailyReport);
     renderWeather(weather);
     renderChannelPicker();
     renderReportChannelList();
@@ -558,15 +578,15 @@ async function renderDashboardCharts() {
     container.innerHTML = "";
     return;
   }
+  const rangeLabels = { "6h": "Letzte 6 Std", "24h": "Letzte 24 Std", "48h": "Letzte 48 Std", "7d": "Letzte 7 Tage" };
   container.innerHTML = charts.map((chart) => {
     const meta = channelMeta(chart.channel);
-    const typeLabel = chart.type === "bar" ? "Säulen" : "Linie";
     return `
       <article class="tool-panel dashboard-chart-tile">
         <div class="panel-head">
           <div>
-            <h3>${escapeHtml(meta.label || chart.channel)}</h3>
-            <p>${escapeHtml([meta.unit, typeLabel].filter(Boolean).join(" · "))}</p>
+            <h3>${escapeHtml(meta.label || "Datenpunkt")}</h3>
+            <p>${escapeHtml([rangeLabels[chart.range] || "Letzte 24 Std", meta.unit || valueKindLabel(meta.kind)].filter(Boolean).join(" · "))}</p>
           </div>
           ${qualityBadgeHtml(chart.channel)}
         </div>
@@ -642,7 +662,7 @@ function drawDashboardChart(chart, index) {
     return;
   }
   const colors = reportChartColors();
-  const color = SERIES_COLORS[index % SERIES_COLORS.length];
+  const color = seriesColor(index);
   let xs;
   let ys;
   let seriesOptions;
@@ -654,8 +674,10 @@ function drawDashboardChart(chart, index) {
     ys = buckets.map((bucket) => bucket.value);
     seriesOptions = { stroke: color, fill: hexToRgba(color, 0.55), width: 1, paths: uPlot.paths.bars({ size: [0.7, 40] }), points: { show: false } };
   } else {
-    xs = data.points.map((point) => Math.round(point.time / 1000));
-    ys = data.points.map((point) => point.value);
+    const granularity = rangeToHours(chart.range) > 48 ? "1h" : "5m";
+    const series = buildSeriesWithGaps(data.points, gapThresholdMs(granularity));
+    xs = series.xs;
+    ys = series.ys;
     seriesOptions = { stroke: color, width: 2, fill: hexToRgba(color, 0.1), points: { show: false } };
   }
   const instance = new uPlot({
@@ -667,7 +689,7 @@ function drawDashboardChart(chart, index) {
     scales: { x: { time: true } },
     axes: [
       { stroke: colors.axis, font: `12px ${colors.font}`, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
-        values: (_u, splits) => splits.map((value) => TIME_ONLY.format(new Date(value * 1000))) },
+        values: (_u, splits) => splits.map((value) => formatTimeAxis(value)) },
       { stroke: colors.axis, font: `12px ${colors.font}`, size: 52, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
         values: (_u, splits) => splits.map((value) => formatAxis(value)) },
     ],
@@ -752,20 +774,43 @@ async function renderPriceOverview(payload) {
   const history = await fetchHistorySafe("tariff.current_price_ct_kwh", range.start, new Date(referenceNow.getTime() + 5 * 60 * 1000), "raw", 1800);
   const timeline = buildPriceTimeline(payload, history.rows || [], range, referenceNow);
   appState.priceStats = { min: timeline.min, max: timeline.max, current: timeline.current };
-  setText("price-chart-meta", timeline.points.length ? `${timeline.points.length} Werte` : "keine Werte");
+  setText("price-chart-meta", timeline.points.length ? "Viertelstundenpreise · ct/kWh" : "keine Preisdaten");
   renderPriceChart(document.getElementById("price-chart"), timeline.points, {
     unit: "ct/kWh",
     step: true,
     windows: timeline.windows,
     now: referenceNow.getTime(),
+    gapMs: 2.5 * PRICE_SLOT_MS,
     empty: "Für diese Ansicht liegen noch keine Preisdaten vor. Sobald die Day-Ahead-Preise abgerufen wurden, erscheint hier der Verlauf.",
   });
+  renderPriceCaption(timeline);
   document.getElementById("price-chart-stats").innerHTML = [
-    statCell("Minimum", formatNumber(timeline.min, "ct/kWh", 3)),
-    statCell("Maximum", formatNumber(timeline.max, "ct/kWh", 3)),
-    statCell("Aktuell", formatNumber(timeline.current, "ct/kWh", 3)),
-    statCell("Preisfenster", timeline.windows.length ? timeline.windows.map((item) => item.label).join(", ") : "keins"),
+    statCell("Günstigster Preis", formatNumber(timeline.min, "ct/kWh", 3)),
+    statCell("Höchster Preis", formatNumber(timeline.max, "ct/kWh", 3)),
+    statCell("Aktuelle Viertelstunde", formatNumber(timeline.current, "ct/kWh", 3)),
+    statCell("Günstige Preisfenster", timeline.windows.length ? timeline.windows.map((item) => `${item.label} Uhr`).join(", ") : "keine geplant"),
   ].join("");
+}
+
+/* Erklärzeile unter dem Preisdiagramm (UX8): benennt die Markierungen in
+   Betreiber-Sprache, statt sie nur über Farbe zu codieren. */
+function renderPriceCaption(timeline) {
+  const target = document.getElementById("price-chart-caption");
+  if (!target) {
+    return;
+  }
+  if (!timeline.points.length) {
+    target.innerHTML = "";
+    target.hidden = true;
+    return;
+  }
+  const items = [];
+  if (timeline.windows.length) {
+    items.push('<span class="caption-item"><span class="caption-swatch" aria-hidden="true"></span>Günstiges Preisfenster</span>');
+  }
+  items.push('<span class="caption-item"><span class="caption-now" aria-hidden="true"></span>Jetzt (aktuelle Viertelstunde)</span>');
+  target.innerHTML = items.join("");
+  target.hidden = false;
 }
 
 function buildPriceTimeline(payload, historyRows, range, referenceNow) {
@@ -889,11 +934,10 @@ async function refreshWorkbench() {
   const range = selectedRange();
   const granularity = document.getElementById("granularity-select").value;
   document.getElementById("series-grid").innerHTML = '<div class="empty-state">Daten werden geladen.</div>';
-  const histories = await Promise.all(selected.map(async (channel, index) => {
+  const histories = await Promise.all(selected.map(async (channel) => {
     const payload = await fetchHistorySafe(channel.id, range.start, range.end, granularity, historyLimit(granularity));
     return {
       channel,
-      color: SERIES_COLORS[index % SERIES_COLORS.length],
       rows: normalizeHistoryRows(payload.rows || []),
       error: payload.error || null,
     };
@@ -905,9 +949,11 @@ async function refreshWorkbench() {
 }
 
 function renderSeriesGrid(histories) {
-  document.getElementById("series-grid").innerHTML = histories.map((item) => {
+  const granularity = document.getElementById("granularity-select")?.value || "5m";
+  document.getElementById("series-grid").innerHTML = histories.map((item, index) => {
     const points = item.rows.map((row) => ({ time: parseTime(row.timestamp), value: historyValue(row) })).filter(isFinitePoint);
     const stats = seriesStats(points);
+    const gapMs = gapThresholdMs(granularity) ?? medianGapThreshold(points);
     return `
       <article class="series-card">
         <div class="series-head">
@@ -916,11 +962,10 @@ function renderSeriesGrid(histories) {
             <span>${escapeHtml([item.channel.group, item.channel.unit || valueKindLabel(item.channel.kind)].filter(Boolean).join(" / "))}</span>
             ${qualityBadgeHtml(item.channel.id)}
           </div>
-          <span class="badge">${escapeHtml(item.channel.unit || item.channel.kind || "")}</span>
         </div>
-        ${item.error ? `<div class="empty-state compact">${escapeHtml(item.error)}</div>` : `<div class="mini-chart">${renderSparkline(points, item.color, item.channel.unit)}</div>`}
+        ${item.error ? `<div class="empty-state compact">${escapeHtml(item.error)}</div>` : `<div class="mini-chart">${renderSparkline(points, seriesColor(index), item.channel.unit, gapMs)}</div>`}
         <div class="chart-stats">
-          ${statCell("Letzter", formatNumber(stats.last, item.channel.unit))}
+          ${statCell("Letzter Wert", formatNumber(stats.last, item.channel.unit))}
           ${statCell("Min", formatNumber(stats.min, item.channel.unit))}
           ${statCell("Max", formatNumber(stats.max, item.channel.unit))}
           ${statCell("Messpunkte", String(points.length))}
@@ -994,8 +1039,7 @@ function renderPriceChart(target, points, options = {}) {
   const neutral = token("--neutral", "#51647a");
   const fontFamily = token("--font", "system-ui, sans-serif");
 
-  const xs = clean.map((point) => Math.round(point.time / 1000));
-  const ys = clean.map((point) => point.value);
+  const { xs, ys } = buildSeriesWithGaps(clean, options.gapMs);
   const windows = options.windows || [];
   const nowSec = Number.isFinite(options.now) ? Math.round(options.now / 1000) : null;
   const ratio = window.devicePixelRatio || 1;
@@ -1054,8 +1098,11 @@ function renderPriceChart(target, points, options = {}) {
       return;
     }
     tooltip.style.display = "block";
-    tooltip.innerHTML = `<b>${escapeHtml(DATE_TIME.format(new Date(u.data[0][idx] * 1000)))}</b>`
-      + `<span class="ems-tooltip-value">${escapeHtml(formatNumber(value, options.unit || "", 3))}</span>`;
+    const timeMs = u.data[0][idx] * 1000;
+    const inWindow = windows.some((band) => timeMs >= band.start && timeMs < band.end);
+    tooltip.innerHTML = `<b>${escapeHtml(DATE_TIME.format(new Date(timeMs)))}</b>`
+      + `<span class="ems-tooltip-value">${escapeHtml(formatNumber(value, options.unit || "", 3))}</span>`
+      + (inWindow ? '<span class="ems-tooltip-flag">Günstiges Preisfenster</span>' : "");
     let left = u.cursor.left + 14;
     if (left + tooltip.offsetWidth > u.over.clientWidth) {
       left = u.cursor.left - tooltip.offsetWidth - 14;
@@ -1077,7 +1124,7 @@ function renderPriceChart(target, points, options = {}) {
         font: `12px ${fontFamily}`,
         grid: { stroke: gridColor, width: 1 },
         ticks: { stroke: gridColor, width: 1 },
-        values: (_u, splits) => splits.map((value) => TIME_ONLY.format(new Date(value * 1000))),
+        values: (_u, splits) => splits.map((value) => formatTimeAxis(value)),
       },
       {
         stroke: axisColor,
@@ -1148,7 +1195,75 @@ function hexToRgba(color, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-function renderSparkline(points, color, unit) {
+/* Datenreihen-Farben zur Laufzeit aus den Styleguide-Tokens lesen (UI_STYLEGUIDE, 7.1),
+   damit Diagramme in beiden Themes stimmen; SERIES_COLORS bleibt als Fallback. */
+function seriesColor(index) {
+  const fallback = SERIES_COLORS[index % SERIES_COLORS.length];
+  if (typeof getComputedStyle !== "function" || !document.documentElement) {
+    return fallback;
+  }
+  const token = getComputedStyle(document.documentElement)
+    .getPropertyValue(`--series-${(index % SERIES_COLORS.length) + 1}`)
+    .trim();
+  return token || fallback;
+}
+
+/* X-Achsen-Beschriftung (UX8): Uhrzeit, am Tageswechsel stattdessen das Datum —
+   so bleiben mehrtägige Zeiträume ohne Erklärung lesbar. */
+function formatTimeAxis(valueSeconds) {
+  const date = new Date(valueSeconds * 1000);
+  if (date.getHours() === 0 && date.getMinutes() === 0) {
+    return DAY_ONLY.format(date);
+  }
+  return TIME_ONLY.format(date);
+}
+
+/* Ab welchem zeitlichen Abstand gilt eine Messreihe als lückenhaft? (2,5-faches Zeitraster) */
+function gapThresholdMs(granularity) {
+  if (granularity === "5m") {
+    return 2.5 * 5 * 60000;
+  }
+  if (granularity === "1h") {
+    return 2.5 * 3600000;
+  }
+  if (granularity === "1d") {
+    return 2.5 * 86400000;
+  }
+  return null;
+}
+
+/* Bei Einzelwerten: Lückenschwelle aus dem typischen Messabstand ableiten. */
+function medianGapThreshold(points) {
+  if (points.length < 3) {
+    return Infinity;
+  }
+  const deltas = [];
+  for (let index = 1; index < points.length; index += 1) {
+    deltas.push(points[index].time - points[index - 1].time);
+  }
+  deltas.sort((a, b) => a - b);
+  const median = deltas[Math.floor(deltas.length / 2)];
+  return median > 0 ? median * 2.5 : Infinity;
+}
+
+/* Zeitreihe für uPlot aufbereiten (UX8): bei Lücken wird ein null-Wert eingefügt,
+   damit die Linie ehrlich unterbricht statt über fehlende Daten zu interpolieren. */
+function buildSeriesWithGaps(points, thresholdMs = null) {
+  const xs = [];
+  const ys = [];
+  const threshold = Number.isFinite(thresholdMs) ? thresholdMs : medianGapThreshold(points);
+  points.forEach((point, index) => {
+    if (index > 0 && point.time - points[index - 1].time > threshold) {
+      xs.push(Math.round((points[index - 1].time + point.time) / 2000));
+      ys.push(null);
+    }
+    xs.push(Math.round(point.time / 1000));
+    ys.push(point.value);
+  });
+  return { xs, ys };
+}
+
+function renderSparkline(points, color, unit, gapMs = Infinity) {
   const clean = points.filter(isFinitePoint).sort((a, b) => a.time - b.time);
   if (!clean.length) {
     return '<div class="chart-empty">Keine Daten.</div>';
@@ -1167,7 +1282,7 @@ function renderSparkline(points, color, unit) {
   const yMax = rawMax + pad;
   const x = (time) => margin.left + ((time - xMin) / Math.max(xMax - xMin, 1)) * (width - margin.left - margin.right);
   const y = (value) => margin.top + (height - margin.top - margin.bottom) - ((value - yMin) / Math.max(yMax - yMin, 1e-9)) * (height - margin.top - margin.bottom);
-  const path = linePath(clean, x, y);
+  const path = linePath(clean, x, y, gapMs);
   const ticks = [yMin, (yMin + yMax) / 2, yMax];
   return `
     <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
@@ -2073,14 +2188,15 @@ function renderReportBlock(el, component, config, histories) {
     return;
   }
 
-  // line_chart / bar_chart: ein Diagramm je Datenpunkt
+  // line_chart / bar_chart: ein Diagramm je Datenpunkt — bewusst eine Kurve pro
+  // Diagramm, damit die Ansicht lesbar bleibt (UX8, Roadmap-Risiko "zu viele Linien").
   histories.forEach((item, index) => {
     const frame = document.createElement("div");
     frame.className = "chart-frame report-chart";
     body.appendChild(document.createElement("div")).className = "report-series-label";
-    body.lastChild.textContent = item.meta.label || item.id;
+    body.lastChild.textContent = [item.meta.label || "Datenpunkt", item.meta.unit].filter(Boolean).join(" · ");
     body.appendChild(frame);
-    const color = SERIES_COLORS[index % SERIES_COLORS.length];
+    const color = seriesColor(index);
     if (item.error || !item.points.length) {
       frame.innerHTML = `<div class="chart-empty">${escapeHtml(item.error || "Für den gewählten Zeitraum liegen keine Werte vor. Bitte einen längeren Zeitraum wählen.")}</div>`;
       return;
@@ -2088,7 +2204,7 @@ function renderReportBlock(el, component, config, histories) {
     if (component === "bar_chart") {
       buildReportBars(frame, item, color);
     } else {
-      buildReportLine(frame, item, color);
+      buildReportLine(frame, item, color, gapThresholdMs(config.granularity));
     }
   });
 }
@@ -2103,10 +2219,9 @@ function reportChartColors() {
   };
 }
 
-function buildReportLine(frame, item, color) {
+function buildReportLine(frame, item, color, gapMs = null) {
   const colors = reportChartColors();
-  const xs = item.points.map((point) => Math.round(point.time / 1000));
-  const ys = item.points.map((point) => point.value);
+  const { xs, ys } = buildSeriesWithGaps(item.points, gapMs);
   const chart = new uPlot({
     width: frame.clientWidth || 520,
     height: 220,
@@ -2116,7 +2231,7 @@ function buildReportLine(frame, item, color) {
     scales: { x: { time: true } },
     axes: [
       { stroke: colors.axis, font: `12px ${colors.font}`, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
-        values: (_u, splits) => splits.map((value) => TIME_ONLY.format(new Date(value * 1000))) },
+        values: (_u, splits) => splits.map((value) => formatTimeAxis(value)) },
       { stroke: colors.axis, font: `12px ${colors.font}`, size: 52, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
         values: (_u, splits) => splits.map((value) => formatAxis(value)) },
     ],
@@ -2143,7 +2258,7 @@ function buildReportBars(frame, item, color) {
     scales: { x: { time: true } },
     axes: [
       { stroke: colors.axis, font: `12px ${colors.font}`, grid: { show: false }, ticks: { stroke: colors.grid },
-        values: (_u, splits) => splits.map((value) => (perDay ? DATE_TIME.format(new Date(value * 1000)).slice(0, 5) : TIME_ONLY.format(new Date(value * 1000)))) },
+        values: (_u, splits) => splits.map((value) => (perDay ? DAY_ONLY.format(new Date(value * 1000)) : formatTimeAxis(value))) },
       { stroke: colors.axis, font: `12px ${colors.font}`, size: 52, grid: { stroke: colors.grid, width: 1 }, ticks: { stroke: colors.grid },
         values: (_u, splits) => splits.map((value) => formatAxis(value)) },
     ],
@@ -2304,13 +2419,109 @@ function updateReportLinks() {
   document.getElementById("report-pdf-link").href = `/api/report/pdf?${query.toString()}`;
 }
 
-function renderDailyReport(report) {
+/* ===== Standardweg Berichte (UX3): Tagesbericht in zwei bis drei Klicks ===== */
+
+function setReportDayMode(mode) {
+  const resolved = ["today", "yesterday", "date"].includes(mode) ? mode : "today";
+  appState.reportDay.mode = resolved;
+  document.querySelectorAll("[data-report-day]").forEach((button) => {
+    button.setAttribute("aria-pressed", button.dataset.reportDay === resolved ? "true" : "false");
+  });
+  const dateInput = document.getElementById("report-date");
+  if (dateInput) {
+    dateInput.hidden = resolved !== "date";
+    if (resolved === "date") {
+      if (!dateInput.value) {
+        dateInput.value = appState.reportDay.date || reportBaseDateIso();
+      }
+      appState.reportDay.date = dateInput.value;
+      if (typeof dateInput.focus === "function") {
+        dateInput.focus();
+      }
+    }
+  }
+  updateReportQuickView();
+}
+
+/* Betriebstag der Anlage: bevorzugt health.today_date (deckt Simulationszeit ab),
+   sonst das Datum des letzten gemeldeten Zustands. */
+function reportBaseDateIso() {
+  const healthDate = appState.statusPayload?.health?.today_date;
+  if (typeof healthDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(healthDate)) {
+    return healthDate;
+  }
+  return toDateIso(getReferenceNow(appState.statusPayload || {}));
+}
+
+/* Gewählter Berichtstag als YYYY-MM-DD; null bedeutet "Heute" — dann bestimmt
+   das Backend den aktuellen Betriebstag selbst (gleiches Verhalten wie UX2). */
+function selectedReportDateIso() {
+  const mode = appState.reportDay.mode;
+  if (mode === "yesterday") {
+    const base = new Date(`${reportBaseDateIso()}T12:00:00`);
+    base.setDate(base.getDate() - 1);
+    return toDateIso(base);
+  }
+  if (mode === "date" && /^\d{4}-\d{2}-\d{2}$/.test(appState.reportDay.date || "")) {
+    return appState.reportDay.date;
+  }
+  return null;
+}
+
+function reportDayHeading(dateIso) {
+  const mode = appState.reportDay.mode;
+  if (mode === "yesterday" && dateIso) {
+    return "Gestern im Überblick";
+  }
+  if (mode === "date" && dateIso) {
+    const time = parseTime(`${dateIso}T12:00:00`);
+    return Number.isFinite(time) ? `${DAY_DATE.format(new Date(time))} im Überblick` : "Berichtstag im Überblick";
+  }
+  return "Heute im Überblick";
+}
+
+let reportQuickRequestId = 0;
+
+/* Links und Tageskennzahlen des Standardwegs auf den gewählten Berichtstag stellen.
+   todayReport: bereits geladener Tagesreport für "Heute" (spart den zweiten Abruf). */
+async function updateReportQuickView(todayReport = null) {
+  const dateIso = selectedReportDateIso();
+  const suffix = dateIso ? `?date=${dateIso}` : "";
+  setHref("report-open-link", `/api/report/html${suffix}`);
+  setHref("report-pdf-quick-link", `/api/report/pdf${suffix}`);
+  setHref("report-csv-link", `/api/report/daily.csv${suffix}`);
+  setText("daily-report-label", reportDayHeading(dateIso));
+  if (!dateIso && todayReport) {
+    renderDailyReport(todayReport);
+    return;
+  }
+  const requestId = ++reportQuickRequestId;
+  const payload = await fetchOptionalJson(`/api/report/daily${suffix}`, null);
+  if (requestId !== reportQuickRequestId) {
+    return;
+  }
+  renderDailyReport(payload, dateIso
+    ? "Für diesen Tag liegen keine Betriebsdaten vor. Bitte einen anderen Berichtstag wählen."
+    : undefined);
+}
+
+function setHref(id, value) {
+  const element = document.getElementById(id);
+  if (element) {
+    element.href = value;
+  }
+}
+
+function renderDailyReport(report, emptyText) {
   const target = document.getElementById("daily-report");
+  if (!target) {
+    return;
+  }
   const safeReport = report && typeof report === "object" ? report : {};
   const price = safeReport.price_ct_kwh || {};
   const statusCounts = safeReport.status_counts || {};
   if (!toNumber(safeReport.cycle_count)) {
-    target.innerHTML = '<div class="empty-state">Für heute liegen noch keine Betriebsdaten vor. Sobald die Anlage läuft, erscheinen hier die Tageskennzahlen.</div>';
+    target.innerHTML = `<div class="empty-state">${escapeHtml(emptyText || "Für heute liegen noch keine Betriebsdaten vor. Sobald die Anlage läuft, erscheinen hier die Tageskennzahlen.")}</div>`;
     return;
   }
   target.innerHTML = [
@@ -2351,8 +2562,8 @@ function renderWeather(payload) {
   target.innerHTML = `
     <div class="weather-now">
       <span class="micro-label">${escapeHtml(payload.site || "Standort")} / ${escapeHtml(payload.source || "Wetter")}</span>
-      <strong>${escapeHtml(formatNumber(current.temperature_c, "C", 1))}</strong>
-      <span>${escapeHtml(current.weather_label || "-")} / gefühlt ${escapeHtml(formatNumber(current.apparent_temperature_c, "C", 1))}</span>
+      <strong>${escapeHtml(formatNumber(current.temperature_c, "°C", 1))}</strong>
+      <span>${escapeHtml(current.weather_label || "-")} / gefühlt ${escapeHtml(formatNumber(current.apparent_temperature_c, "°C", 1))}</span>
     </div>
     <div class="weather-details">
       ${reportTile("Luftfeuchte", formatNumber(current.humidity_percent, "%", 0))}
@@ -2423,8 +2634,15 @@ function isFinitePoint(point) {
   return Number.isFinite(point.time) && Number.isFinite(point.value);
 }
 
-function linePath(points, scaleX, scaleY) {
-  return points.map((point, index) => `${index === 0 ? "M" : "L"} ${scaleX(point.time).toFixed(1)} ${scaleY(point.value).toFixed(1)}`).join(" ");
+/* SVG-Pfad einer Linie; bei Lücken (Abstand > gapMs) beginnt ein neues Segment,
+   damit fehlende Daten nicht als durchgezogene Linie erscheinen (UX8). */
+function linePath(points, scaleX, scaleY, gapMs = Infinity) {
+  let previousTime = null;
+  return points.map((point) => {
+    const command = previousTime !== null && point.time - previousTime <= gapMs ? "L" : "M";
+    previousTime = point.time;
+    return `${command} ${scaleX(point.time).toFixed(1)} ${scaleY(point.value).toFixed(1)}`;
+  }).join(" ");
 }
 
 function buildSlotTime(dateIso, slotIndex) {
@@ -2934,6 +3152,11 @@ function toNumber(value) {
 function toDatetimeLocal(date) {
   const offset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function toDateIso(date) {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
 }
 
 function datetimeLocalToIso(value) {

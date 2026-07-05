@@ -106,6 +106,7 @@
               <span class="panel-pill" id="price-chart-meta">-</span>
             </div>
             <div class="chart-frame" id="price-chart"></div>
+            <div class="chart-caption" id="price-chart-caption" hidden></div>
             <div class="chart-stats" id="price-chart-stats"></div>
           </article>
 
@@ -218,65 +219,105 @@
         <div class="section-head">
           <div>
             <span class="section-kicker">Berichte</span>
-            <h2>Auswertung nach ISO 50001</h2>
-          </div>
-          <div class="export-actions">
-            <a class="button" id="report-html-link" href="/api/report/html" target="_blank" rel="noreferrer">Bericht öffnen</a>
-            <a class="button primary" id="report-pdf-link" href="/api/report/pdf" target="_blank" rel="noreferrer">PDF herunterladen</a>
+            <h2>Betriebsberichte</h2>
           </div>
         </div>
 
-        <div class="report-layout">
-          <form class="report-builder" id="report-form">
-            <div class="control-grid compact">
-              <label>
-                Titel
-                <input id="report-title" type="text" value="Mini EMS Betriebsbericht">
-              </label>
-              <label>
-                Von
-                <input id="report-start" type="datetime-local">
-              </label>
-              <label>
-                Bis
-                <input id="report-end" type="datetime-local">
-              </label>
-              <label>
-                Zeitraster
-                <select id="report-granularity">
-                  <option value="raw">Einzelwerte</option>
-                  <option value="5m" selected>5 Minuten</option>
-                  <option value="1h">1 Stunde</option>
-                  <option value="1d">1 Tag</option>
-                </select>
-              </label>
+        <!-- Standardweg (UX3): Berichtstag wählen, Bericht anzeigen — fertig. -->
+        <article class="tool-panel report-quick">
+          <div class="panel-head">
+            <div>
+              <h3>Tagesbericht</h3>
+              <p>Zusammenfassung eines Betriebstags: Zustand, Preise, Preisfenster, Hinweise.</p>
             </div>
-            <fieldset>
-              <legend>Bausteine</legend>
-              <label class="check"><input type="checkbox" name="report-section" value="summary" checked> Kennzahlen</label>
-              <label class="check"><input type="checkbox" name="report-section" value="line_chart" checked> Liniendiagramm</label>
-              <label class="check"><input type="checkbox" name="report-section" value="bar_chart"> Säulendiagramm</label>
-              <label class="check"><input type="checkbox" name="report-section" value="heatmap"> Heatmap</label>
-              <label class="check"><input type="checkbox" name="report-section" value="table" checked> Datentabelle</label>
-              <label class="check"><input type="checkbox" name="report-section" value="text"> Textbaustein</label>
-              <label class="check"><input type="checkbox" name="report-section" value="events" checked> Kommunikationshinweise</label>
-            </fieldset>
-            <label>
-              Eigener Text
-              <textarea id="report-text" rows="3" placeholder="z. B. Bewertung des Berichtszeitraums, Maßnahmen, Auffälligkeiten."></textarea>
-            </label>
-            <fieldset>
-              <legend>Datenpunkte</legend>
-              <div class="report-channel-list" id="report-channel-list"></div>
-            </fieldset>
-            <button class="button primary" id="report-preview-button" type="submit">Vorschau berechnen</button>
-          </form>
-
-          <div class="report-preview">
-            <div class="daily-report" id="daily-report"></div>
-            <div class="preview-sections" id="report-preview"></div>
           </div>
-        </div>
+          <div class="report-day-block">
+            <span class="micro-label">Berichtstag</span>
+            <div class="report-day-row">
+              <div class="segmented" role="group" aria-label="Berichtstag wählen">
+                <button type="button" data-report-day="today" aria-pressed="true">Heute</button>
+                <button type="button" data-report-day="yesterday" aria-pressed="false">Gestern</button>
+                <button type="button" data-report-day="date" aria-pressed="false">Anderer Tag</button>
+              </div>
+              <input id="report-date" type="date" aria-label="Berichtstag als Datum" hidden>
+            </div>
+          </div>
+          <div class="report-quick-actions">
+            <a class="button primary" id="report-open-link" href="/api/report/html" target="_blank" rel="noreferrer">Bericht anzeigen</a>
+            <a class="button" id="report-pdf-quick-link" href="/api/report/pdf" target="_blank" rel="noreferrer">PDF herunterladen</a>
+            <a class="button" id="report-csv-link" href="/api/report/daily.csv" target="_blank" rel="noreferrer">Daten als CSV</a>
+          </div>
+          <div class="report-day-summary">
+            <span class="micro-label" id="daily-report-label">Heute im Überblick</span>
+            <div class="daily-report" id="daily-report"></div>
+          </div>
+          <p class="report-quick-note">Der Anlagenstatus steht als Live-Ansicht auf der Seite <a href="#/system">Systemstatus</a> bereit. Eine Wochenübersicht ist noch nicht verfügbar.</p>
+        </article>
+
+        <!-- Erweiterte Einstellungen (UX3): alle technischen Optionen bleiben
+             vollständig erhalten, aber außerhalb des Standardwegs. -->
+        <details class="report-advanced">
+          <summary>Erweiterte Einstellungen</summary>
+          <div class="report-advanced-body">
+            <p class="report-advanced-hint">Eigenen Bericht aus Zeitraum, Zeitraster, Bausteinen und Datenpunkten zusammenstellen. Für den Alltag reicht der Tagesbericht oben.</p>
+            <div class="report-layout">
+              <form class="report-builder" id="report-form">
+                <div class="control-grid compact">
+                  <label>
+                    Titel
+                    <input id="report-title" type="text" value="Mini EMS Betriebsbericht">
+                  </label>
+                  <label>
+                    Von
+                    <input id="report-start" type="datetime-local">
+                  </label>
+                  <label>
+                    Bis
+                    <input id="report-end" type="datetime-local">
+                  </label>
+                  <label>
+                    Zeitraster
+                    <select id="report-granularity">
+                      <option value="raw">Einzelwerte</option>
+                      <option value="5m" selected>5 Minuten</option>
+                      <option value="1h">1 Stunde</option>
+                      <option value="1d">1 Tag</option>
+                    </select>
+                  </label>
+                </div>
+                <fieldset>
+                  <legend>Bausteine</legend>
+                  <label class="check"><input type="checkbox" name="report-section" value="summary" checked> Kennzahlen</label>
+                  <label class="check"><input type="checkbox" name="report-section" value="line_chart" checked> Liniendiagramm</label>
+                  <label class="check"><input type="checkbox" name="report-section" value="bar_chart"> Säulendiagramm</label>
+                  <label class="check"><input type="checkbox" name="report-section" value="heatmap"> Heatmap</label>
+                  <label class="check"><input type="checkbox" name="report-section" value="table" checked> Datentabelle</label>
+                  <label class="check"><input type="checkbox" name="report-section" value="text"> Textbaustein</label>
+                  <label class="check"><input type="checkbox" name="report-section" value="events" checked> Kommunikationshinweise</label>
+                </fieldset>
+                <label>
+                  Eigener Text
+                  <textarea id="report-text" rows="3" placeholder="z. B. Bewertung des Berichtszeitraums, Maßnahmen, Auffälligkeiten."></textarea>
+                </label>
+                <fieldset>
+                  <legend>Datenpunkte</legend>
+                  <div class="report-channel-list" id="report-channel-list"></div>
+                </fieldset>
+                <div class="report-builder-actions">
+                  <button class="button" id="report-preview-button" type="submit">Vorschau berechnen</button>
+                  <a class="button" id="report-html-link" href="/api/report/html" target="_blank" rel="noreferrer">Bericht öffnen</a>
+                  <a class="button" id="report-pdf-link" href="/api/report/pdf" target="_blank" rel="noreferrer">PDF herunterladen</a>
+                </div>
+              </form>
+
+              <div class="report-preview">
+                <div class="preview-sections" id="report-preview">
+                  <div class="empty-state">Noch keine Vorschau berechnet. Links Zeitraum, Bausteine und Datenpunkte wählen und dann „Vorschau berechnen“.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
       </section>
 
       <!-- ============ KONFIGURATION ============ -->
