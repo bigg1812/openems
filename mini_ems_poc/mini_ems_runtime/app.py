@@ -15,6 +15,7 @@ from .price_cache import SpotmarketPriceCacheService
 from .price_provider_smard import SmardPriceProvider
 from .protocol import ProtocolRoutingAdapter
 from .read_diagnostics import ChannelReadDiagnosticsService
+from .resources import resource_base_dir
 from .runtime_db import RuntimeDatabase
 from .simulation import SimulatedBacnetAdapter, SimulatedModbusAdapter, SimulatedSpotmarketPriceService
 from .spotmarket_plan import SpotmarketManualOverrideStore, SpotmarketPlanWriter
@@ -68,7 +69,10 @@ def main() -> int:
         state_path=config.state_path,
         price_cache_path=config.price_cache_path,
         spotmarket_plan_path=config.spotmarket_plan_path,
-        dashboard_dir=config.base_dir / "dashboard",
+        # dashboard/, mini_ems_runtime/templates/ and data/weather/ are bundled
+        # resources: next to the config in a Git checkout, next to the executable
+        # when frozen (H2). Everything downstream derives from dashboard_dir(.parent).
+        dashboard_dir=resource_base_dir(config.base_dir) / "dashboard",
         logger=logger,
         read_diagnostics=read_diagnostics,
         config_path=config_path,

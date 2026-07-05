@@ -642,7 +642,13 @@ Codeaenderungen werden nicht automatisch in den laufenden Python-Prozess geladen
 Der vollstaendige Update-Ablauf (stoppen, Backup, Paket ersetzen, starten, Healthcheck, Rollback) sowie
 eine kleine wiederkehrende Wartungsroutine und die Versionierung stehen in
 [UPDATE_WARTUNG.md](./UPDATE_WARTUNG.md). Manuelle Codeaenderungen auf der Kunden-IPC sind damit
-ausgeschlossen; jede Aenderung am Standort kommt ueber ein neues Release-Paket.
+ausgeschlossen; jede Aenderung am Standort kommt ueber einen neuen Release-Ordner.
+
+Das ausgelieferte Format ist ein versioniertes **Release-Paket** statt eines Git-Checkouts (Entscheidung
+zu H2: *"Release-Paket, initial PyInstaller, spaeter Nuitka-kompatibel"*). Das Build-Tooling, das
+Release-Layout und der spaetere Nuitka-Pfad stehen in [packaging/README.md](./packaging/README.md).
+`config.json` und alle Betriebsdaten bleiben ausserhalb des Pakets; der Betriebspfad bleibt externes
+`config.json` plus geplanter Windows-Task.
 
 ## Verhalten bei IPC-Ausfall
 

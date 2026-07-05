@@ -112,9 +112,11 @@ Wahrheit, die folgenden Dokumente vertiefen jeweils einen Teilaspekt.
 | [EDGE_INTEGRATION_CONTRACT.md](./EDGE_INTEGRATION_CONTRACT.md) | Verbindlicher Integrationsvertrag: gültige Messwerte, Qualität, Lese-/Schreibrechte, Ausfallverhalten. |
 | [HOSTING_SICHERHEIT.md](./HOSTING_SICHERHEIT.md) | Sicherheitsgrenze und Sichtbarkeitsmatrix fürs Kundenhosting plus Minimalkonzept für erstes read-only Online-Hosting. |
 | [UPDATE_WARTUNG.md](./UPDATE_WARTUNG.md) | Update-, Healthcheck- und Rollback-Ablauf für die Kunden-IPC (H7). |
+| [packaging/README.md](./packaging/README.md) | Release-Paket bauen und ausliefern (H2, initial PyInstaller, später Nuitka-kompatibel); Betriebspfad bleibt externes `config.json` plus Windows-Task. |
 | [UI_STYLEGUIDE.md](./UI_STYLEGUIDE.md) | Verbindliche Design-Referenz: Farben, Typografie, Abstände, Komponenten-Tokens aus `dashboard.css`. |
 | [PILOT_DEMO.md](./PILOT_DEMO.md) | 5-Minuten-Demoablauf für einen bezahlten Pilotkunden (UX13). |
 | [EMS-Mapping.md](./EMS-Mapping.md) | Arbeitskarte, wie OpenEMS-Vorbilder Messgeräte/Protokolle auf EMS-Kanäle abbilden und wie mini_ems_poc BACnet nutzt. |
+| [BACNET_STACK_EVAL.md](./BACNET_STACK_EVAL.md) | Entscheidungsvorlage S7: eigener BACnet-Adapter vs. BACpypes3 vs. BAC0 für Discovery/Import. |
 
 ## Ordnerstruktur
 

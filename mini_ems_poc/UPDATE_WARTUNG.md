@@ -8,11 +8,15 @@ Wahrheit.** Pfade, Felder und Endpunkte hier sind aus `config.json`, `mini_ems_r
 `mini_ems_runtime/cycle.py`, `mini_ems_runtime/http_api.py`, `run_mini_ems.cmd` und
 `windows/install_task.ps1` abgeleitet. Weicht diese Datei vom Code ab, gilt der Code.
 
-**Abhängigkeit von H2 (noch offen):** `H2. Mini EMS als Release-Paket statt Git-Checkout ausliefern`
-ist noch nicht entschieden (PyInstaller vs. Nuitka vs. weiterhin Git-Checkout + `.venv`). Dieser Prozess
-ist deshalb bewusst **paketform-neutral** formuliert und spricht durchgehend von einem
-**"Release-Paket"**. Die drei Stellen, die konkret von der H2-Entscheidung abhängen, sind unten explizit
-als **[H2-abhängig]** markiert.
+**H2-Entscheidung getroffen:** `H2. Mini EMS als Release-Paket statt Git-Checkout ausliefern`
+ist entschieden. Die Festlegung des Nutzers lautet wörtlich: *"Release-Paket, initial PyInstaller, später
+Nuitka-kompatibel"*. Das konkrete Paketformat ist damit ein **One-Dir-Release** (ausführbares Artefakt
+`mini_ems`/`mini_ems.exe` + `dashboard/`, `mini_ems_runtime/templates/`, optional `sim/`, `VERSION`,
+`SHA256SUMS`, `RELEASE_HINWEISE.md`), gebaut über `packaging/build_release.ps1` (Windows/IPC) bzw.
+`packaging/build_release.sh` (lokale Verifikation). Details: `packaging/README.md`. Der Prozess bleibt im
+Kern gleich; die zuvor als **[H2-abhängig]** markierten Stellen sind unten jetzt konkret auf dieses
+Paketformat aufgelöst. Die Trennung App-Dateien vs. Standortdaten (Abschnitt 1) ändert sich dadurch nicht:
+`config.json` und Betriebsdaten sind niemals Teil des Pakets.
 
 ---
 
@@ -57,8 +61,9 @@ als **[H2-abhängig]** markiert.
 
 Nummerierte Checkliste für ein reguläres Update auf der Kunden-IPC. Schritte, die schon heute mit dem
 bestehenden Code (`run_mini_ems.cmd`, `windows/install_task.ps1`, `config.json`) ausführbar sind, sind
-mit konkreten Kommandos/Prüfpunkten hinterlegt. Schritte, die von der noch offenen H2-Entscheidung
-abhängen, sind als **[H2-abhängig]** markiert und bewusst generisch gehalten ("Release-Paket ersetzen").
+mit konkreten Kommandos/Prüfpunkten hinterlegt. Die früher als **[H2-abhängig]** markierten Schritte sind
+jetzt auf das entschiedene Paketformat (One-Dir-PyInstaller-Release, siehe `packaging/README.md`) konkret
+aufgelöst. "Release-Paket ersetzen" bedeutet damit: den installierten Release-Ordner austauschen.
 
 Durchführung remote via Secomea/VPN auf die IPC, wie in `HOSTING_SICHERHEIT.md` Teil 2 beschrieben
 (siehe Verantwortlichkeiten, Abschnitt 6).
@@ -111,26 +116,33 @@ Durchführung remote via Secomea/VPN auf die IPC, wie in `HOSTING_SICHERHEIT.md`
    (Pfad `C:\ProgramData\MiniEMS\...` ist die vorgesehene Zielstruktur aus H3, dort noch offen; solange
    H3 nicht umgesetzt ist, Backup-Ordner unterhalb des heutigen Projektordners ablegen, z. B.
    `<ProjectDir>\backup\<stamp>\`.)
-7. Zusätzlich das komplette alte Release-Paket (bzw. bei Git-Checkout: den kompletten Ordnerstand,
-   ohne die unter Punkt 6 gesicherten Standortdaten erneut) als Rollback-Kandidat aufheben – entweder
-   durch Umbenennen des bisherigen Installationsordners (`MiniEMS_vorher`) oder durch Aufbewahren des
-   vorherigen Release-Pakets, aus dem er installiert wurde. **[H2-abhängig]**: Ob das über
-   "alten Ordner umbenennen", "alte `.exe` behalten" oder "vorheriges Paket-Archiv aufheben" läuft,
-   hängt vom gewählten Paketformat ab.
+7. Zusätzlich den kompletten bisherigen Release-Ordner als Rollback-Kandidat aufheben. Beim entschiedenen
+   One-Dir-Format ist das der Ordner mit `mini_ems.exe`, `dashboard/`, `mini_ems_runtime/templates/`,
+   `VERSION` und `SHA256SUMS`. Konkret: den bisherigen Installationsordner umbenennen (z. B. auf
+   `MiniEMS_vorher`) **oder** das vorherige Release-Archiv aufbewahren, aus dem er installiert wurde. Die
+   unter Punkt 6 gesicherten Standortdaten (`config.json`, `data/runtime/`, `runtime/`, `logs/`) sind hier
+   nicht erneut zu kopieren; sie gehören nicht zum Release-Ordner.
 8. Backup-Vollständigkeit stichprobenartig prüfen: Größe von `config.json` und der SQLite-Datei im
    Backup mit dem Original vergleichen (`Get-Item <pfad> | Select Length`).
 
-### 2.4 Paket ersetzen **[H2-abhängig]**
+### 2.4 Release-Ordner tauschen
 
-9. Neues Release-Paket an die Installationsstelle entpacken/kopieren, ohne die unter Punkt 6 gesicherten
-   Standortdaten-Dateien zu überschreiben. Das konkrete Vorgehen hängt vom Paketformat ab
-   (z. B. `mini_ems.exe` + `dashboard/` + Startskripte bei PyInstaller/Nuitka, oder aktualisierter
-   Git-Checkout + `.venv`-Refresh beim heutigen Stand); die Zielaussage bleibt gleich: Code/Assets/
-   Startskripte werden ersetzt, `config.json`, `data/runtime/`, `runtime/`, `logs/` bleiben unverändert
-   liegen.
-10. Nach dem Ersetzen erneut Prüfsumme des installierten Pakets gegen die veröffentlichte Prüfsumme
-    kontrollieren (nicht nur vor dem Kopieren, auch am Zielort, um Übertragungsfehler auszuschließen).
-11. Versionsdatei im installierten Paket gegen die erwartete Zielversion prüfen (siehe Abschnitt 5).
+9. Neuen Release-Ordner an die Installationsstelle entpacken/kopieren, ohne die unter Punkt 6 gesicherten
+   Standortdaten-Dateien zu überschreiben. Beim entschiedenen One-Dir-Format heißt das konkret: den
+   bisherigen Release-Ordner (aus Punkt 7 als `MiniEMS_vorher` beiseitegelegt) durch den neuen ersetzen.
+   Der neue Ordner enthält `mini_ems.exe`, `_internal/`-Laufzeitdateien bei aktivierter `_internal`-Struktur
+   bzw. die flach danebenliegenden Laufzeitdateien, `dashboard/`, `mini_ems_runtime/templates/`, optional
+   `sim/`, `VERSION`, `SHA256SUMS` und `RELEASE_HINWEISE.md`. Die Zielaussage bleibt: Code/Assets/Vorlagen
+   werden ersetzt; `config.json`, `data/runtime/`, `runtime/`, `logs/` liegen außerhalb des Release-Ordners
+   und bleiben unverändert. Der Start erfolgt weiter über den geplanten Windows-Task
+   (`windows/install_task.ps1`) mit externem `--config <pfad>\config.json`.
+10. Nach dem Ersetzen erneut Prüfsumme kontrollieren: Die mitgelieferte `SHA256SUMS` gegen die tatsächlichen
+    Dateien im installierten Ordner prüfen (nicht nur vor dem Kopieren, auch am Zielort, um
+    Übertragungsfehler auszuschließen). Unter Windows z. B. je Datei
+    `Get-FileHash <datei> -Algorithm SHA256` bzw. den Hash gegen die passende Zeile in `SHA256SUMS`
+    vergleichen.
+11. Versionsdatei `VERSION` im installierten Ordner gegen die erwartete Zielversion prüfen
+    (`Get-Content .\VERSION`, siehe Abschnitt 5).
 12. `config.json` unverändert lassen. Falls das neue Release neue, optionale Konfigurationsfelder
     einführt, werden diese in einem separaten, dokumentierten Schritt manuell ergänzt (nicht durch
     Überschreiben der Datei) – das bleibt Admin-Arbeit lokal auf der IPC (siehe
@@ -203,10 +215,10 @@ Rollback auslösen, wenn nach dem Update **mindestens einer** dieser Healthcheck
 
 1. Task stoppen (wie Abschnitt 2.2).
 2. Prozess-Ende erneut verifizieren.
-3. Neues Release-Paket entfernen bzw. den unter Abschnitt 2.3 Schritt 7 aufgehobenen vorherigen Stand
-   wiederherstellen. **[H2-abhängig]**: konkret "alten Ordner zurückbenennen", "vorheriges
-   `mini_ems.exe` wieder einspielen" oder "vorherigen Git-Checkout-Stand wiederherstellen", je nach
-   Paketform.
+3. Neuen Release-Ordner entfernen und den unter Abschnitt 2.3 Schritt 7 aufgehobenen vorherigen Stand
+   wiederherstellen. Beim entschiedenen One-Dir-Format konkret: den fehlgeschlagenen Release-Ordner löschen
+   und den beiseitegelegten `MiniEMS_vorher`-Ordner (oder das vorherige Release-Archiv) wieder an die
+   Installationsstelle bringen.
 4. Standortdaten aus dem in Abschnitt 2.3 Schritt 6 angelegten Backup zurückspielen: `config.json`,
    `data/runtime/`, `runtime/state.json`, `runtime/health.json`,
    `data/spotmarket/spotmarket_manual_override.json` (falls gesichert). Nur zurückspielen, falls das
@@ -257,20 +269,36 @@ Secomea-Fernzugriff ohnehin stattfindet):
 
 ## 5. Versionierung
 
-- **Schema:** Jedes Release-Paket enthält eine einfache Versionsdatei (z. B. `VERSION` oder
-  `version.txt` im Installationsordner) mit einer Versionsnummer und dem Erstellungsdatum, z. B.
-  `2026.07.0` oder `1.3.0` plus Build-Datum. **[H2-abhängig]**: Ob diese Datei Teil eines
-  PyInstaller-/Nuitka-Artefakts, ein separates Textfile neben `mini_ems.exe`, oder (beim heutigen
-  Git-Checkout-Stand) schlicht der aktuelle Commit-Hash ist, hängt von der noch offenen
-  H2-Entscheidung ab. Die Anforderung an jede Paketform bleibt gleich: **eine lesbare, versionierte
-  Kennung liegt am Installationsort**.
-- **Laufende Version auf der IPC feststellen:** Versionsdatei im Installationsordner öffnen
-  (`Get-Content VERSION`), oder – solange kein eigenes Versionsfeld existiert – ersatzweise
-  Zeitstempel/Commit-Stand des Installationsordners heranziehen. Sobald H2 entschieden ist, soll dieser
-  Schritt durch einen einzelnen, klaren Befehl bzw. eine Datei ersetzt werden, ohne den Ablauf hier
-  sonst zu ändern.
-- **Jede Änderung am Standort kommt über ein neues Paket.** Es gibt keinen Zwischenzustand "halb
-  aktualisiert" oder "einzelne Datei von Hand ersetzt". Ein neues Release-Paket erhöht die
+- **Schema:** Jeder Release-Ordner enthält eine Datei `VERSION` direkt im Installationsordner (neben
+  `mini_ems.exe`). Format (vom Build-Skript erzeugt, `packaging/build_release.ps1` bzw. `.sh`): eine
+  einfache `key=value`-Liste mit
+  - `version=` – Semver-artige Kennung, z. B. `2026.07.0`,
+  - `build_date=` – UTC-Zeitstempel des Builds (`YYYY-MM-DDTHH:MM:SSZ`),
+  - `git_commit=` – Git-Commit-Hash des Quellstands (mit `+dirty`, falls aus einem unsauberen Arbeitsbaum
+    gebaut),
+  - `platform=` – Zielplattform (z. B. `Windows-AMD64`).
+
+  Beispiel:
+
+  ```text
+  version=2026.07.0
+  build_date=2026-07-05T08:21:49Z
+  git_commit=3de16bd4eedf
+  platform=Windows-AMD64
+  ```
+
+  Zusätzlich liegt `SHA256SUMS` (Prüfsummen über alle Paketdateien) im selben Ordner. Damit ist die
+  Anforderung erfüllt: **eine lesbare, versionierte Kennung liegt am Installationsort.**
+- **Laufende Version auf der IPC feststellen:** `VERSION` im Installationsordner öffnen:
+
+  ```powershell
+  Get-Content .\VERSION
+  ```
+
+  Die Zeilen `version=` und `git_commit=` sind die maßgebliche Kennung; ein Rückgriff auf
+  Ordnerzeitstempel oder Git-Stand ist nicht mehr nötig.
+- **Jede Änderung am Standort kommt über einen neuen Release-Ordner.** Es gibt keinen Zwischenzustand
+  "halb aktualisiert" oder "einzelne Datei von Hand ersetzt". Ein neuer Release-Ordner erhöht die
   Versionsnummer und wird komplett über den Ablauf in Abschnitt 2 eingespielt, auch wenn nur eine
   einzelne Datei fachlich betroffen ist.
 
@@ -300,7 +328,9 @@ Konsistent zur Sichtbarkeits- und Änderungsmatrix in `HOSTING_SICHERHEIT.md`, T
 ## Querverweise
 
 - `ROADMAP.md` – strategische To-do-Linie "Geschütztes Kundenhosting" (H1–H9), insbesondere H2
-  (Release-Paketform), H3 (Installationspfad/Dateirechte) und H7 (diese Datei)
+  (Release-Paketform, entschieden: PyInstaller-One-Dir), H3 (Installationspfad/Dateirechte) und H7
+  (diese Datei)
+- `packaging/README.md` – Build-Tooling, Release-Layout, Version-/Prüfsummen-Erzeugung, "Später Nuitka"
 - `HOSTING_SICHERHEIT.md` – Sichtbarkeits-/Änderungsmatrix, Netzwerkgrenzen, Secomea/VPN-Zugriff
 - `EDGE_INTEGRATION_CONTRACT.md` – Lese-/Schreibrechte, Safety-Flags, Ausfallverhalten
 - `MINI_EMS_ANLEITUNG.md` – Betrieb, Pfade IPC vs. lokal, `health.json`-Felder, Windows-Task
