@@ -348,6 +348,17 @@ Leitentscheidungen:
 
 ## Empfohlener nächster Schritt
 
-**Zuerst UX1, UX4 und UX7 bearbeiten.** Damit werden Reporting-Zielbild, Betreiber-Startseite und visuelle Richtung
-parallel geklärt. Danach kann UX2 als erster sichtbarer Kundennutzen umgesetzt werden: ein schönerer, präsentabler
-Report, der aus echten Mini-EMS-Daten entsteht.
+**Aktive Linie: UX14-16 "Standort einrichten".** Reporting-Zielbild, Startseite, visuelle Richtung, Wording und
+Rollenmodell (UX1/2/4/5/6/7/10/11) sowie der Demo-Flow (UX13) sind erledigt; der nächste sichtbare Sprung ist der
+geführte Inbetriebnahmeprozess. UX14 (Standort/Geräte/Datenpunkte/Testen/Aktivieren als Ablauf), UX15 (fachliche
+Mapping-Tabelle statt Punktliste) und UX16 ("Alle Punkte testen" als Wow-Moment) bilden zusammen die UX-Seite des
+Mapping-Kerns aus `ROADMAP.md` S5/S6 und sind die aktive Arbeitslinie des Nutzers.
+
+**Danach als Abschlusspolitur: UX9.** Sobald UX3 (Report-Konfigurator) und UX8 (lesbarere Diagramme) – beide
+aktuell in Arbeit – stehen, rundet UX9 (Responsive-/Vor-Ort-Prüfung auf Laptop, Monitor, Tablet) das Reporting- und
+Bedienbarkeits-Paket ab, statt einzelne Ansichten mehrfach nachzujustieren.
+
+**UX12 erst nach S6.** Die rollenbasierte Konfigurationsseite als Freigabeprozess braucht den in `ROADMAP.md` S6
+gebauten Aktivierungspfad (Backup, Audit, Neustartbedarf) als fachliche Grundlage; vorher würde UX12 nur ein
+UI-Versprechen ohne tragfähigen Unterbau abbilden. UX17-UX22 bleiben wie bisher an spätere technische Ausbaustufen
+(Discovery, Cloud-Export, Write-Back, Auto-Mapping) gekoppelt und sind kein aktueller Umsetzungsschritt.
