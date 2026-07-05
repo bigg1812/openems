@@ -469,6 +469,19 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     geeigneter, aber aufwendiger. `config.json` darf nicht in ein hart kodiertes Paket verschwinden.
   - **Definition of Done:** Eine Test-IPC kann Mini EMS ohne Git-Repo starten; der Betriebspfad bleibt `config.json` plus
     geplanter Windows-Task.
+  - **Entscheidung (Nutzer, wörtlich):** *"Release-Paket, initial PyInstaller, später Nuitka-kompatibel"*.
+    Umsetzung: One-Dir-Release (ausführbares Artefakt + `dashboard/` + `mini_ems_runtime/templates/`,
+    optional `sim/`, plus `VERSION`, `SHA256SUMS`, `RELEASE_HINWEISE.md`) über `packaging/`
+    (`mini_ems.spec`, `build_release.ps1` für Windows/IPC, `build_release.sh` für lokale Verifikation).
+    `config.json` und Betriebsdaten sind nie Teil des Pakets; der Betriebspfad bleibt externes `config.json`
+    plus geplanter Windows-Task. Die Frozen-Pfadauflösung ist bewusst generisch gehalten (Ressourcen neben
+    dem Executable, kein `sys._MEIPASS` im Runtime-Code), damit sie ohne Umbau auch für Nuitka trägt.
+  - **Stand:** Packaging-Tooling und die minimale Frozen-Pfadauflösung (`mini_ems_runtime/resources.py`,
+    eine Zeile in `app.py`) liegen vor; der lokale Build-Nachweis auf macOS ist erbracht (PyInstaller-Build,
+    `--once`-Zyklus schreibt `health.json`, `--loop` liefert `/api/status` und `/dashboard`, alle 85 Tests
+    grün). Offen bleiben der Windows-Build auf der IPC und der Start auf einer Test-IPC ohne Git-Repo – das
+    kann nur der Nutzer am Standort erbringen; deshalb bleibt die H2-Checkbox offen. Details:
+    `packaging/README.md`; aufgelöste Betriebsschritte: `UPDATE_WARTUNG.md`.
 
 - [ ] **H3. Runtime-Dateien und Konfiguration sauber schützen**
   - **Was:** Installation z. B. unter `C:\Program Files\MiniEMS` oder `C:\ProgramData\MiniEMS`, mit Windows-Rechten nur

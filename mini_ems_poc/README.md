@@ -105,12 +105,15 @@ Es will nicht sofort alles abdecken:
 - [Hosting und Sicherheitsgrenze](./HOSTING_SICHERHEIT.md)
 - [Technische Roadmap](./ROADMAP.md)
 - [Product & UX Roadmap](./PRODUCT_UX_ROADMAP.md)
+- [Packaging / Release-Paket](./packaging/README.md)
 
 Die Anleitung ist bewusst tiefer und beschreibt Architektur, Konfiguration und Betrieb im Detail.
 Der Edge Integration Contract definiert verbindlich, was die Edge garantiert: gültige Messwerte, Qualität, Lese-/Schreibrechte und Ausfallverhalten.
 Hosting und Sicherheitsgrenze legt fest, wer UI, Konfiguration, Logs und Betriebsdaten sehen darf, und beschreibt die Minimalvariante für ein erstes read-only Online-Hosting.
 Die technische Roadmap hält Betriebs-, Architektur-, Sicherheits- und Deployment-Schritte fest.
 Die Product & UX Roadmap behandelt Reporting, Bedienbarkeit, moderne UI-Richtung, Sprache und Demo-Fähigkeit.
+Das Packaging beschreibt, wie Mini EMS als versioniertes Release-Paket (PyInstaller, später Nuitka-kompatibel)
+statt als Git-Checkout ausgeliefert wird (H2); der Betriebspfad bleibt externes `config.json` plus Windows-Task.
 Diese README ist der Einstieg fuer das schnelle Gesamtverstaendnis.
 
 ## Ordnerstruktur
