@@ -174,6 +174,12 @@ müssen stabil genug sein, damit zusätzliche Protokoll- und Cloud-Komplexität 
     freigegebenen EMS-Kanäle.
   - **Definition of Done:** Es gibt eine kurze technische Entscheidung: eigener Adapter weiterführen, BACpypes3 direkt
     nutzen oder BAC0 für Discovery/Import einsetzen; inklusive Teststrategie und klarer Grenze zu Schreibpfaden.
+  - **Stand (2026-07-05):** Evaluierung liegt vor in `BACNET_STACK_EVAL.md`. Empfehlung: produktiver Lese-/Schreibpfad
+    bleibt beim eigenen Adapter (`bacnet.py`); für die Discovery-/Import-Vorstufe (S8) `BACpypes3` **direkt** als
+    getrennter, **read-only** Werkzeugpfad (MIT, eine Abhängigkeit, direkte Broadcast-/RPM-Lastkontrolle) statt `BAC0`
+    (LGPL-3.0, zwei Abhängigkeiten, verdeckte Last). Fremd-Stack erzeugt nur Rohpunkt-**Kandidaten** für den
+    Mapping-Entwurf (S5), niemals Kanäle oder Writes. Ist-Analyse, Optionsvergleich, RPM-/Broadcast-Lastregeln und
+    Teststrategie in `BACNET_STACK_EVAL.md`. Checkbox bleibt offen: **finale Wahl trifft der Nutzer.**
 
 - [ ] **S8. BACnet-Discovery und Punktlisten-Import als Mapping-Vorstufe bauen**
   - **Was:** Einen späteren Importpfad entwerfen: erreichbare Controller finden, BACnet-Objekte/Punktlisten einlesen,
