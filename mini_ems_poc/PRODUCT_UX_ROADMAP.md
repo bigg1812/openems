@@ -304,7 +304,9 @@ Leitentscheidungen:
     Reihenfarben kommen zur Laufzeit aus den `--series-*`-Tokens (Light/Dark), Linien-Disziplin:
     eine Kurve pro Diagramm (Analyse-Sparklines, Berichts- und Übersichts-Charts).
 
-- [ ] **UX9. Responsive und Vor-Ort-taugliche Ansicht prüfen**
+- [x] **UX9. Responsive und Vor-Ort-taugliche Ansicht prüfen** — erledigt: konsolidierte Breakpoints
+  (Tablet/Schmal 1180px, Kompakt 760px), starre Raster auf auto-fit/minmax umgestellt wo sinnvoll,
+  Tablet-Touchziele >= 40px; Desktop (>= 1280px) unverändert.
   - **Was:** UI auf Laptop, großem Monitor und Tablet prüfen; wichtige Bedienflächen, Tabellen und Diagramme
     für typische Vor-Ort-Nutzung stabil machen.
   - **Nutzen:** Mini EMS kann in der Niederlassung, im Büro und bei Inbetriebnahme sinnvoll genutzt werden.
@@ -312,6 +314,15 @@ Leitentscheidungen:
   - **Aufwand:** S/M
   - **Risiken:** Mobile Optimierung darf die Desktop-Bedienung nicht verschlechtern.
   - **Definition of Done:** Dashboard, Analyse und Berichte sind auf Desktop und Tablet ohne Überlappungen bedienbar.
+  - **Umsetzung:** Nur `dashboard/dashboard.css`. Der bei ~800px zuvor zweizeilig umbrechende Nav-Bereich
+    bleibt jetzt einzeilig und scrollt bei Bedarf horizontal (kein ragged Umbruch); die Statuskarte bleibt
+    kompakt rechts statt sich unkontrolliert zu stapeln. Analyse-Chips (`.selected-strip`) und
+    Sparkline-Karten (`.series-grid`) behalten die feste Desktop-Spaltenzahl und lösen sich erst unter
+    1180px per auto-fit auf; `.window-columns` bleibt auf Desktop 2-spaltig und klappt erst unter 760px um.
+    Hauptaktionen (Button/Theme-Toggle/Segmented) sind auf Tablet >= 40px hoch. Tabellen bleiben in
+    `.table-wrap` horizontal scrollbar. Breakpoints und Grid-/Tabellen-Regeln sind im
+    `UI_STYLEGUIDE.md`, Abschnitt 11, dokumentiert. Konfigurationsseite nur geprüft, nicht funktional
+    verändert (Layout-Regeln der Config-Raster blieben unangetastet).
 
 ## Strategische To-do-Linie: Produktwirkung und Vertrauen
 

@@ -168,3 +168,24 @@ farbiger Zellenhintergrund.
 - **Don't:** neue Hexfarben, Schatten auf Karten, mehr als eine Hauptbotschaft, farbige
   Großflächen für Warnungen, englische Zustandswörter oder interne Kanal-IDs in normalen
   Ansichten, zusätzliche Schriftgrößen außerhalb der Skala.
+
+## 11. Responsive Verhalten (UX9)
+
+Leitprinzip: Mobile-Optimierung darf die Desktop-Bedienung nicht verschlechtern.
+Ab Desktop (>= 1280px) bleibt das Layout unverändert; die Regeln greifen erst darunter.
+
+**Zwei bewusste Breakpoints** (mehr gibt es nicht):
+
+| Breakpoint | Verhalten |
+| --- | --- |
+| **Tablet/Schmal** (`max-width: 1180px`) | Sidebar wird zur horizontalen Kopfnavigation (sticky), die einzeilig bleibt und bei Bedarf horizontal scrollt (kein zweizeiliger Umbruch). Seitenlayouts (`dashboard-layout`, `system-layout`, `report-layout`, `channel-layout`, `admin-config-layout`) werden einspaltig; feste 4er-/3er-Raster fallen auf 2 Spalten bzw. auto-fit. Deckt Tablet quer (1024) und schmale Desktop-Fenster (~800–1100px) ab. Touch-Ziele der Hauptaktionen (Button, Theme-Toggle, Segmented) mindestens 40px hoch. |
+| **Kompakt** (`max-width: 760px`) | Kopfzeile, Aktionsleisten und Raster werden einspaltig; das Sidebar-Band bricht in zwei geordnete Reihen um (Marke + Status, Navigation darunter). Hauptaktionen dürfen volle Breite einnehmen. |
+
+**Grid-Prinzip:** Wo eine feste Spaltenzahl nur zufällig passt, `repeat(auto-fit, minmax(<min>, 1fr))`
+verwenden (Muster `.chart-stats`), damit Karten selbstständig umbrechen statt abgeschnitten zu werden.
+Desktop-Spaltenzahlen, die bewusst gesetzt sind (KPI 4, Analyse-Karten 3, Preisfenster 2), bleiben als
+feste Basis erhalten und werden erst unter 1180px aufgelöst — keine stille Desktop-Regression.
+
+**Tabellen-Regel:** Tabellen stehen immer in `.table-wrap` (Rahmen + Radius + `overflow: auto`) und
+scrollen bei Platzmangel horizontal innerhalb dieses Containers, statt das Seitenlayout zu sprengen
+(`white-space: nowrap` an den Zellen bleibt erhalten).
