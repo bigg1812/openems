@@ -113,8 +113,9 @@ Durchführung remote via Secomea/VPN auf die IPC, wie in `HOSTING_SICHERHEIT.md`
    Copy-Item "runtime\health.json" "$backupDir\"
    Copy-Item "logs\mini_ems.log" "$backupDir\" -ErrorAction SilentlyContinue
    ```
-   (Pfad `C:\ProgramData\MiniEMS\...` ist die vorgesehene Zielstruktur aus H3, dort noch offen; solange
-   H3 nicht umgesetzt ist, Backup-Ordner unterhalb des heutigen Projektordners ablegen, z. B.
+   (Pfad `C:\ProgramData\MiniEMS\...` ist die vorgesehene Zielstruktur aus H3 – Konzept liegt jetzt vor in
+   `HOSTING_SICHERHEIT.md` Teil 3, Anwendung auf der realen IPC steht noch aus. Solange das Ziel-Layout
+   nicht auf der IPC angewendet ist, Backup-Ordner unterhalb des heutigen Projektordners ablegen, z. B.
    `<ProjectDir>\backup\<stamp>\`.)
 7. Zusätzlich den kompletten bisherigen Release-Ordner als Rollback-Kandidat aufheben. Beim entschiedenen
    One-Dir-Format ist das der Ordner mit `mini_ems.exe`, `dashboard/`, `mini_ems_runtime/templates/`,
@@ -331,7 +332,9 @@ Konsistent zur Sichtbarkeits- und Änderungsmatrix in `HOSTING_SICHERHEIT.md`, T
   (Release-Paketform, entschieden: PyInstaller-One-Dir), H3 (Installationspfad/Dateirechte) und H7
   (diese Datei)
 - `packaging/README.md` – Build-Tooling, Release-Layout, Version-/Prüfsummen-Erzeugung, "Später Nuitka"
-- `HOSTING_SICHERHEIT.md` – Sichtbarkeits-/Änderungsmatrix, Netzwerkgrenzen, Secomea/VPN-Zugriff
+- `HOSTING_SICHERHEIT.md` – Sichtbarkeits-/Änderungsmatrix (Teil 1), Netzwerkgrenzen, Secomea/VPN-Zugriff
+  (Teil 2), Installationslayout und Windows-Dateirechte (Teil 3, H3) – Grundlage für die Backup-Zielpfade
+  in Abschnitt 2.3 dieser Datei
 - `EDGE_INTEGRATION_CONTRACT.md` – Lese-/Schreibrechte, Safety-Flags, Ausfallverhalten
 - `MINI_EMS_ANLEITUNG.md` – Betrieb, Pfade IPC vs. lokal, `health.json`-Felder, Windows-Task
 - `windows/install_task.ps1`, `run_mini_ems.cmd` – heutiger Start-/Task-Mechanismus (nur lesend

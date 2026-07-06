@@ -1,11 +1,15 @@
 # Mini EMS – Hosting und Sicherheitsgrenze
 
-Diese Datei erledigt zwei Dinge:
+Diese Datei erledigt drei Dinge:
 
 - **Teil 1 (H1 aus `ROADMAP.md`)** legt das Zielbild und die Sicherheitsgrenze fest: wer UI, Runtime-Dateien,
   Standortkonfiguration, Logs und Betriebsdaten sehen bzw. ändern darf.
 - **Teil 2 (Konzept zu To-do 3 aus `ROADMAP.md`)** ist die Entscheidungsvorlage für das erste sichere
   Online-Hosting: zwei konkrete Pfade, eine Empfehlung und eine Checkliste für den Piloten.
+- **Teil 3 (H3 aus `ROADMAP.md`)** setzt die Sichtbarkeits-/Änderungsmatrix aus Teil 1 in ein konkretes
+  Installationslayout und Windows-Dateirechte um: wo App-Dateien und Standortdaten auf der Kunden-IPC
+  liegen, wer welche Rechte auf welchen Ordner bekommt, und mit welchen `icacls`-Kommandos das umgesetzt
+  wird.
 
 Grundsatz wie im `EDGE_INTEGRATION_CONTRACT.md`: **Der Code ist die Wahrheit.** Die Endpunkt-Listen und
 Aussagen zu Lese-/Schreibpfaden sind aus `mini_ems_runtime/http_api.py`, `config.json` und dem
@@ -270,12 +274,347 @@ Diese Punkte bleiben bewusst offen und sind in `ROADMAP.md` als eigene Schritte 
 
 ---
 
+## Teil 3 – Dateischutz und Installationslayout auf der IPC (H3)
+
+Ziel von H3: Die Sichtbarkeits-/Änderungsmatrix aus Teil 1.2 ist heute nur eine fachliche Festlegung.
+Dieser Teil übersetzt sie in ein konkretes Installationsverzeichnis-Layout und Windows-`icacls`-Rechte,
+konsistent mit dem in H2 entschiedenen Release-Paket (One-Dir-PyInstaller, siehe `packaging/README.md`)
+und dem Update-Ablauf in `UPDATE_WARTUNG.md`. Die reale Anwendung auf der Kunden-IPC ist damit noch nicht
+erbracht (siehe Migrationshinweis 3.5 und `ROADMAP.md`, H3-Stand); dieser Abschnitt ist das umsetzungsreife
+Konzept dafür.
+
+### 3.1 Ziel-Installationslayout
+
+Grundprinzip: **App-Dateien** (aus dem Release-Paket, bei jedem Update ersetzt) und **Standortdaten**
+(bleiben über Updates hinweg bestehen) liegen in getrennten Windows-Wurzelverzeichnissen mit
+unterschiedlichem Schreibschutz – nicht nur in getrennten Unterordnern desselben Projektbaums wie heute.
+
+```text
+C:\Program Files\MiniEMS\                     <- App-Dateien (nur Administratoren schreibbar)
+|-- mini_ems.exe
+|-- _internal\                                 (PyInstaller-Laufzeit)
+|-- dashboard\                                  (UI-Assets, inkl. vendor\)
+|-- mini_ems_runtime\templates\report.html.j2
+|-- sim\                                        (optional, nur Testlauf)
+|-- VERSION
+|-- SHA256SUMS
+`-- RELEASE_HINWEISE.md
+
+C:\ProgramData\MiniEMS\                        <- Standortdaten (Task-Benutzer schreibt, normale Nutzer lesen/schreiben nicht)
+|-- config.json                                 (Standortkonfiguration, Admin-Arbeit)
+|-- data\
+|   |-- runtime\mini_ems.sqlite                 (Betriebsdaten-Historie)
+|   `-- spotmarket\
+|       |-- spotmarket_manual_override.json
+|       |-- spotmarket_price_cache.json
+|       `-- spotmarket_tomorrow_windows.json
+|-- logs\
+|   |-- mini_ems.log
+|   `-- mini_ems_stdout.log
+|-- runtime\
+|   |-- state.json
+|   `-- health.json
+`-- backup\<zeitstempel>\                       (Backups aus UPDATE_WARTUNG.md Abschnitt 2.3)
+```
+
+**Begründung der Trennung:**
+
+- `C:\Program Files\MiniEMS` ist unter Windows standardmäßig nur für Administratoren beschreibbar;
+  normale Benutzer haben dort Lese-, aber kein Schreibrecht. Das passt genau zur App-Dateien-Rolle: Sie
+  werden nur bei einem kontrollierten Update (Admin-Vorgang, siehe `UPDATE_WARTUNG.md` Abschnitt 2)
+  ersetzt, nie im Betrieb verändert.
+- `C:\ProgramData\MiniEMS` ist der vorgesehene Windows-Ort für maschinenweite Anwendungsdaten, die kein
+  Benutzerprofil sind. Das passt zur Standortdaten-Rolle: Der laufende Task schreibt hier laufend
+  (Logs, DB, `runtime/state.json`, `runtime/health.json`, Spotmarkt-Dateien), Admin liest/ändert hier
+  gezielt (`config.json`), normale Benutzer brauchen hierauf keinen Zugriff.
+- Diese Trennung ist **identisch** zur App-Dateien-/Standortdaten-Liste aus `UPDATE_WARTUNG.md`
+  Abschnitt 1.3: Was dort als "App-Dateien (werden bei jedem Update ersetzt)" gilt, liegt im
+  Ziel-Layout unter `C:\Program Files\MiniEMS`; was dort als "Standortdaten (bleiben unangetastet)" gilt
+  (`config.json`, `data/runtime/`, `data/spotmarket/spotmarket_manual_override.json`, `logs/`, `runtime/`),
+  liegt unter `C:\ProgramData\MiniEMS`. Das Ziel-Layout erfindet keine neue Einteilung, es gibt der
+  bestehenden Einteilung nur zwei physisch getrennte, unterschiedlich berechtigte Wurzelverzeichnisse.
+- Ausnahme `sim/`: laut `UPDATE_WARTUNG.md` 1.3 ist `sim/` App-seitig (mitgelieferte Beispieldaten,
+  "nur für lokale Simulation relevant, nicht IPC-Betriebsdaten") und bleibt deshalb unter
+  `C:\Program Files\MiniEMS\sim`, nicht unter `ProgramData`.
+
+**Wie die Runtime das findet:** Der Betriebspfad bleibt unverändert das, was H2 und `UPDATE_WARTUNG.md`
+bereits festlegen: `config.json` liegt außerhalb des Release-Pakets und wird als **Argument beim Start**
+übergeben (`--config <pfad>\config.json`), heute über `run_mini_ems.cmd` bzw. den davon gestarteten
+Python-/Executable-Aufruf. Im Ziel-Layout wäre das Argument `--config C:\ProgramData\MiniEMS\config.json`.
+
+Alle übrigen Datenpfade sind **config-relativ**, nicht fest verdrahtet auf einen bestimmten
+Windows-Ordner. Das ist an `mini_ems_runtime/config.py` nachvollziehbar:
+
+```python
+def resolve_path(self, value: str) -> Path:
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    return self.base_dir / path
+```
+
+`base_dir` wird beim Laden gesetzt als `config_path.resolve().parent` (`load_config`, `config.py`) –
+also der Ordner, in dem `config.json` liegt. `config.json` selbst enthält für Logs, Datenbank, State,
+Health und Spotmarkt-Dateien relative Pfade (`"sqlite_file": "data/runtime/mini_ems.sqlite"`,
+`"state_file": "runtime/state.json"`, `"health_file": "runtime/health.json"`, `logging.directory: "logs"`,
+`"spotmarket_plan_file": "data/spotmarket/..."` usw., siehe `config.json`). Daraus folgt für das
+Ziel-Layout: Wenn `config.json` unter `C:\ProgramData\MiniEMS\config.json` liegt und die relativen Pfade
+unverändert bleiben, landen `data\`, `logs\` und `runtime\` automatisch als Unterordner von
+`C:\ProgramData\MiniEMS` – exakt wie oben skizziert, **ohne Code- oder Config-Feld-Änderung**, nur durch
+die Wahl des Installationsorts von `config.json`. App-Ressourcen (`dashboard/`, Templates) löst die
+Runtime separat über `mini_ems_runtime/resources.py` neben dem Executable auf (`sys.frozen`-Fall, siehe
+`packaging/README.md`), landen also unabhängig davon korrekt unter `C:\Program Files\MiniEMS`.
+
+### 3.2 Rechtemodell
+
+Vier Konten-/Rollentypen, konsistent zur Sichtbarkeitsmatrix aus Teil 1.2: **normale Windows-Benutzer**
+öffnen das UI ausschließlich über HTTP (Kundennetz/VPN, siehe Teil 2) und brauchen dafür **keine**
+Dateisystemrechte auf Runtime-Dateien, Konfiguration oder Logs – die Matrix aus Teil 1.2 verlangt das
+bereits fachlich, dieser Abschnitt setzt es als Dateirecht um.
+
+| Ordner | SYSTEM | Administratoren | Task-/Dienst-Benutzer (`MiniEmsSvc`) | Normale Benutzer |
+|---|---|---|---|---|
+| `C:\Program Files\MiniEMS` (App-Dateien) | Lesen + Ausführen | Vollzugriff | Lesen + Ausführen | Lesen + Ausführen (Standard-Vererbung von `Program Files`) |
+| `C:\ProgramData\MiniEMS` (Wurzel) | Vollzugriff | Vollzugriff | Lesen + Ausführen | kein Zugriff |
+| `C:\ProgramData\MiniEMS\config.json` | Lesen | Ändern | Lesen | kein Zugriff |
+| `C:\ProgramData\MiniEMS\data\` | Vollzugriff | Vollzugriff | Ändern (Lesen/Schreiben) | kein Zugriff |
+| `C:\ProgramData\MiniEMS\logs\` | Vollzugriff | Vollzugriff | Ändern (Lesen/Schreiben) | kein Zugriff |
+| `C:\ProgramData\MiniEMS\runtime\` | Vollzugriff | Vollzugriff | Ändern (Lesen/Schreiben) | kein Zugriff |
+| `C:\ProgramData\MiniEMS\backup\` | Vollzugriff | Vollzugriff | kein Zugriff (Backups sind Admin-Arbeit, siehe `UPDATE_WARTUNG.md` 2.3) | kein Zugriff |
+
+Begründung je Konto:
+
+- **SYSTEM** braucht Zugriff, weil der geplante Task laut heutigem `windows/install_task.ps1` mit
+  `-UserId "NT AUTHORITY\SYSTEM"` läuft (nur lesend referenziert; an dieser Datei arbeitet parallel eine
+  andere Session). Falls künftig auf einen dedizierten Dienstkonto-Ansatz umgestellt wird (Spalte
+  "Task-/Dienst-Benutzer"), gilt dieselbe Rechtezuteilung für dieses Konto statt für SYSTEM – das
+  Rechtemodell ist bewusst so aufgebaut, dass beide Betriebsarten (SYSTEM-Task heute, dedizierter
+  Dienstbenutzer später) ohne Änderung der Ordnerstruktur funktionieren.
+- **Administratoren** brauchen Vollzugriff auf `ProgramData\MiniEMS`, weil Config-Änderungen, Backups,
+  Log-Einsicht und Datenbankzugriff laut Teil 1.2 ausschließlich Admin-Aufgaben sind ("Admin sieht und
+  ändert Standortkonfiguration, Logs, Datenbank und Safety-Flags – ausschließlich lokal/administrativ").
+- **Task-/Dienst-Benutzer** braucht **Lesen** auf `config.json` (Startparameter, Netzwerk-/Punktkonfiguration
+  lesen) und **Schreiben** auf `data\`, `logs\`, `runtime\` (dort entstehen SQLite-Journal-Dateien,
+  Log-Zeilen, `state.json`/`health.json` bei jedem Zyklus). Kein Schreibrecht auf `config.json` selbst
+  (Config-Änderung ist Admin-Vorgang, siehe H9) und kein Zugriff auf `backup\` (Backups sind Teil des
+  Admin-gesteuerten Update-Ablaufs, nicht der laufenden Runtime).
+- **Normale Benutzer** bekommen laut Teil 1.2 ausdrücklich **keinen** direkten Zugriff auf Runtime-Dateien,
+  Konfiguration oder Logs. Sie sehen `health.json`-Inhalte nur mittelbar über das UI (`/api/status`), nie
+  die Datei selbst. Deshalb: kein Eintrag, keine vererbte ACL auf `ProgramData\MiniEMS` – Vererbung von
+  `ProgramData` wird bewusst gekappt (siehe 3.3), sonst würde die Standard-Windows-ACL von `ProgramData`
+  (die "Benutzer"-Gruppe hat dort im Regelfall Lesezugriff) genau das Gegenteil bewirken.
+
+### 3.3 Konkrete PowerShell-/`icacls`-Kommandos
+
+Diese Kommandos sind als Kopiervorlage für die reale IPC gedacht; sie ändern **keine** Datei in diesem
+Repository und sind unabhängig von `windows/install_task.ps1`. Auszuführen als Administrator auf der
+Kunden-IPC, nach dem Kopieren des Release-Pakets und vor dem ersten Start des Tasks.
+
+**1. Ordner anlegen**
+
+```powershell
+New-Item -ItemType Directory -Path "C:\Program Files\MiniEMS" -Force
+New-Item -ItemType Directory -Path "C:\ProgramData\MiniEMS\data\runtime" -Force
+New-Item -ItemType Directory -Path "C:\ProgramData\MiniEMS\data\spotmarket" -Force
+New-Item -ItemType Directory -Path "C:\ProgramData\MiniEMS\logs" -Force
+New-Item -ItemType Directory -Path "C:\ProgramData\MiniEMS\runtime" -Force
+New-Item -ItemType Directory -Path "C:\ProgramData\MiniEMS\backup" -Force
+```
+
+**2. Vererbung kappen (nur auf `ProgramData\MiniEMS`)**
+
+`C:\Program Files` braucht keine Sonderbehandlung – die Windows-Standard-ACL dort (Administratoren
+Vollzugriff, normale Benutzer nur Lesen/Ausführen) entspricht bereits dem Zielbild aus 3.2. Auf
+`C:\ProgramData\MiniEMS` muss die Vererbung von `ProgramData` (dort haben "Benutzer" im Regelfall
+Lesezugriff) dagegen gekappt werden, damit normale Benutzer keinen Zugriff erben:
+
+```powershell
+icacls "C:\ProgramData\MiniEMS" /inheritance:r
+```
+
+**3. ACLs setzen**
+
+```powershell
+# SYSTEM und Administratoren: Vollzugriff auf die gesamte Standortdaten-Wurzel
+icacls "C:\ProgramData\MiniEMS" /grant "SYSTEM:(OI)(CI)F"
+icacls "C:\ProgramData\MiniEMS" /grant "BUILTIN\Administrators:(OI)(CI)F"
+
+# config.json: Task-Benutzer nur lesen (Admin aendert, siehe H9/UPDATE_WARTUNG.md)
+icacls "C:\ProgramData\MiniEMS\config.json" /grant "SYSTEM:(R)"
+
+# Daten-/Log-/Runtime-Ordner: Task-Benutzer aendern (lesen+schreiben), rekursiv fuer neue Dateien im Betrieb
+icacls "C:\ProgramData\MiniEMS\data" /grant "SYSTEM:(OI)(CI)M"
+icacls "C:\ProgramData\MiniEMS\logs" /grant "SYSTEM:(OI)(CI)M"
+icacls "C:\ProgramData\MiniEMS\runtime" /grant "SYSTEM:(OI)(CI)M"
+
+# backup\: bewusst kein Grant fuer den Task-Benutzer - nur SYSTEM/Administratoren (aus Schritt 3a) haben Zugriff
+```
+
+Hinweis: Die Beispiele nutzen `SYSTEM`, weil der heutige `windows/install_task.ps1` den Task als
+`NT AUTHORITY\SYSTEM` registriert (nur lesend referenziert). Wird künftig ein dedizierter
+Dienst-/Task-Benutzer eingeführt (z. B. `IPC\MiniEmsSvc`), ersetzt dessen Kontoname in denselben
+Kommandos `SYSTEM` 1:1 – Rechteart und betroffene Ordner ändern sich nicht.
+
+Falls kein dedizierter Task-Benutzer, sondern weiterhin `SYSTEM` verwendet wird: Der `/grant`-Aufruf auf
+`SYSTEM` in Schritt 3 ist dann bereits ausreichend, ein zusätzlicher Benutzer-Grant entfällt.
+
+**4. Normale Benutzer explizit ausschließen (Kontrolle, kein Zusatzrecht nötig)**
+
+Nach Schritt 2 (`inheritance:r`) haben normale Benutzer bereits keinen Zugriff mehr, weil keine
+Vererbung mehr greift und kein expliziter Grant für "Benutzer" oder "Jeder" gesetzt wurde. Ein
+zusätzliches explizites `/deny` ist nicht nötig und wird nicht empfohlen (`/deny`-Einträge erschweren
+spätere Rechtekorrekturen und können sich mit Administratorrechten überschneiden). Zur Kontrolle:
+
+```powershell
+icacls "C:\ProgramData\MiniEMS"
+```
+
+Erwartete Ausgabe: nur `NT AUTHORITY\SYSTEM` und `BUILTIN\Administrators` (bzw. der dedizierte
+Task-Benutzer) als Einträge, kein `BUILTIN\Users`, kein `Jeder`/`Everyone`.
+
+**5. Prüfkommandos**
+
+```powershell
+# ACL-Ausgabe je Ordner pruefen (erwartet: kein BUILTIN\Users, kein Everyone)
+icacls "C:\ProgramData\MiniEMS"
+icacls "C:\ProgramData\MiniEMS\config.json"
+icacls "C:\ProgramData\MiniEMS\data"
+icacls "C:\ProgramData\MiniEMS\logs"
+icacls "C:\ProgramData\MiniEMS\runtime"
+
+# Test als normaler Benutzer (in einer Sitzung/Remote-Desktop-Session eines Nicht-Admin-Kontos ausfuehren):
+Get-Content "C:\ProgramData\MiniEMS\config.json"          # erwartet: Zugriff verweigert
+Get-ChildItem "C:\ProgramData\MiniEMS\logs"                # erwartet: Zugriff verweigert
+Test-Path "C:\ProgramData\MiniEMS\runtime\health.json"     # Pfad kann als vorhanden gemeldet werden,
+                                                            # ein anschliessendes Get-Content muss aber scheitern
+```
+
+Der eigentliche DoD-Nachweis ("normale Benutzer können Runtime-Dateien nicht lesen/ändern") ist erst mit
+diesem dritten Prüfschritt – ausgeführt unter einem echten Nicht-Admin-Windows-Konto auf der realen
+IPC – tatsächlich erbracht, nicht schon mit dem Setzen der ACLs allein.
+
+### 3.4 Betriebsrisiken
+
+Die H3-Leitplanke aus `ROADMAP.md` lautet wörtlich: *"Zu strenge Rechte dürfen den geplanten Task, Logs
+und Reports nicht blockieren."* Konkret heißt das:
+
+**Mindestrechte, die der Task-/Dienst-Benutzer braucht:**
+
+- **Lesen:** `C:\Program Files\MiniEMS` (Executable, `dashboard/`, Templates) und
+  `C:\ProgramData\MiniEMS\config.json`.
+- **Schreiben (Lesen+Ändern):** `C:\ProgramData\MiniEMS\data\` (SQLite-Datei inkl. WAL-/Journal-Dateien,
+  Spotmarkt-Cache/-Plan/-Override), `C:\ProgramData\MiniEMS\logs\` (laufendes Anhängen an `mini_ems.log`
+  und `mini_ems_stdout.log`), `C:\ProgramData\MiniEMS\runtime\` (`state.json`, `health.json` werden laut
+  `MINI_EMS_ANLEITUNG.md` bei jedem Zyklus neu geschrieben).
+
+**Was bei zu strengen Rechten typischerweise bricht** (jeweils mit Symptom, damit es im Betrieb
+wiedererkennbar ist):
+
+- **Fehlendes Schreibrecht auf `logs\`:** Der Task startet, aber `mini_ems_stdout.log` bzw.
+  `mini_ems.log` wachsen nicht mehr; im schlimmsten Fall bricht der Prozess beim ersten Log-Write ab und
+  die `run_mini_ems.cmd`-Restart-Schleife (siehe `UPDATE_WARTUNG.md` 2.2) startet ihn endlos neu, ohne
+  dass ein Fehler sichtbar wird, weil genau das Log fehlt, das den Fehler zeigen würde.
+- **Fehlendes Schreibrecht auf `data\runtime\`:** SQLite kann keine Journal-/WAL-Datei neben der
+  `.sqlite`-Datei anlegen. Typisches Symptom: `sqlite3.OperationalError: attempt to write a readonly
+  database` oder `disk I/O error` in den Logs, Historie/Reports bleiben leer oder brechen ab
+  (`/api/history`, `/api/report/*` liefern keine neuen Daten).
+  **Wichtig:** Das Schreibrecht muss auch für **neu erzeugte** Dateien in diesem Ordner gelten (SQLite
+  legt `-wal`/`-shm`-Dateien zur Laufzeit an) – deshalb in Schritt 3 die Vererbungsflags `(OI)(CI)`
+  (Object Inherit/Container Inherit), nicht nur ein Recht auf die heute schon vorhandenen Dateien.
+- **Fehlendes Schreibrecht auf `runtime\`:** `state.json`/`health.json` können nicht aktualisiert werden.
+  Der Healthcheck aus `UPDATE_WARTUNG.md` 2.6 zeigt dann entweder eine veraltete `health.json`
+  (`last_cycle_at` bleibt stehen) oder der Prozess wirft beim Schreibversuch eine Exception und der
+  Watchdog/`runtime_status` kippt auf `stale_runtime`.
+- **Fehlendes Leserecht auf `config.json`:** Der Prozess kann gar nicht starten (`load_config` schlägt
+  schon beim `read_text` fehl); sichtbar als sofortiger Absturz direkt nach Taskstart, `LastTaskResult`
+  ungleich `0`.
+- **Zu strenge Rechte auf `data\spotmarket\`:** Der Spotmarkt-Override (`spotmarket_manual_override.json`)
+  kann nicht gelesen/geschrieben werden; die Preisplanung fällt auf Default-Verhalten zurück oder eine
+  manuell gesetzte Override-Einstellung wird beim nächsten Zyklus nicht übernommen.
+- **Report-PDF/HTML (`/api/report/pdf`, `/api/report/html`):** Diese Endpunkte lesen aus der SQLite-DB
+  (`data\runtime\`) und rendern serverseitig; sie brauchen kein zusätzliches Schreibrecht über die oben
+  genannten Ordner hinaus, sind aber indirekt betroffen, wenn `data\runtime\` nicht beschreibbar ist und
+  deshalb keine aktuellen Daten in der DB stehen.
+
+**Kurzer Funktionstest nach dem Setzen der Rechte** (Verweis auf `UPDATE_WARTUNG.md` Abschnitt 2.6,
+hier auf das Rechte-Setzen zugeschnitten statt auf ein volles Update):
+
+1. Task starten (`Start-ScheduledTask -TaskName "MiniEmsPoC"`) und mindestens einen Zyklus abwarten
+   (`timing.cycle_seconds`, siehe `config.json`).
+2. `runtime\health.json` öffnen: `status` muss `healthy` sein, `runtime_status` muss `live` sein,
+   `last_cycle_at` muss aktuell sein – identische Prüfpunkte wie in `UPDATE_WARTUNG.md` 2.6, Punkt 15.
+3. `logs\mini_ems.log` auf neue `ERROR`/`Traceback`-Einträge seit dem Start prüfen
+   (`Select-String -Path "logs\mini_ems.log" -Pattern "ERROR","Traceback" | Select-Object -Last 20`).
+4. `data\runtime\mini_ems.sqlite` Dateigröße/Änderungszeitpunkt prüfen (`Get-Item ... | Select
+   Length,LastWriteTime`) – sie muss sich nach einem Zyklus geändert haben.
+5. `/api/status` von einem Rechner mit Netzzugriff abrufen und ein frisches `timestamp`-Feld im
+   `health`-Abschnitt prüfen (identisch zu `UPDATE_WARTUNG.md` 2.6, Punkt 16).
+
+Schlägt einer dieser Punkte fehl, ist das erste Verdachtsmoment ein zu enges Dateirecht auf genau dem
+Ordner, der zum jeweiligen Symptom passt (siehe Liste oben) – nicht zwingend ein Code- oder
+Konfigurationsfehler.
+
+### 3.5 Migrationshinweis: vom heutigen Zustand zum Ziel-Layout
+
+**Heutiger Zustand:** Git-Checkout unter `C:\dev\openems\mini_ems_poc` (siehe `MINI_EMS_ANLEITUNG.md`,
+Ordnerstruktur), Task läuft über `windows/install_task.ps1` als `SYSTEM`, `run_mini_ems.cmd` startet
+`python.exe mini_ems.py --config "%PROJECT_DIR%\config.json" --loop` mit `WorkingDirectory` = Projektordner.
+Alle Standortdaten liegen als Unterordner desselben Checkouts. Es gibt keine Windows-ACL-Sonderbehandlung
+gegenüber dem Standard-Benutzerordner.
+
+**Reihenfolge der Migration** (kann erst nach dem in H2 vorausgesetzten Windows-Build erfolgen, siehe
+unten):
+
+1. **Voraussetzung, bereits an anderer Stelle offen:** Windows-Build des Release-Pakets auf/für die IPC
+   (`packaging\build_release.ps1`), siehe `ROADMAP.md` H2-Stand. Ohne dieses Paket gibt es keine
+   App-Dateien-Menge, die nach `C:\Program Files\MiniEMS` kopiert werden könnte.
+2. Zielordner anlegen und Rechte setzen wie in 3.3 beschrieben (kann vorbereitend erfolgen, sobald die
+   Zielverzeichnisse feststehen, unabhängig vom fertigen Release-Build).
+3. Aktuelle Standortdaten aus dem bestehenden Checkout **kopieren, nicht verschieben** (Originale bleiben
+   bis zum bestätigten Funktionstest erhalten): `config.json`, `data\runtime\`, `data\spotmarket\
+   spotmarket_manual_override.json` (falls gesetzt), `logs\`, `runtime\state.json`,
+   `runtime\health.json` nach `C:\ProgramData\MiniEMS\...` in identischer Unterstruktur – dieselbe
+   Dateiliste wie beim Backup-Schritt in `UPDATE_WARTUNG.md` 2.3.
+4. Release-Paket nach `C:\Program Files\MiniEMS` entpacken (identisch zum "Release-Ordner tauschen" aus
+   `UPDATE_WARTUNG.md` 2.4, nur mit neuem Zielpfad statt In-Place-Ersetzung im Checkout-Ordner).
+5. Geplanten Task auf den neuen Installationsort umstellen: neues Startkommando mit
+   `--config "C:\ProgramData\MiniEMS\config.json"` und Arbeitsverzeichnis/Executable-Pfad
+   `C:\Program Files\MiniEMS`. **Diese Umstellung betrifft `windows/install_task.ps1` bzw. dessen
+   Nachfolgeversion – wird hier nur benannt, nicht ausgeführt oder inhaltlich vorweggenommen**, weil an
+   dieser Datei parallel gearbeitet wird.
+6. Funktionstest wie in 3.4 durchführen, bevor der alte Checkout-Ordner entfernt wird.
+7. Erst nach bestandenem Funktionstest den alten Task deregistrieren/alten Checkout-Ordner archivieren
+   oder löschen – nicht vorher, damit im Fehlerfall der bekannte funktionierende Zustand sofort wieder
+   verfügbar ist (gleiches Rollback-Prinzip wie in `UPDATE_WARTUNG.md` Abschnitt 3).
+
+**Was erst nach dem H2-Windows-Build auf der realen IPC passieren kann** (nicht vorwegnehmbar in diesem
+Dokument):
+
+- Das tatsächliche Kopieren der Standortdaten und das Entpacken des Release-Pakets in die Zielordner.
+- Das Setzen und Prüfen der `icacls`-ACLs auf der realen Windows-Installation (die Kommandos in 3.3 sind
+  kopierbereit, aber ungetestet gegen die reale IPC-Umgebung, reale Kontonamen und reale
+  Windows-Version).
+- Der DoD-Nachweis selbst: ein Test als echter normaler Windows-Benutzer, dass Runtime-Dateien nicht
+  lesbar/änderbar sind, bei laufendem Task und funktionierendem UI-Zugriff.
+- Die Umstellung von `windows/install_task.ps1` auf den neuen Installationspfad und ggf. auf einen
+  dedizierten Task-/Dienst-Benutzer statt `SYSTEM` – das ist Gegenstand der parallel laufenden Session
+  an dieser Datei und wird hier nicht vorgegriffen.
+
+---
+
 ## Querverweise
 
 - `ROADMAP.md` – strategische To-do-Linie "Geschütztes Kundenhosting" (H1–H9) und To-do 3
 - `PRODUCT_UX_KONZEPT.md`, Abschnitt 3 – fachliches Rollenmodell Viewer/Operator/Admin
 - `EDGE_INTEGRATION_CONTRACT.md` – Lese-/Schreibrechte, Safety-Flags, Ausfallverhalten
-- `MINI_EMS_ANLEITUNG.md` – Betrieb, `api.host`-Bindung, Endpunktübersicht
+- `MINI_EMS_ANLEITUNG.md` – Betrieb, `api.host`-Bindung, Endpunktübersicht, heutige Ordnerstruktur
 - `mini_ems_runtime/http_api.py` – tatsächliche Endpunkte (Quelle der Einstufung in 2.1)
-- `UPDATE_WARTUNG.md` – Update-, Healthcheck- und Rollback-Ablauf (H7), Verantwortlichkeiten remote
-  (Secomea/VPN) vs. vor Ort, konsistent zur Sichtbarkeits-/Änderungsmatrix in Teil 1
+- `mini_ems_runtime/config.py` – `resolve_path`/`base_dir`, Quelle der config-relativen Pfadauflösung in Teil 3.1
+- `packaging/README.md`, `packaging/RELEASE_HINWEISE.md` – Release-Layout, Frozen-Pfadauflösung (H2),
+  Grundlage für das App-Dateien-Layout in Teil 3.1
+- `UPDATE_WARTUNG.md` – Update-, Healthcheck- und Rollback-Ablauf (H7), App-Dateien-/Standortdaten-Liste
+  (Abschnitt 1.3, Basis für Teil 3.1), Backup-Dateiliste (Abschnitt 2.3, Basis für Migrationshinweis 3.5),
+  Verantwortlichkeiten remote (Secomea/VPN) vs. vor Ort, konsistent zur Sichtbarkeits-/Änderungsmatrix in
+  Teil 1
+- `windows/install_task.ps1` – heutiger Task-Mechanismus (nur lesend referenziert; Umstellung auf das
+  Ziel-Layout aus Teil 3 ist dort noch nicht vorgenommen)
