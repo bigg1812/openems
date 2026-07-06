@@ -88,6 +88,8 @@ class MiniEmsApiServer:
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:
                 parsed = urlparse(self.path)
+                if self._deny_in_read_only("GET", parsed.path):
+                    return
                 query = parse_qs(parsed.query)
                 try:
                     if parsed.path in ("/", "/dashboard", "/index.html"):
@@ -193,6 +195,8 @@ class MiniEmsApiServer:
 
             def do_POST(self) -> None:
                 parsed = urlparse(self.path)
+                if self._deny_in_read_only("POST", parsed.path):
+                    return
                 try:
                     if parsed.path == "/api/config/spotmarket-lockout":
                         payload = self._read_json_body()
@@ -240,6 +244,35 @@ class MiniEmsApiServer:
 
             def log_message(self, _format: str, *_args) -> None:
                 return None
+
+            def _deny_in_read_only(self, method: str, path: str) -> bool:
+                """Zentrale Read-only-Sperre (H5) fuer das Request-Handling.
+
+                Deny-by-default: Im read-only Netzwerkmodus werden alle nicht-GET-
+                Methoden abgelehnt, damit auch spaeter ergaenzte Schreib-Endpunkte
+                automatisch gesperrt bleiben. Zusaetzlich wird der aktive
+                Anlagen-Read GET /api/diagnostics/read explizit gesperrt (er loest
+                trotz GET einen Live-Lesezugriff aus, siehe HOSTING_SICHERHEIT.md
+                Abschnitt 2.1). Rueckgabe True bedeutet: Antwort wurde gesendet,
+                der Aufrufer muss abbrechen.
+                """
+                if not api_server.api_config.read_only:
+                    return False
+                if method != "GET" or path in _READ_ONLY_BLOCKED_GET_PATHS:
+                    self._send_json(
+                        {
+                            "error": "read_only_mode",
+                            "message": (
+                                "Diese Funktion ist über den Netzwerkzugriff nicht "
+                                "verfügbar. Änderungen und aktive Anlagenabfragen sind "
+                                "nur über den lokalen bzw. administrativen Zugriff auf "
+                                "der Anlage möglich."
+                            ),
+                        },
+                        status=HTTPStatus.FORBIDDEN,
+                    )
+                    return True
+                return False
 
             def _read_json_body(self) -> Dict[str, object]:
                 try:
@@ -375,6 +408,8 @@ class MiniEmsApiServer:
             "spotmarket_plan": spotmarket_plan,
             "spotmarket_settings": self._get_spotmarket_lockout_settings(spotmarket_plan),
             "recent_cycles": self.runtime_db.get_recent_cycles(limit=12),
+            # Additiver Modus-Hinweis fuer das UI (H5): read-only Netzwerkmodus aktiv?
+            "api_read_only": bool(self.api_config.read_only),
         }
 
     def _get_weather_payload(self) -> Dict[str, object]:
@@ -598,6 +633,12 @@ class MiniEmsApiServer:
         backup_path = config_path.with_name("{0}.{1}.bak".format(config_path.name, timestamp))
         backup_path.write_bytes(config_path.read_bytes())
         return backup_path
+
+
+# GET-Endpunkte, die trotz GET im read-only Netzwerkmodus (H5) gesperrt bleiben,
+# weil sie einen aktiven Lesezugriff auf die Anlage ausloesen (HOSTING_SICHERHEIT.md
+# Abschnitt 2.1). Alle nicht-GET-Methoden werden ohnehin deny-by-default gesperrt.
+_READ_ONLY_BLOCKED_GET_PATHS = frozenset({"/api/diagnostics/read"})
 
 
 _SITE_CONFIG_EDITABLE_SECTIONS = (

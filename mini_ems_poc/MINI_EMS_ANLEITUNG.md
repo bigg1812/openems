@@ -575,6 +575,24 @@ und spätere Schreib-Endpunkte brauchen einen geschützten Admin-/Operator-Pfad 
 Internet freigegeben werden. Die lokale Simulation bleibt auf `127.0.0.1` und darf keinen Pfad mit realen
 BACnet-Writes bekommen.
 
+Der optionale Schlüssel `api.read_only` (Boolean, Default `false`) erzwingt diese Grenze serverseitig. Ist er
+`true`, lehnt die API alle nicht-GET-Methoden (POST/PUT/DELETE) und zusätzlich den aktiven Anlagen-Read
+`GET /api/diagnostics/read` mit `HTTP 403` und einem kurzen deutschen Hinweis ab; alle Anzeige-/Abruf-Endpunkte
+(Dashboard, `/api/status`, Historie, Zyklen, Reports, Wetter, Spotmarkt) bleiben erreichbar. `GET /api/status`
+meldet dann `api_read_only: true`. Default `false` lässt das bisherige Verhalten unverändert. Für den
+read-only Netzbetrieb (Pilot-Pfad a in [HOSTING_SICHERHEIT.md](./HOSTING_SICHERHEIT.md)) den Schlüssel im
+`api`-Block ergänzen:
+
+```json
+"api": {
+  "enabled": true,
+  "host": "192.168.244.10",
+  "port": 8090,
+  "history_default_limit": 96,
+  "read_only": true
+}
+```
+
 Wer, welche Rolle und welcher Netzzugang UI, Konfiguration, Logs und Betriebsdaten sehen darf, sowie die Minimalvariante für ein erstes read-only Online-Hosting (Secomea/VPN vs. externer Hosting-Punkt, freizugebende und zu sperrende Endpunkte, Leitplanken) sind in [HOSTING_SICHERHEIT.md](./HOSTING_SICHERHEIT.md) beschrieben.
 
 Wichtige Endpunkte:

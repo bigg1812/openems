@@ -529,6 +529,20 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
   - **Risiken:** UI darf keine verdeckten Konfigurations- oder Schreibfunktionen über denselben Zugriffspfad anbieten.
   - **Definition of Done:** Ein zweiter Rechner sieht echte IPC-Daten im UI; Schalt- und Konfigurationsaktionen sind über
     diesen Pfad nicht möglich.
+  - **Stand (2026-07-06):** Die technische Grundlage ist umgesetzt: ein konfigurierbarer, serverseitiger Read-only-Modus
+    der HTTP-API (`api.read_only`, Boolean, Default `false`) in `mini_ems_runtime/config.py` und `http_api.py`. Die Sperre
+    sitzt an **einer zentralen Stelle** im Request-Handling (`Handler._deny_in_read_only`, aufgerufen am Anfang von
+    `do_GET`/`do_POST`): deny-by-default für alle nicht-GET-Methoden plus explizite Zusatzsperre für den aktiven
+    Anlagen-Read `GET /api/diagnostics/read`. So bleiben auch künftig neu hinzukommende Endpunkte standardmäßig sicher.
+    Blockierte Aufrufe liefern `HTTP 403` mit deutschem JSON-Hinweis (`read_only_mode`); `GET /api/status` meldet additiv
+    `api_read_only`. Die read-only Freigabeliste aus `HOSTING_SICHERHEIT.md` 2.1 (Dashboard, `/api/status`, Historie,
+    Zyklen, Reports, Wetter, Spotmarkt-/Config-GETs) bleibt erreichbar; die 2.1-Liste wurde gegen den aktuellen
+    Endpunktbestand abgeglichen (neu erfasst: `GET /api/config/site`, `POST /api/config/site/validate|save`,
+    `POST /api/config/mapping/preview`). Doku ergänzt in `HOSTING_SICHERHEIT.md` (2.1/2.2/2.5) und
+    `MINI_EMS_ANLEITUNG.md`; parametrisierte Tests in `tests/test_read_only_api.py` (Default off unverändert;
+    read_only=true sperrt jeden blockierten Endpunkt mit 403; Freigabeliste bleibt erreichbar; Status-Feld vorhanden).
+    Checkbox bleibt **offen**: Die DoD verlangt den Nachweis von einem zweiten Rechner am Standort – das kann nur der
+    Nutzer/Betreiber vor Ort erbringen (Pilot-Checkliste in `HOSTING_SICHERHEIT.md` 2.5, jetzt inkl. `api.read_only`-Schritt).
 
 - [ ] **H6. UI-Zugriff mit Login und einfacher Rollenlogik absichern**
   - **Was:** Mindestens Passwortschutz für das UI; später Rollen wie `viewer`, `operator`, `admin`. Für den ersten Schritt

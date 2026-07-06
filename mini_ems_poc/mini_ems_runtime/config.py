@@ -180,6 +180,11 @@ class ApiConfig:
     port: int
     history_default_limit: int
     config_admin_token: Optional[str] = None
+    # Read-only network mode (H5). When True the API serves only the read-only
+    # endpoint allowlist from HOSTING_SICHERHEIT.md 2.1: all non-GET methods and
+    # the active plant read GET /api/diagnostics/read are refused with HTTP 403.
+    # Default False keeps the existing behaviour unchanged.
+    read_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -393,6 +398,7 @@ def validate_raw_config(raw: Dict[str, Any], *, base_dir: Path) -> MiniEmsConfig
             port=int(api.get("port", 8090)),
             history_default_limit=int(api.get("history_default_limit", 96)),
             config_admin_token=_optional_text(api.get("config_admin_token")),
+            read_only=bool(api.get("read_only", False)),
         ),
         runtime=RuntimeConfig(
             environment=str(runtime.get("environment", "ipc")).lower(),
