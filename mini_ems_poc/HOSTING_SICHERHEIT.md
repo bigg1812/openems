@@ -107,6 +107,7 @@ Operator-Rolle beschränkt.
 | `GET /api/status` | Anlagenzustand (`health.json`, `state.json`, Preis-Cache, Plan, letzte Zyklen) | liest nur Dateien/DB |
 | `GET /api/spotmarket/windows` | aktueller Preisfenster-Plan | liest Datei |
 | `GET /api/config/spotmarket-lockout` | aktuelle Einstellung der Preissteuerung (nur Anzeige) | liest Einstellung, schreibt nichts |
+| `GET /api/config/site` | Standortkonfiguration als geschützte Anzeige (Admin-Token wird ausgeblendet) | liest `config.json`, schreibt nichts |
 | `GET /api/history` | Messwert-Historie inkl. Rollups | liest DB |
 | `GET /api/cycles` | letzte Zyklen | liest DB |
 | `GET /api/report/daily`, `/api/report/daily.csv` | Tagesbericht JSON/CSV | liest DB |
@@ -120,11 +121,40 @@ Operator-Rolle beschränkt.
 |---|---|
 | `GET /api/diagnostics/read` | löst einen **aktiven Live-Lesezugriff auf die Anlage** aus (BACnet-Read über `read_diagnostics`); im Rollenmodell Operator, nicht Viewer – im read-only Modus (H5) von außen nicht erreichbar |
 | `POST /api/config/spotmarket-lockout` | **schreibt in `config.json`** (`_persist_min_consecutive_quarters`) und ändert das Planungsverhalten; Operator/Admin, kein Online-Viewer |
+| `POST /api/config/site/validate` | Validierung eines Konfigurations-Entwurfs (S5/H9); zwar nur prüfend, aber ein POST-Schreibpfad-Muster und Teil des Konfigurationsflusses; nicht in den Online-Pfad |
+| `POST /api/config/site/save` | **speichert die Standortkonfiguration** (Admin-Token, Backup, Neustartbedarf); rein administrativ, nie über den Netzwerkzugriff |
+| `POST /api/config/mapping/preview` | Vorschau/Validierung eines Mapping-Entwurfs (S5); POST-Konfigurationspfad, nicht für den read-only Viewer |
 | `POST /api/report/preview` | zwar nur DB-Lesen, aber ein POST-Schreibpfad-Muster; für den read-only Pilot nicht nötig und bewusst außerhalb gehalten |
 
-Hinweis zur Robustheit: Die Sperre soll **positiv** sein (Allowlist: nur die read-only-Liste durchlassen),
-nicht als Blocklist einzelner Pfade. So bleiben auch später neu hinzukommende Schreib-Endpunkte
-standardmäßig draußen. `POST`/`PUT`/`DELETE` werden im Online-Pfad generell nicht durchgereicht.
+Hinweis zur Robustheit: Die Sperre ist **positiv/deny-by-default** umgesetzt (nur GET-Methoden werden
+grundsätzlich durchgelassen; `POST`/`PUT`/`DELETE` sind generell gesperrt), nicht als Blocklist einzelner
+Pfade. So bleiben auch später neu hinzukommende Schreib-Endpunkte standardmäßig draußen. Die einzige
+zusätzliche Ausnahme ist der aktive Anlagen-Read `GET /api/diagnostics/read`, der trotz GET explizit
+gesperrt wird.
+
+**Serverseitiger Read-only-Modus (`api.read_only`, umgesetzt für H5).** Die Endpunkt-Einstufung dieses
+Abschnitts wird jetzt direkt in der HTTP-API durchgesetzt und hängt nicht mehr allein an einem vorgelagerten
+Reverse Proxy. Der Schlüssel `api.read_only` (Boolean, Default `false`) steht im `api`-Block der
+Konfiguration. Ist er `true`, lehnt die API an **einer zentralen Stelle im Request-Handling** alle nicht-GET-
+Methoden sowie `GET /api/diagnostics/read` mit `HTTP 403` und einem kurzen deutschen JSON-Hinweis ab
+(`{"error": "read_only_mode", "message": "Diese Funktion ist über den Netzwerkzugriff nicht verfügbar. …"}`).
+Alle read-only Endpunkte oben bleiben erreichbar. Zusätzlich meldet `GET /api/status` das Feld
+`api_read_only: true`, damit das UI den Modus erkennen kann. Default `false` lässt das bisherige Verhalten
+unverändert; `config.json`/`config.local.json` werden dafür nicht geändert – der Schlüssel wird nur dort
+gesetzt, wo der read-only Netzbetrieb (Pilot-Pfad a) gewünscht ist.
+
+Aktivierung für den Pilot-Pfad (a): Im `api`-Block der auf der IPC verwendeten `config.json` ergänzen:
+
+```json
+"api": {
+  "host": "192.168.244.10",
+  "port": 8090,
+  "read_only": true
+}
+```
+
+Anschließend Mini EMS neu starten (der Schlüssel wird beim Start geladen). Danach greift die read-only
+Grenze serverseitig, unabhängig davon, ob zusätzlich ein Reverse Proxy davorsteht.
 
 ### 2.2 Pfad (a) – Secomea/VPN-Zugriff auf das bestehende Dashboard
 
@@ -159,11 +189,13 @@ und den Zugriff dokumentieren. Keine Codeänderung.
 
 **Risiken / Grenzen:**
 
-- Dieser Pfad reicht den **kompletten** Dienst durch. Die schreibenden/aktiven Endpunkte
-  (`/api/diagnostics/read`, `POST /api/config/spotmarket-lockout`, `POST /api/report/preview`) sind über
-  denselben Port technisch erreichbar. Solange es keine Rollen-/Login-Schicht (H6) gibt, trennt nur die
-  **organisatorische** Vergabe des VPN-Zugangs Viewer von Operator. Das ist für einen kleinen,
-  vertrauenswürdigen Pilotenkreis vertretbar, aber keine echte read-only Grenze.
+- Mit `api.read_only: true` (siehe 2.1) sind die schreibenden/aktiven Endpunkte serverseitig gesperrt und
+  liefern über denselben Port `HTTP 403`. Ohne diesen Schalter reicht der Pfad den **kompletten** Dienst
+  durch: die schreibenden/aktiven Endpunkte (`/api/diagnostics/read`, `POST /api/config/spotmarket-lockout`,
+  die `POST /api/config/site/*`- und `POST /api/config/mapping/preview`-Konfigurationspfade,
+  `POST /api/report/preview`) sind dann technisch erreichbar, und nur die **organisatorische** Vergabe des
+  VPN-Zugangs trennt Viewer von Operator. Für den Pilot-Pfad (a) wird deshalb `api.read_only: true` gesetzt;
+  eine echte Rollen-/Login-Trennung bleibt H6 vorbehalten.
 - Jeder mit VPN-Zugang sieht das Dashboard so, wie es ist; es gibt heute keine UI-seitige Rollentrennung.
 - Kein zusätzlicher Login vor dem Dashboard, solange H6 nicht umgesetzt ist – der Schutz ist der
   VPN-/Secomea-Zugang selbst.
@@ -236,9 +268,11 @@ Datenauslagerung auf.
    freigeben.
 4. Vom zweiten Rechner über VPN/Secomea das Dashboard öffnen und prüfen, dass echte IPC-Daten erscheinen
    (Status, Historie, Berichte).
-5. Prüfen/dokumentieren, dass die zu sperrenden Endpunkte (`/api/diagnostics/read`,
-   `POST /api/config/spotmarket-lockout`, `POST /api/report/preview`) über diesen Pfad nicht für
-   Viewer-Nutzung gedacht sind; solange keine Rollenschicht existiert, den VPN-Zugang nur an
+5. `api.read_only: true` im `api`-Block der `config.json` setzen und Mini EMS neu starten. Danach prüfen,
+   dass `GET /api/diagnostics/read` und die `POST`-Endpunkte (`/api/config/spotmarket-lockout`,
+   `/api/config/site/validate`, `/api/config/site/save`, `/api/config/mapping/preview`,
+   `/api/report/preview`) über diesen Pfad `HTTP 403` liefern und `GET /api/status` `api_read_only: true`
+   meldet. Solange keine Rollenschicht (H6) existiert, den VPN-Zugang zusätzlich nur an
    vertrauenswürdige Personen vergeben.
 6. Zugriff und Freigabe im Betriebslog/Zugriffskonzept festhalten (Vorbereitung H8).
 7. **Definition-of-Done-Nachweis (durch den Betreiber/Nutzer vor Ort):** Ein zweiter Rechner am Standort
