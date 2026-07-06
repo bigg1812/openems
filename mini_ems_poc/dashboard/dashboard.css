@@ -920,8 +920,10 @@ input[type="checkbox"]:focus-visible {
 }
 
 .chart-stats {
+  /* auto-fit statt starrer 4 Spalten: schmale Karten brechen auf 2x2 um,
+     damit Werte wie "12,0 ct/kWh" oder "Messpunkte" nicht abgeschnitten werden */
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
   gap: var(--sp-2);
   margin-top: var(--sp-3);
 }
