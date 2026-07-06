@@ -1004,6 +1004,8 @@ input[type="checkbox"]:focus-visible {
 }
 
 .window-columns {
+  /* Desktop unverändert 2-spaltig (Heute/Morgen nebeneinander);
+     unter 760px klappt der Breakpoint auf 1 Spalte um. */
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--sp-3);
@@ -1305,6 +1307,8 @@ input[type="checkbox"] {
 }
 
 .selected-strip {
+  /* Desktop unverändert 4-spaltig; unter 1180px greifen die Breakpoints
+     (auto-fit), damit die Chips bei schmalem Arbeitsbereich umbrechen. */
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: var(--sp-3);
 }
@@ -1333,6 +1337,8 @@ input[type="checkbox"] {
 }
 
 .series-grid {
+  /* Desktop unverändert 3-spaltig; unter 1180px übernehmen die Breakpoints
+     (2 Spalten bzw. auto-fit), damit die Sparkline-Karten lesbar bleiben. */
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-bottom: var(--sp-4);
 }
@@ -1886,45 +1892,87 @@ textarea:focus {
   margin-top: var(--sp-4);
 }
 
-/* Responsive */
+/* ============================================================
+   Responsive Verhalten (UX9) — dokumentiert im UI_STYLEGUIDE Abschnitt 11.
+   Zwei bewusste Breakpoints:
+     • Tablet/Schmal (max-width: 1180px): Sidebar wird zur horizontalen
+       Kopfnavigation; Seitenlayouts werden einspaltig; feste Raster
+       fallen auf 2 Spalten. Deckt Tablet quer (1024) und schmale
+       Desktop-Fenster (~800-1100px) ab.
+     • Kompakt (max-width: 760px): Kopfzeile, Aktionsleisten und Raster
+       werden einspaltig; Hauptaktionen dürfen volle Breite einnehmen.
+   Leitprinzip: Ab >=1280px keine Regression — die Regeln greifen erst
+   darunter. Grids nutzen wo sinnvoll auto-fit/minmax statt starrer
+   Spaltenzahlen (Muster .chart-stats). Tabellen bleiben in .table-wrap
+   horizontal scrollbar statt das Seitenlayout zu sprengen. */
 @media (max-width: 1180px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
 
   .side-nav {
-    position: static;
+    position: sticky;
+    top: 0;
+    z-index: 11;
     height: auto;
     flex-direction: row;
     align-items: center;
-    gap: var(--sp-4);
-    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-3);
+    padding: var(--sp-2) var(--sp-4);
   }
 
   .brand-block {
-    padding: 0 var(--sp-4) 0 0;
+    flex: 0 0 auto;
+    padding: 0 var(--sp-3) 0 0;
     border-bottom: 0;
     border-right: 1px solid var(--nav-line);
   }
 
+  /* Nav bleibt einzeilig und wird bei Bedarf horizontal scrollbar,
+     statt ragged in zwei Reihen umzubrechen (Ist-Befund ~800px). */
   .nav-list {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .nav-list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-link {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   .nav-link.active {
     box-shadow: inset 0 -2px 0 var(--accent);
   }
 
+  /* Statuskarte kompakt und fest rechts, kein unkontrolliertes Stapeln. */
   .nav-status {
+    flex: 0 0 auto;
     margin: 0 0 0 auto;
+    padding: var(--sp-2) var(--sp-3);
   }
 
   .kpi-grid,
-  .control-grid,
-  .selected-strip,
-  .series-grid {
+  .control-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Analyse-Arbeitsbereich läuft unter 1180px voll über die Breite;
+     Chips und Sparkline-Karten passen sich per auto-fit der schrumpfenden
+     Fensterbreite an, statt starr auf 4 bzw. 3 Spalten zu bestehen. */
+  .selected-strip {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .series-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   }
 
   .dashboard-layout,
@@ -1945,7 +1993,14 @@ textarea:focus {
   }
 
   .report-quick .daily-report {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  /* Touch-Ziele der Hauptaktionen auf Tablet komfortabel (>= 40px). */
+  .button,
+  .theme-toggle button,
+  .segmented button {
+    min-height: 40px;
   }
 }
 
@@ -1954,8 +2009,7 @@ textarea:focus {
   .section-head,
   .top-actions,
   .view-actions,
-  .export-actions,
-  .side-nav {
+  .export-actions {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1965,8 +2019,21 @@ textarea:focus {
     padding: var(--sp-4);
   }
 
-  .nav-status {
-    margin-left: 0;
+  /* Kompakt: Sidebar-Band bricht in zwei geordnete Reihen um
+     (Marke + Status oben, Navigation darunter, weiterhin scrollbar),
+     statt alles vertikal zu stapeln. */
+  .side-nav {
+    flex-wrap: wrap;
+    padding: var(--sp-2) var(--sp-4);
+  }
+
+  .brand-block {
+    border-right: 0;
+  }
+
+  .nav-list {
+    order: 3;
+    flex-basis: 100%;
   }
 
   .status-hero {
@@ -1979,8 +2046,6 @@ textarea:focus {
   .control-grid.compact,
   .config-field-grid,
   .config-field-grid.compact,
-  .selected-strip,
-  .series-grid,
   .window-columns,
   .chart-stats,
   .daily-report,
