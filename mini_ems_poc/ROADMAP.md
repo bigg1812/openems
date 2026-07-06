@@ -499,6 +499,16 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
   - **Risiken:** Zu strenge Rechte dürfen den geplanten Task, Logs und Reports nicht blockieren.
   - **Definition of Done:** Normale Benutzer können das UI öffnen, aber Runtime-Dateien, Konfiguration und Logs nicht direkt
     durchsuchen oder ändern.
+  - **Stand (2026-07-06):** Konzept liegt vor in `HOSTING_SICHERHEIT.md`, Teil 3: Ziel-Installationslayout
+    (App-Dateien `C:\Program Files\MiniEMS`, Standortdaten `C:\ProgramData\MiniEMS`, konsistent zur
+    App-/Standortdaten-Liste aus `UPDATE_WARTUNG.md` und zur config-relativen Pfadauflösung in `config.py`
+    `resolve_path`/`base_dir`), Rechtemodell als Tabelle (SYSTEM/Administratoren/Task-Benutzer/normale
+    Benutzer je Ordner), kopierbare `icacls`-Kommandos mit Prüfkommandos, Betriebsrisiken-Abschnitt
+    (Mindestrechte des Task-Benutzers, typische Symptome bei zu strengen Rechten, Funktionstest) und
+    Migrationsreihenfolge vom heutigen Git-Checkout zum Ziel-Layout. Checkbox bleibt offen: Der DoD
+    ("normale Benutzer können Runtime-Dateien nicht lesen/ändern") ist erst nach Anwendung der ACLs auf
+    der realen IPC nachweisbar – das setzt den in H2 noch offenen Windows-Build voraus und kann nur am
+    Standort erbracht werden. Details: `HOSTING_SICHERHEIT.md`, Teil 3.
 
 - [ ] **H4. API intern binden, UI über geschützten Zugriff bereitstellen**
   - **Was:** Die Mini-EMS-API nur an `127.0.0.1` oder eine definierte IPC-Netzwerkadresse binden. Davor optional einen
