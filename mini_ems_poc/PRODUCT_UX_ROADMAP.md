@@ -380,17 +380,23 @@ Leitentscheidungen:
 
 ## Empfohlener nächster Schritt
 
-**Aktive Linie: UX14-16 "Standort einrichten".** Reporting-Zielbild, Startseite, visuelle Richtung, Wording und
-Rollenmodell (UX1/2/4/5/6/7/10/11) sowie der Demo-Flow (UX13) sind erledigt; der nächste sichtbare Sprung ist der
-geführte Inbetriebnahmeprozess. UX14 (Standort/Geräte/Datenpunkte/Testen/Aktivieren als Ablauf), UX15 (fachliche
-Mapping-Tabelle statt Punktliste) und UX16 ("Alle Punkte testen" als Wow-Moment) bilden zusammen die UX-Seite des
-Mapping-Kerns aus `ROADMAP.md` S5/S6 und sind die aktive Arbeitslinie des Nutzers.
+**Aktive Linie: UX12/14-16 "Standort einrichten" als gemeinsamer Mapping-Block.** Reporting-Zielbild,
+Startseite, visuelle Richtung, Wording, Rollenmodell und Responsive-Prüfung (UX1/2/3/4/5/6/7/8/9/10/11) sowie
+der Demo-Flow (UX13) sind erledigt. Der nächste sichtbare Sprung ist der geführte Inbetriebnahmeprozess: UX14
+(Standort/Geräte/Datenpunkte/Testen/Aktivieren als Ablauf), UX15 (fachliche Mapping-Tabelle statt Punktliste)
+und UX16 ("Alle Punkte testen" als Wow-Moment) bilden zusammen mit UX12 (rollenbasierte Konfigurationsseite als
+Freigabeprozess) die UX-Seite des Mapping-Kerns aus `ROADMAP.md` S5/S6 und sind die aktive Arbeitslinie des
+Nutzers. `ROADMAP.md` S7/S8 sind seit dieser Aktualisierung entschieden bzw. als erster sicherer
+Discovery-/Importschnitt gebaut (Punktlisten-Import, BACpypes3-Discovery-Preview) – UX14/UX17 können sich damit
+auf ein bestehendes Backend stützen statt auf ein reines Konzept. UX12 bleibt dabei intern an S6 (Aktivierung
+mit Backup/Audit) gekoppelt: Solange S6 nicht steht, würde UX12 nur ein UI-Versprechen ohne tragfähigen
+Unterbau abbilden; die Reihenfolge innerhalb des Blocks bleibt UX14/UX15/UX16 vor UX12.
 
-**Danach als Abschlusspolitur: UX9.** Sobald UX3 (Report-Konfigurator) und UX8 (lesbarere Diagramme) – beide
-aktuell in Arbeit – stehen, rundet UX9 (Responsive-/Vor-Ort-Prüfung auf Laptop, Monitor, Tablet) das Reporting- und
-Bedienbarkeits-Paket ab, statt einzelne Ansichten mehrfach nachzujustieren.
+**Standort-Schritte laufen parallel, außerhalb dieser Roadmap.** H2 (Windows-Build + Test-IPC-Nachweis), H3
+(ACL-Anwendung auf realer IPC), H5 (Nachweis von einem zweiten Rechner) und To-do 3 (Online-Hosting-Nachweis)
+aus `ROADMAP.md` sind reine Standort-/Betriebsnachweise ohne offenen UX-Bedarf und werden dort geführt.
 
-**UX12 erst nach S6.** Die rollenbasierte Konfigurationsseite als Freigabeprozess braucht den in `ROADMAP.md` S6
-gebauten Aktivierungspfad (Backup, Audit, Neustartbedarf) als fachliche Grundlage; vorher würde UX12 nur ein
-UI-Versprechen ohne tragfähigen Unterbau abbilden. UX17-UX22 bleiben wie bisher an spätere technische Ausbaustufen
-(Discovery, Cloud-Export, Write-Back, Auto-Mapping) gekoppelt und sind kein aktueller Umsetzungsschritt.
+**Geparkt: UX17-UX22.** Punktlisten-Import/Discovery als geführter Prüfprozess (UX17), Cloud-/Northbound-Export
+(UX18), schreibende Eingriffe und Fallback (UX19), Semantik-/Datenqualitätsabdeckung (UX20), Datenauflösung und
+Verdichtung (UX21) sowie erklärbares Auto-Mapping (UX22) bleiben an spätere technische Ausbaustufen aus
+`ROADMAP.md` (S9-S16, C1-C9) gekoppelt und sind kein aktueller Umsetzungsschritt.

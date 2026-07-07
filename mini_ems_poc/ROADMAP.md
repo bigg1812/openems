@@ -706,20 +706,30 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
 
 ## Empfohlener nächster Schritt
 
-**Strategisches Zentrum: Mapping-UI UX14-16 auf den gebauten API-Kern setzen.** S1-S4 haben den
-Edge-Integrationskern und das erste Modbus-Referenzmodell etabliert; S7/S8 sind jetzt als sicherer
-Discovery-/Import-Vorbau entschieden bzw. technisch vorbereitet. Als nächster lokaler Schritt bleibt, den
-Konfigurationsfluss in der UI wirklich als "Standort einrichten" abzubilden: importierte/entdeckte Rohpunkte
-anzeigen, fachlich zuordnen, testen und erst danach über den vorhandenen Preview-/Activate-Pfad übernehmen.
-S9ff. Cloud-Pipeline bleibt bewusst nachgeordnet.
+**Aktive Linie: Mapping-Kern S5/S6, UI-seitig UX12/14-16.** S1-S4 haben den Edge-Integrationskern und ein
+erstes Modbus-Referenzmodell etabliert. S7 ist jetzt entschieden (eigener BACnet-Adapter bleibt produktiv;
+`BACpypes3` direkt als getrennter, read-only Discovery-Werkzeugpfad statt `BAC0`) und S8 ist als erster
+sicherer Import-/Discovery-Schnitt gebaut: `pointlist_import.py` (CSV/TSV/XLSX-Punktlisten-Import),
+`bacnet_discovery.py` (read-only BACpypes3-Preview) sowie `POST /api/config/pointlist/import` und
+`POST /api/config/discovery/bacnet/preview`. Der nächste Schritt ist, aus diesem Fundament tatsächlich den
+Konfigurationskern zu bauen: S5 (Mapping-Entwurfsmodell aus `devices`/`raw_points`/`mappings` als zentrale
+Grundlage) und S6 (Aktivierung mit Backup, Audit und Neustartbedarf), damit die entstehenden Rohpunkt-
+Kandidaten fachlich zugeordnet, getestet und kontrolliert übernommen werden können. UI-seitig entspricht das
+`PRODUCT_UX_ROADMAP.md` UX14 (Standort einrichten), UX15 (fachliche Mapping-Tabelle), UX16 ("Alle Punkte
+testen") und UX12 (rollenbasierte Freigabeseite, an S6 gekoppelt).
 
-**Betriebspfad parallel: H2 abschließen.** Die Entscheidung ist gefallen (Release-Paket, initial PyInstaller,
-später Nuitka-kompatibel); offen ist die Umsetzung: Windows-Build-Pipeline, Bereinigung der Installationsskripte
-unter `windows/` und der reale Test-IPC-Nachweis, dass Mini EMS ohne Git-Checkout startet. Der Test-IPC-Nachweis
-selbst ist nur am Standort erbringbar. H3-H6/H8 (Dateirechte, API-Bindung, Login/Rollen, Audit) folgen erst, wenn
-H2 steht, damit nicht auf einem noch wechselnden Auslieferungsformat aufgesetzt wird.
+**Standort-Schritte als Block: H2/H3/H5/To-do 3.** Bei allen vieren steht das Konzept, offen ist nur noch die
+reale Durchführung am Standort. H2: Entscheidung getroffen (Release-Paket, initial PyInstaller, später
+Nuitka-kompatibel), Packaging-Tooling und Frozen-Pfadauflösung liegen vor; offen bleiben der Windows-Build auf
+der IPC und der Test-IPC-Nachweis ohne Git-Checkout. H3: Installationslayout und Windows-`icacls`-Rechte sind
+in `HOSTING_SICHERHEIT.md`, Teil 3, fertig konzipiert; offen bleibt die Anwendung auf der realen IPC, was den
+noch offenen H2-Windows-Build voraussetzt. H5: Die technische Grundlage (`api.read_only`, deny-by-default für
+alle nicht-GET-Endpunkte) ist umgesetzt und getestet; offen bleibt der reale Nachweis von einem zweiten Rechner
+am Standort. To-do 3: Das Minimalkonzept (Pfad a: Secomea/VPN, Pfad b: Export mit Login, Empfehlung und
+Checkliste) liegt vollständig in `HOSTING_SICHERHEIT.md`, Teil 2, vor; auch hier fehlt nur der reale Nachweis
+beim Kunden. H4/H6/H8/H9 (API-Bindung, Login/Rollen, Audit, geschützte Konfigurations-UI) folgen erst danach.
 
-**Nur am Standort möglich: To-do 3 Online-Hosting-Nachweis.** Das Minimalkonzept liegt vollständig in
-`HOSTING_SICHERHEIT.md`, Teil 2, vor; es fehlt nur noch der reale Nachweis auf einem zweiten Rechner beim Kunden.
-Kein weiterer Konzeptaufwand nötig, nur Durchführung vor Ort. S9-S16 sowie die komplette Cloud-Data-Pipeline-Linie
-(C1-C9) bleiben geparkte Zukunftsoptionen und werden erst nach stabilem Mapping-Kern und Betriebspfad neu bewertet.
+**Geparkt: S9-S16 und die komplette Cloud-Data-Pipeline (C1-C9).** Northbound-Export, M-Bus-Integration,
+Semantik-Export und Write-Back-Sicherheit (S9-S16) sowie Payload-Vertrag, Broker-Wahl, Event-Log,
+Semantikdienst, TSDB- und Retention-Entscheidungen (C1-C9) bleiben dokumentierte Zukunftsoptionen und werden
+erst nach stabilem Mapping-Kern und abgeschlossenem Standort-Block neu bewertet.

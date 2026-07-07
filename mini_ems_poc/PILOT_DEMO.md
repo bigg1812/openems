@@ -20,7 +20,7 @@ Protokollbegriffe im eigentlichen Vorführtext.
   das ist der Kern des Leitbilds ("wenig erklären müssen").
 - **Vorbereitung:**
   - Eine laufende Mini-EMS-Runtime mit Daten (lokal simuliert reicht für die Demo völlig aus;
-    siehe Abschnitt 6). Mehrere Zyklen sollten bereits gelaufen sein, damit Verlaufsdiagramme
+    siehe Abschnitt 5.1). Mehrere Zyklen sollten bereits gelaufen sein, damit Verlaufsdiagramme
     und der Tagesbericht nicht leer wirken.
   - Ein Browser mit geöffnetem Dashboard (`http://127.0.0.1:8090` lokal, bzw. die
     EMS-LAN-Adresse des IPC im Kundennetz).
@@ -44,7 +44,7 @@ Protokollbegriffe im eigentlichen Vorführtext.
   durchgehend im Normalbetrieb."), darunter die wichtigsten Kennzahlen (Kennzahlenkarten) und
   den Hinweisbereich „Heute wichtig".
 - **Worauf man NICHT abschweift:** Keine Diskussion von Datenpunkten, Reglern oder
-  Konfiguration. Nicht auf „Konfiguration" oder „System – Diagnose" klicken.
+  Konfiguration. Nicht auf „Konfiguration" oder „Systemstatus" klicken.
 
 ### Schritt 2 – Zustand verstehen (0:45–1:45)
 
@@ -59,17 +59,24 @@ Protokollbegriffe im eigentlichen Vorführtext.
 
 ### Schritt 3 – Tagesreport erzeugen (1:45–3:00)
 
-- **Was wird gezeigt:** Navigation zu „Berichte", dort den Tagesbericht für den heutigen Tag
-  öffnen (HTML-Ansicht über `/api/report/html`, optional mit „Drucken / Als PDF speichern").
-- **Kernbotschaft:** „Mit einem Klick entsteht ein fertiger, kundentauglicher Bericht – der
-  kann direkt gezeigt, ausgedruckt oder als PDF gespeichert werden, ganz ohne Nachbearbeitung."
+- **Was wird gezeigt:** Navigation zu „Berichte". Dort steht ganz oben die Karte „Tagesbericht":
+  Berichtstag „Heute" ist bereits ausgewählt, ein Klick auf den Primärbutton „Bericht anzeigen"
+  öffnet den fertigen Tagesbericht (`/api/report/html`) in einem neuen Tab.
+- **Kernbotschaft:** „Ein Klick genügt: Der fertige, kundentaugliche Bericht steht sofort da –
+  ganz ohne Zeitraum einstellen oder technische Felder ausfüllen. Er kann direkt gezeigt,
+  gedruckt oder heruntergeladen werden."
 - **Was der Kunde sehen soll:** Berichtskopf mit Standort und Datum, die Hauptbotschaft des
   Tages, Betriebszusammenfassung, Strompreis-Kennzahlen mit genutztem Preisfenster,
-  Verlaufsdiagramme und den Hinweis auf den technischen Anhang weiter unten.
+  Verlaufsdiagramme und den Hinweis auf den technischen Anhang weiter unten. Zurück auf der
+  Berichte-Seite kurz auf die beiden Sekundärbuttons direkt neben „Bericht anzeigen" zeigen:
+  „PDF herunterladen" und „Daten als CSV" – ein Bericht, drei Ausgabeformen, ohne weitere Klicks.
 - **Worauf man NICHT abschweift:** Nicht in den technischen Anhang scrollen und dort Rohwerte
-  erklären. Nicht behaupten, es gäbe bereits einen nativen PDF-Download-Button – falls kein
-  PDF-Renderer installiert ist, liefert die Ansicht bewusst dieselbe HTML-Ansicht als
-  Fallback; das ist kein Fehler, sondern der dokumentierte Normalfall.
+  erklären. Nicht den einklappbaren Bereich „Erweiterte Einstellungen" unterhalb der Karte
+  aufklappen – das ist der vollständige Report-Baukasten (freier Zeitraum, Zeitraster,
+  Bausteine, Datenpunkte) für Konfiguratoren, nicht Teil des Kundenpfads. Beim Button „PDF
+  herunterladen": Ist auf dem Vorführrechner kein PDF-Renderer installiert, öffnet der Klick
+  bewusst dieselbe HTML-Ansicht im neuen Tab statt eine `.pdf`-Datei herunterzuladen – das ist
+  kein Fehler, sondern der dokumentierte Normalfall (siehe Abschnitt 3).
 
 ### Schritt 4 – Auffälligkeit erklären (3:00–4:00)
 
@@ -100,7 +107,7 @@ Protokollbegriffe im eigentlichen Vorführtext.
 
 ### Schritt 5 – Systemstatus prüfen (4:00–5:00)
 
-- **Was wird gezeigt:** Navigation zu „System", dort die Kachel „Signale" und die Tabelle
+- **Was wird gezeigt:** Navigation zu „Systemstatus", dort die Kachel „Signale" und die Tabelle
   „Letzte Läufe".
 - **Kernbotschaft:** „Auf der Systemseite sieht man jederzeit, ob die Anlage zuverlässig läuft
   – inklusive der letzten Durchläufe. Das ist die Grundlage für Vertrauen im laufenden
@@ -136,17 +143,21 @@ Diese Demo darf keine Versprechen machen, die der reale Standort noch nicht einl
   nicht als „schon fertig" dargestellt.
 - **Die Mapping-/Inbetriebnahme-Ansicht („Standort einrichten") ist noch nicht gebaut.**
   UX14–UX22 sind offene Roadmap-Punkte. Die Demo zeigt Betrieb und Reporting, nicht die
-  Konfigurationsstrecke.
-- **Netzleistung („Grid") kann in der Simulation als „kein Messwert" erscheinen.** Der
-  Grid-Lockout-Kanal ist in der mitgelieferten Laptop-Simulation bewusst deaktiviert
-  (`controllers.grid_lockout.enabled = false`, siehe `config.local.json`); auf der echten IPC
-  ist der Netzleistungs-Messwert aktiv. Falls Netzleistung in der Demo leer bleibt, wird das
-  ehrlich als Simulationslücke benannt, nicht kaschiert.
-- **Der PDF-Export ist optional und fällt kontrolliert auf HTML zurück.** Ist auf dem
-  Zielrechner kein PDF-Renderer (WeasyPrint) installiert, liefert `/api/report/pdf`
-  dieselbe kundentaugliche HTML-Ansicht statt eines echten PDF – dokumentiertes Verhalten,
-  kein Fehler. Für den echten Pilotbetrieb muss der PDF-Pfad auf der Ziel-IPC noch verlässlich
-  eingerichtet werden (offener Punkt aus `PRODUCT_UX_KONZEPT.md`, Abschnitt 1.2).
+  Konfigurationsstrecke. Für den Punktlisten-Import gibt es inzwischen eine funktionierende
+  Backend-Schnittstelle (`ROADMAP.md`, S8), aber noch keine Bedienoberfläche – siehe der
+  optionale Abschnitt 6 für Konfiguratoren.
+- **Netzleistung („Grid") kann in der Simulation ohne Wert bleiben.** Die Kennzahlenkarte zeigt
+  dann „-", der Tagesbericht „kein Messwert". Der Grid-Lockout-Kanal ist in der mitgelieferten
+  Laptop-Simulation bewusst deaktiviert (`controllers.grid_lockout.enabled = false`, siehe
+  `config.local.json`); auf der echten IPC ist der Netzleistungs-Messwert aktiv. Falls
+  Netzleistung in der Demo leer bleibt, wird das ehrlich als Simulationslücke benannt, nicht
+  kaschiert.
+- **Der PDF-Export ist optional und fällt kontrolliert auf HTML zurück.** Der Button „PDF
+  herunterladen" auf der Berichte-Seite ruft `/api/report/pdf` auf. Ist auf dem Zielrechner
+  kein PDF-Renderer (WeasyPrint) installiert, liefert dieser Aufruf dieselbe kundentaugliche
+  HTML-Ansicht statt eines echten PDF – dokumentiertes Verhalten, kein Fehler. Für den echten
+  Pilotbetrieb muss der PDF-Pfad auf der Ziel-IPC noch verlässlich eingerichtet werden (offener
+  Punkt aus `PRODUCT_UX_KONZEPT.md`, Abschnitt 1.2).
 
 ---
 
@@ -155,9 +166,9 @@ Diese Demo darf keine Versprechen machen, die der reale Standort noch nicht einl
 | Problem | Woran erkennbar | Sofortmaßnahme |
 | --- | --- | --- |
 | Runtime läuft nicht / Dashboard lädt nicht | Browser zeigt „Verbindung unterbrochen" oder die Seite lädt dauerhaft „Anlagenstatus wird geladen." | Prüfen, ob der Mini-EMS-Prozess läuft (lokal: `python3.12 mini_ems.py --config config.local.json --loop`); danach Seite neu laden. Nicht live neu starten, während der Kunde zusieht – vorher testen. |
-| Keine Preisdaten / leeres Preisdiagramm | Kennzahl „Aktueller Strompreis" zeigt „kein Messwert", Preisdiagramm ist leer | Vorab mit `GET /api/status` prüfen, ob `price_cache.today` gefüllt ist. Im lokalen Modus notfalls die Runtime einmal neu starten, damit die Beispielpreise aus `sim/sample_prices.json` neu geladen werden. |
+| Keine Preisdaten / leeres Preisdiagramm | Kennzahl „Aktueller Strompreis" zeigt „-", Preisdiagramm ist leer | Vorab mit `GET /api/status` prüfen, ob `price_cache.today` gefüllt ist. Im lokalen Modus notfalls die Runtime einmal neu starten, damit die Beispielpreise aus `sim/sample_prices.json` neu geladen werden. |
 | Leerer oder wirkender „falscher" Tagesbericht | `/api/report/html` zeigt „Für diesen Tag liegen noch keine Betriebsdaten vor." | Kein Fehler, sondern korrektes Verhalten für Tage ohne Zyklen. Vor der Demo sicherstellen, dass der Bericht ohne `?date=`-Parameter (oder mit dem heutigen Datum) geöffnet wird, und dass vorher mindestens ein paar Zyklen gelaufen sind. |
-| Netzleistung dauerhaft „kein Messwert" | Kennzahlenkarte „Netzleistung" bleibt leer, auch im Bericht | In der Laptop-Simulation ist das erwartetes Verhalten (Grid-Kanal deaktiviert, siehe Abschnitt 3). Auf der echten IPC stattdessen prüfen, ob `grid_active_power_kw`/`grid_lockout` in `config.json` aktiv und die BACnet-Verbindung zum Controller erreichbar ist. |
+| Netzleistung dauerhaft ohne Wert | Kennzahlenkarte „Netzleistung" zeigt „-", im Tagesbericht steht „kein Messwert" | In der Laptop-Simulation ist das erwartetes Verhalten (Grid-Kanal deaktiviert, siehe Abschnitt 3). Auf der echten IPC stattdessen prüfen, ob `grid_active_power_kw`/`grid_lockout` in `config.json` aktiv und die BACnet-Verbindung zum Controller erreichbar ist. |
 
 ---
 
@@ -210,3 +221,37 @@ curl -s -o /dev/null -w "%{http_code}\n" "http://127.0.0.1:8090/api/report/html?
 Siehe `HOSTING_SICHERHEIT.md`, Abschnitt 2.5 („Schritt-für-Schritt-Checkliste für den
 Piloten, Pfad a"): `api.host` bleibt auf der EMS-LAN-IP, Firewall/Secomea-Freigabe nur auf
 `<ipc-ip>:8090`, keine Freigabe von BACnet-Port `47808`. Nur lesen, nicht ändern.
+
+---
+
+## 6. Ausblick Inbetriebnahme: Punktlisten-Import (optional, nur für Konfiguratoren)
+
+Dieser Baustein ist **kein Teil der 5-Minuten-Kundendemo** und richtet sich nicht an den
+Standortbetreiber, sondern an die Person, die einen neuen Standort technisch einrichtet
+(Konfigurator/Inbetriebnahme, siehe `ROADMAP.md`, S8). Nur zeigen, wenn im Anschluss an die
+eigentliche Vorführung ausdrücklich danach gefragt wird, z. B. „Wie kommen die Datenpunkte
+eigentlich rein?" – nicht als Teil des Betreiber-Gesprächs.
+
+- **Was heute existiert:** Der Endpunkt `POST /api/config/pointlist/import` liest eine
+  hochgeladene CSV-, TSV- oder XLSX-Datenpunktliste ein und erzeugt daraus Rohpunkt-Kandidaten
+  sowie einen Mapping-Entwurf (`mini_ems_runtime/pointlist_import.py`). Ergänzend liest
+  `POST /api/config/discovery/bacnet/preview` optional erreichbare BACnet-Geräte read-only aus,
+  über einen getrennten `BACpypes3`-Werkzeugpfad (`mini_ems_runtime/bacnet_discovery.py`;
+  Entscheidung siehe `BACNET_STACK_EVAL.md`).
+- **Was es (noch) nicht ist:** Es gibt noch **keine Bedienoberfläche** dafür im Dashboard – das
+  ist `PRODUCT_UX_ROADMAP.md`, UX14–UX17, weiterhin offen. Die Funktion ist heute nur über die
+  HTTP-API bzw. `curl` nutzbar, nicht über einen Klickpfad im UI.
+- **Was daraus wird:** Import und Discovery erzeugen ausschließlich Kandidaten für einen
+  Mapping-Entwurf, nie aktive Mini-EMS-Kanäle. Aktivierung bleibt an den bestehenden,
+  validierten Pfad `POST /api/config/mapping/preview` bzw. `activate` gebunden (Backup, Audit,
+  Freigabe – siehe `ROADMAP.md`, S5/S6).
+- **Kurzbeispiel (technischer Anhang, kein Vorführtext):**
+
+  ```bash
+  curl -s -X POST http://127.0.0.1:8090/api/config/pointlist/import \
+    -H "Content-Type: application/json" \
+    -d '{"filename":"datenpunkte.csv","content":"Object Reference;Name;Unit;Value;Mini EMS Kanal\n/100.AV300;Netzleistung;kW;42,3;grid.active_power_kw\n"}'
+  ```
+
+  Die Antwort enthält `devices`, `candidates`, `raw_points` und einen `mapping_draft` – noch
+  keine aktive Konfiguration.
