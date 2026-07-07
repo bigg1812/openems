@@ -1,3 +1,16 @@
+<#
+    DEPRECATED – NICHT VERWENDEN.
+
+    Dieses Skript ist ein alter Windows-Dienst-Wrapper und NICHT der unterstuetzte
+    Betriebspfad. Die Mini-EMS-Runtime ist konsolenbasiert; der produktive Start
+    laeuft ueber den geplanten Task:
+      - Git-Checkout:   windows/install_task.ps1              + run_mini_ems.cmd
+      - Release-Paket:  windows/install_task.ps1 -Mode release + run_mini_ems_release.cmd
+    Siehe MINI_EMS_ANLEITUNG.md, HOSTING_SICHERHEIT.md (Teil 3/4) und UPDATE_WARTUNG.md.
+
+    Die Datei bleibt nur als Referenz erhalten. Der Default-PythonPath unten
+    (C:\Python39) ist veraltet und wird bewusst nicht gepflegt.
+#>
 param(
     [string]$ServiceName = "MiniEmsPoC",
     [string]$PythonPath = "C:\Python39\python.exe",
