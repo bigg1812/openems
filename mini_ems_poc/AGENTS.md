@@ -122,9 +122,15 @@ cd C:\dev\openems\mini_ems_poc
 .\windows\install_task.ps1 `
   -TaskName MiniEmsPoC `
   -ProjectDir C:\dev\openems\mini_ems_poc `
-  -PythonPath C:\Users\ENGIE_NL_STUTTGART\AppData\Local\Programs\Python\Python312\python.exe `
+  -PythonPath python `
   -StartNow:$false
 ```
+
+`-PythonPath` accepts a bare command (resolved via `Get-Command`) or an absolute path;
+`python` is the default, so the flag can usually be omitted. For the packaged release path
+(H2) use `-Mode release`, which launches `mini_ems.exe` from `C:\Program Files\MiniEMS` with
+`--config C:\ProgramData\MiniEMS\config.json` instead of the checkout. Do **not** use
+`windows/install_service.ps1` — it is a deprecated legacy helper (see the banner in that file).
 
 Start the IPC runtime:
 
