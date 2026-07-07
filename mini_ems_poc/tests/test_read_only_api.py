@@ -6,6 +6,13 @@ Setzt die Endpunkt-Einstufung aus HOSTING_SICHERHEIT.md Abschnitt 2.1 durch:
   hier zusaetzlich explizit geprueft, dass POST- und diagnostics/read-Pfade nicht 403 sind).
 - api.read_only True -> alle nicht-GET-Methoden und GET /api/diagnostics/read
   liefern 403 mit deutschem JSON-Fehlerkoerper; die read-only Freigabeliste bleibt erreichbar.
+- Die Config-Editor-Pipeline, die seit Commit e5417edd2 hinzugekommen ist
+  (POST /api/config/pointlist/import, POST /api/config/discovery/bacnet/preview,
+  POST /api/config/mapping/activate), ist Teil derselben Liste und Sperre; ein
+  gueltiges Admin-Token darf sie im read-only Modus nicht umgehen.
+- ReadOnlyGuardStructuralTest scannt do_POST in http_api.py und stellt sicher,
+  dass jeder dort verdrahtete POST-Pfad in dieser Testliste vorkommt, damit
+  kuenftige neue Endpunkte nicht unbemerkt an der Sperre vorbeirutschen.
 
 Die Tests laufen gegen einen echten HTTP-Server auf 127.0.0.1 mit ephemerem Port,
 damit die zentrale Sperre im Request-Handling (do_GET/do_POST) real durchlaufen wird.
@@ -14,10 +21,12 @@ damit die zentrale Sperre im Request-Handling (do_GET/do_POST) real durchlaufen 
 import http.client
 import json
 import logging
+import re
 import socket
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Dict, Optional
 
 
 def _free_port() -> int:
@@ -25,6 +34,7 @@ def _free_port() -> int:
         probe.bind(("127.0.0.1", 0))
         return probe.getsockname()[1]
 
+from mini_ems_poc.mini_ems_runtime import http_api as http_api_module
 from mini_ems_poc.mini_ems_runtime.config import validate_raw_config
 from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
 from mini_ems_poc.mini_ems_runtime.runtime_db import RuntimeDatabase
@@ -60,6 +70,10 @@ API_ENDPOINTS = [
     ("POST", "/api/config/site/save", True),
     ("POST", "/api/config/mapping/preview", True),
     ("POST", "/api/report/preview", True),
+    # Config-Editor-Pipeline (S5/S6, seit Commit e5417edd2 hinzugekommen):
+    ("POST", "/api/config/pointlist/import", True),
+    ("POST", "/api/config/discovery/bacnet/preview", True),
+    ("POST", "/api/config/mapping/activate", True),
 ]
 
 BLOCKED_ENDPOINTS = [(m, p) for (m, p, blocked) in API_ENDPOINTS if blocked]
@@ -76,6 +90,9 @@ NON_BLOCKED_ENDPOINTS = [
 
 class ReadOnlyApiTestBase(unittest.TestCase):
     read_only = False
+    # Optional Admin-Token fuer Unterklassen, die pruefen, dass die read-only
+    # Sperre auch mit einem gueltigen Admin-Token nicht umgangen werden kann.
+    admin_token: Optional[str] = None
 
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -86,7 +103,7 @@ class ReadOnlyApiTestBase(unittest.TestCase):
         self.logger.handlers.clear()
         self.logger.addHandler(logging.NullHandler())
 
-        raw = make_raw_config()
+        raw = make_raw_config(config_admin_token=self.admin_token)
         raw["api"]["read_only"] = self.read_only
         # Freier Port: damit aufeinanderfolgende Testserver nicht auf 8090 kollidieren.
         raw["api"]["port"] = _free_port()
@@ -126,12 +143,14 @@ class ReadOnlyApiTestBase(unittest.TestCase):
         self.host = self.server._server.server_address[0]
         self.port = self.server._server.server_address[1]
 
-    def _request(self, method: str, path: str):
+    def _request(self, method: str, path: str, headers: Optional[Dict[str, str]] = None):
         connection = http.client.HTTPConnection(self.host, self.port, timeout=5)
         try:
             body = "{}" if method == "POST" else None
-            headers = {"Content-Type": "application/json"} if method == "POST" else {}
-            connection.request(method, path, body=body, headers=headers)
+            request_headers = {"Content-Type": "application/json"} if method == "POST" else {}
+            if headers:
+                request_headers.update(headers)
+            connection.request(method, path, body=body, headers=request_headers)
             response = connection.getresponse()
             raw = response.read()
             return response.status, raw
@@ -202,6 +221,73 @@ class ReadOnlyEnabledTest(ReadOnlyApiTestBase):
             with self.subTest(path=path):
                 status, _ = self._request("GET", path)
                 self.assertEqual(status, 200)
+
+
+class ReadOnlyBlocksWriteEndpointsEvenWithAdminTokenTest(ReadOnlyApiTestBase):
+    """Sicherheitskritische Zusatzprobe: die zentrale read-only Sperre muss VOR
+    jeder Admin-Token-Pruefung greifen. Ein gueltiges Admin-Token darf im
+    read-only Netzwerkmodus insbesondere den sicherheitskritischsten Endpunkt
+    POST /api/config/mapping/activate (aktiviert eine neue Konfiguration inkl.
+    Backup/Audit) nicht freischalten - ebenso wenig POST /api/config/site/save.
+    """
+
+    read_only = True
+    admin_token = "test-admin-token-for-read-only-guard"
+
+    def _assert_blocked_with_admin_token(self, path: str) -> None:
+        status, raw = self._request(
+            "POST",
+            path,
+            headers={"X-Mini-Ems-Admin-Token": self.admin_token},
+        )
+        self.assertEqual(status, 403, "{0} should stay 403 even with a valid admin token".format(path))
+        payload = json.loads(raw.decode("utf-8"))
+        self.assertEqual(
+            payload["error"],
+            "read_only_mode",
+            "{0} must fail on the read-only gate, not on token/permission handling".format(path),
+        )
+
+    def test_mapping_activate_blocked_even_with_valid_admin_token(self) -> None:
+        self._assert_blocked_with_admin_token("/api/config/mapping/activate")
+
+    def test_site_save_blocked_even_with_valid_admin_token(self) -> None:
+        self._assert_blocked_with_admin_token("/api/config/site/save")
+
+
+class ReadOnlyGuardStructuralTest(unittest.TestCase):
+    """Struktureller Waechter gegen kuenftige Testluecken.
+
+    Scannt den do_POST-Quelltext in http_api.py nach 'parsed.path == "..."'
+    und stellt sicher, dass jeder dort gefundene POST-Pfad in der read-only
+    Testliste (BLOCKED_ENDPOINTS oben) vorkommt. Legt jemand einen neuen
+    schreibenden/aktiven POST-Endpunkt an, ohne die Read-only-Testliste (und
+    HOSTING_SICHERHEIT.md Abschnitt 2.1) zu pflegen, schlaegt dieser Test fehl
+    - unabhaengig davon, dass die deny-by-default Sperre den Endpunkt zur
+    Laufzeit ohnehin schon sperrt.
+    """
+
+    def test_every_do_post_path_is_covered_by_read_only_test_list(self) -> None:
+        source = Path(http_api_module.__file__).read_text(encoding="utf-8")
+        post_start = source.index("def do_POST")
+        post_end = source.index("def log_message", post_start)
+        post_body = source[post_start:post_end]
+
+        found_paths = set(re.findall(r'parsed\.path == "([^"]+)"', post_body))
+        self.assertTrue(
+            found_paths,
+            "Regex fand keine POST-Pfade in do_POST - Struktur von http_api.py hat "
+            "sich veraendert, Waechter-Regex in test_read_only_api.py anpassen.",
+        )
+
+        covered_paths = {path for (method, path) in BLOCKED_ENDPOINTS if method == "POST"}
+        missing = found_paths - covered_paths
+        self.assertFalse(
+            missing,
+            "Neue(r) POST-Endpunkt(e) ohne Read-only-Testabdeckung: {0}. Bitte in "
+            "API_ENDPOINTS (test_read_only_api.py) und HOSTING_SICHERHEIT.md "
+            "Abschnitt 2.1 ergaenzen.".format(sorted(missing)),
+        )
 
 
 if __name__ == "__main__":

@@ -98,6 +98,9 @@ zweiten Rechner am Standort ist bewusst noch offen (siehe `ROADMAP.md`, To-do 3)
 
 ### 2.1 Endpunkt-Einstufung (Basis für beide Pfade)
 
+*Stand: 2026-07-07 – abgeglichen mit `mini_ems_runtime/http_api.py` inkl. Commit `e5417edd2`
+(Pointlist-Import-Flow) und der Mapping-Aktivierung; Testabdeckung in `tests/test_read_only_api.py`.*
+
 Abgeleitet aus `mini_ems_runtime/http_api.py`. Nur die als **read-only** eingestuften Endpunkte dürfen im
 Online-Pfad erreichbar sein. Die als **sperren** markierten bleiben lokal/administrativ bzw. auf die
 Operator-Rolle beschränkt.
@@ -129,6 +132,9 @@ Operator-Rolle beschränkt.
 | `POST /api/config/site/save` | **speichert die Standortkonfiguration** (Admin-Token, Backup, Neustartbedarf); rein administrativ, nie über den Netzwerkzugriff |
 | `POST /api/config/mapping/preview` | Vorschau/Validierung eines Mapping-Entwurfs (S5); POST-Konfigurationspfad, nicht für den read-only Viewer |
 | `POST /api/report/preview` | zwar nur DB-Lesen, aber ein POST-Schreibpfad-Muster; für den read-only Pilot nicht nötig und bewusst außerhalb gehalten |
+| `POST /api/config/pointlist/import` | parst eine hochgeladene BACnet-Punkteliste (CSV/TSV/XLSX) zu Mapping-Kandidaten; schreibt zwar nicht in `config.json`, ist aber Teil des Konfigurations-Editors (S5/S6) und kein Viewer-Endpunkt |
+| `POST /api/config/discovery/bacnet/preview` | löst optional eine **echte BACnet-Discovery** (`who_is`/`read_property`) gegen die Anlage aus, sobald BACpypes3 installiert ist – aktiver Anlagenzugriff wie `GET /api/diagnostics/read`, deshalb gesperrt |
+| `POST /api/config/mapping/activate` | **sicherheitskritischster Endpunkt:** aktiviert einen Mapping-Patch, schreibt `config.json`, legt Backup/Draft/Audit-Log an und lädt die Konfiguration neu; nur mit Admin-Token, nie über den Netzwerkzugriff |
 
 Hinweis zur Robustheit: Die Sperre ist **positiv/deny-by-default** umgesetzt (nur GET-Methoden werden
 grundsätzlich durchgelassen; `POST`/`PUT`/`DELETE` sind generell gesperrt), nicht als Blocklist einzelner
@@ -197,7 +203,9 @@ und den Zugriff dokumentieren. Keine Codeänderung.
   liefern über denselben Port `HTTP 403`. Ohne diesen Schalter reicht der Pfad den **kompletten** Dienst
   durch: die schreibenden/aktiven Endpunkte (`/api/diagnostics/read`, `POST /api/config/spotmarket-lockout`,
   die `POST /api/config/site/*`- und `POST /api/config/mapping/preview`-Konfigurationspfade,
-  `POST /api/report/preview`) sind dann technisch erreichbar, und nur die **organisatorische** Vergabe des
+  `POST /api/report/preview`, die Config-Editor-Pipeline `POST /api/config/pointlist/import` und
+  `POST /api/config/discovery/bacnet/preview` sowie insbesondere `POST /api/config/mapping/activate`)
+  sind dann technisch erreichbar, und nur die **organisatorische** Vergabe des
   VPN-Zugangs trennt Viewer von Operator. Für den Pilot-Pfad (a) wird deshalb `api.read_only: true` gesetzt;
   eine echte Rollen-/Login-Trennung bleibt H6 vorbehalten.
 - Jeder mit VPN-Zugang sieht das Dashboard so, wie es ist; es gibt heute keine UI-seitige Rollentrennung.
