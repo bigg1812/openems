@@ -529,6 +529,20 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
   - **Risiken:** Keine direkte Internet-Portfreigabe auf `8090`; keine Vermischung von lokalem Simulationspfad und echter IPC.
   - **Definition of Done:** Zugriff funktioniert nur aus freigegebenem Kundennetz/VPN; die bestehende Anlagen-API ist nicht
     öffentlich erreichbar.
+  - **Stand (2026-07-07):** Umsetzungsreifes Feinkonzept liegt vor in `HOSTING_SICHERHEIT.md`, Teil 4, plus
+    kopierfertige Vorlagen unter `proxy/`. Enthalten: Bindungs-Matrix (wann `127.0.0.1` = nur lokal + Proxy
+    davor, wann konkrete EMS-LAN-IP `192.168.244.10` = Secomea-Pfad heute, warum nie `0.0.0.0`, Zusammenspiel
+    mit `api.read_only` je Szenario), Reverse-Proxy-Empfehlung **Caddy** (eine Binary, automatisches internes
+    HTTPS via `tls internal`, `sc.exe`-Dienst; vs. nginx/IIS begründet), kommentierte `proxy/Caddyfile`
+    (`bind` auf EMS-LAN-IP, `reverse_proxy 127.0.0.1:8090`, auskommentierter `basic_auth`-Block als
+    H6-Vorbereitung, keine Credentials im Repo), `proxy/firewall_rules.ps1` (`8090` nur lokal, Proxy-Port nur
+    Kundennetz/VPN), `proxy/README.md` (Dienst-Installation, Client-Zertifikat, Prüfschritte, Update-
+    Zusammenspiel) sowie Sicherheits-Ehrlichkeit (kein Login bis H6, Schutzgrenze beim Kunden-Admin,
+    Abgrenzung zum Secomea-Pfad a). Checkbox bleibt **offen**: Die DoD (Zugriff nur aus freigegebenem
+    Kundennetz/VPN, Anlagen-API nicht öffentlich) ist erst am Standort nachweisbar – sie setzt den in H2
+    offenen Windows-Build, das Umstellen von `config.json` auf `api.host: 127.0.0.1` + `api.read_only: true`
+    und die Installation von Caddy/Firewall auf der realen IPC voraus. Offene Standort-Schritte und
+    Verifikations-Checkliste: `HOSTING_SICHERHEIT.md`, Teil 4, Abschnitt 4.6.
 
 - [ ] **H5. Read-only Netzwerkmodus zuerst**
   - **Was:** Für den ersten geschützten Netzwerkzugriff nur Dashboard, Status, Historie und Reports freigeben. Schreibende

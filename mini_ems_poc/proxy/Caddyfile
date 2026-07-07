@@ -1,0 +1,68 @@
+# Mini EMS – Reverse-Proxy-Vorlage (H4)
+# =====================================================================
+# Caddy v2. Diese Datei ist eine KOPIERVORLAGE fuer die Windows-IPC.
+# Sie aendert nichts an Mini EMS selbst und wird von Caddy geladen,
+# nicht von der Mini-EMS-Runtime.
+#
+# Anpassen: alle mit <...> markierten Platzhalter an die Standort-
+# umgebung angleichen (Hostname/IP, Kundennetz-Subnetz).
+#
+# WICHTIG: KEINE Zugangsdaten / Passwoerter in diese Datei schreiben
+# und niemals mit Passwort-Hashes ins Git committen. Der Login-Block
+# ist bewusst auskommentiert (kommt erst mit H6).
+#
+# Zielbild (siehe HOSTING_SICHERHEIT.md, Teil 4):
+#   Client im Kundennetz/VPN
+#     -> HTTPS an diesen Proxy (EMS-LAN-IP, intern vertrauenswuerdiges Zert.)
+#     -> reverse_proxy an die NUR LOKAL gebundene Mini-EMS-API (127.0.0.1:8090)
+# Voraussetzung: api.host = 127.0.0.1 und api.read_only = true in config.json.
+# =====================================================================
+
+{
+	# --- Globale Optionen ---------------------------------------------
+	# Kein automatisches Let's-Encrypt-HTTPS: die IPC hat/braucht keine
+	# oeffentliche CA. Interner Betrieb nutzt Caddys lokale CA (tls internal).
+	# email wird bewusst NICHT gesetzt (keine ACME-Registrierung).
+
+	# Admin-API von Caddy nur auf localhost lassen (Default), nie ins Netz.
+	admin 127.0.0.1:2019
+
+	# Optional: Debug-Logs bei der Ersteinrichtung einschalten.
+	# debug
+}
+
+# --- Frontend-Adresse im Kundennetz -----------------------------------
+# Empfohlen: ein Hostname statt einer nackten IP, dann passt das interne
+# Zertifikat sauber auf den Namen. Der Client (zweiter Rechner) braucht
+# dafuer einen DNS- oder hosts-Eintrag <hostname> -> 192.168.244.10.
+#
+# Alternativ statt des Hostnamens direkt "https://192.168.244.10" nehmen;
+# dann gilt das interne Zertifikat fuer die IP.
+https://<ems-ipc.kunde.local> {
+
+	# Nur auf der EMS-LAN-IP lauschen, NICHT auf allen Interfaces.
+	# (Kein 0.0.0.0 – der Proxy soll nur im Kundennetz erreichbar sein.)
+	bind 192.168.244.10
+
+	# Intern vertrauenswuerdiges Zertifikat aus Caddys lokaler CA.
+	# Kein Internet noetig. Der Client muss Caddys Root-CA einmalig
+	# vertrauen (siehe README.md, Abschnitt "Zertifikat auf dem Client").
+	tls internal
+
+	# --- Optionaler Login-Block – VORBEREITUNG FUER H6, NOCH INAKTIV ---
+	# NICHT aktivieren, solange H6 nicht freigegeben ist. Diese Stufe (H4)
+	# liefert TLS + kanalisierten Zugriff, aber noch KEINEN Login.
+	# Passwort-Hash erzeugen (NICHT im Repo ablegen):
+	#     caddy hash-password
+	# und den ausgegebenen bcrypt-Hash unten einsetzen.
+	#
+	# basic_auth {
+	#	# <benutzername> <bcrypt-hash-aus-caddy-hash-password>
+	#	viewer <bcrypt-hash-hier-einsetzen>
+	# }
+
+	# --- Reverse Proxy auf die lokal gebundene Mini-EMS-API -----------
+	# 8090 ist NUR auf 127.0.0.1 gebunden (config.json: api.host=127.0.0.1),
+	# also von aussen nicht direkt erreichbar. Nur dieser Proxy spricht sie an.
+	reverse_proxy 127.0.0.1:8090
+}
