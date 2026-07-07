@@ -110,6 +110,16 @@ scope; do not silently turn it into immediate implementation work.
 
 **Use the scheduled task, not the legacy Windows service.**
 
+> **Stand 2026-07-07 – Produktionspfad ist jetzt das Release-Paket (H2).** Die Pilot-IPC
+> läuft `C:\Program Files\MiniEMS\mini_ems.exe --config C:\ProgramData\MiniEMS\config.json --loop`
+> über den geplanten Task **`MiniEmsPoCRelease`** (SYSTEM, Boot-Trigger), nicht mehr über den
+> Git-Checkout und `mini_ems.py`. Die konkurrierenden Alt-Autostarts sind entschärft: der alte
+> Dev-Task `MiniEmsPoC` ist **deaktiviert**, der Legacy-Dienst `MiniEmsPoC` steht auf **Manual**,
+> der Task `MiniEmsDashboardProxy` ist **deaktiviert**. Der Ablauf unten (mit `install_task.ps1`,
+> `run_mini_ems.cmd`, `mini_ems.py`) beschreibt den älteren Checkout-Betrieb und bleibt als
+> Referenz/Fallback stehen; die Release-Betriebsschritte stehen in `RELEASE_WORKFLOW.md` und
+> `UPDATE_WARTUNG.md`.
+
 - Do not use `sc.exe start MiniEmsPoC` as the normal runtime path. The `MiniEmsPoC` Windows service entry is legacy and can fail with `StartService FEHLER 1053` because `mini_ems.py` is a console process, not a native Windows service.
 - The supported IPC production start path is `windows/install_task.ps1` plus `run_mini_ems.cmd`.
 - The production runtime must use `config.json`, which binds the dashboard/API to `192.168.244.10:8090` and performs real BACnet writes.

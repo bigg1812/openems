@@ -70,34 +70,43 @@ die Betriebsschritte minimal.
    }
    ```
 
-## Installation als Windows-Dienst
+## Installation als geplanter Windows-Task (empfohlen)
 
-Caddy bringt keinen eigenen Windows-Dienst mit; empfohlen ist der native
-`sc.exe`-Dienst. Als Administrator:
+> **Wichtig – auf der Pilot-IPC (2026-07-07) verifiziert:** Ein nativer
+> `sc.exe`-Dienst mit `caddy run` funktioniert auf Windows **nicht** zuverlässig.
+> `caddy run` ist ein Konsolenprozess ohne Windows-Service-Handler; der SCM
+> beendet ihn nach ~30 s `START_PENDING` (dieselbe Ursache wie beim
+> Legacy-`MiniEmsPoC`-Dienst, Fehler 1053, siehe `AGENTS.md` Abschnitt 8).
+> Deshalb läuft Caddy hier als **geplanter Task** – konsistent zu
+> `MiniEmsPoCRelease`.
+
+Als Administrator (PowerShell):
 
 ```powershell
-# Dienst anlegen (Autostart), mit explizitem Config-Pfad
-sc.exe create caddy start= auto binPath= "C:\Program Files\Caddy\caddy.exe run --config C:\ProgramData\MiniEMS\proxy\Caddyfile"
-
-# Bei Absturz automatisch neu starten (nach 5 s, dauerhaft)
-sc.exe failure caddy reset= 0 actions= restart/5000
-
-# Starten
-sc.exe start caddy
+$caddy = 'C:\Program Files\Caddy\caddy.exe'
+$cfg   = 'C:\ProgramData\MiniEMS\proxy\Caddyfile'
+$action    = New-ScheduledTaskAction -Execute $caddy -Argument "run --config `"$cfg`""
+$trigger   = New-ScheduledTaskTrigger -AtStartup
+$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) `
+               -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+Register-ScheduledTask -TaskName 'MiniEmsDashboardCaddy' -Action $action `
+  -Trigger $trigger -Principal $principal -Settings $settings -Force
+Start-ScheduledTask -TaskName 'MiniEmsDashboardCaddy'
 ```
 
-Nach einer Änderung an der `Caddyfile` lädt der Dienst die Konfiguration **nicht**
+Nach einer Änderung an der `Caddyfile` lädt der Task die Konfiguration **nicht**
 automatisch neu; explizit nachladen:
 
 ```powershell
 & "C:\Program Files\Caddy\caddy.exe" reload --config C:\ProgramData\MiniEMS\proxy\Caddyfile
 ```
 
-Alternativ – konsistent zum bestehenden `MiniEmsPoC`-Task – kann Caddy auch als
-geplanter Windows-Task mit `-AtStartup` laufen (wie `windows/install_task.ps1` für
-Mini EMS, hier nur als Muster genannt, nicht vorgegeben). Für einen dauerhaft
-lauschenden Netzwerkdienst ist der `sc.exe`-Dienst mit Restart-Aktion aber die
-robustere Wahl.
+Die `Caddyfile` in diesem Verzeichnis enthält bereits die beiden dafür nötigen
+globalen Optionen: `skip_install_trust` (kein blockierender Zertifikatspeicher-
+Dialog im Task-Betrieb) und `auto_https disable_redirects` (kein Port-80-Redirect-
+Listener – Port 80 ist auf einer IPC oft durch `http.sys`/IIS belegt und würde
+sonst den gesamten Caddy-Start scheitern lassen).
 
 ## Firewall
 
