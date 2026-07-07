@@ -285,6 +285,75 @@ class ConfigApiTest(unittest.TestCase):
             "site.outdoor_temperature_c",
         )
 
+    def test_pointlist_import_endpoint_builds_mapping_draft(self) -> None:
+        server = self._build_server(make_raw_config())
+
+        payload = server.import_pointlist_payload(
+            {
+                "filename": "datenpunkte.csv",
+                "content": "Object Reference;Name;Mini EMS Kanal\n/100.AV300;Netzleistung;grid.active_power_kw\n",
+                "default_device": {"host": "192.168.244.10"},
+            }
+        )
+
+        self.assertTrue(payload["valid"])
+        self.assertEqual(payload["mapping_draft"]["raw_points"][0]["id"], "bacnet:device_100:av:300")
+        self.assertEqual(payload["mapping_draft"]["mappings"][0]["channel_id"], "grid.active_power_kw")
+
+    def test_mapping_activate_rejects_missing_admin_token(self) -> None:
+        server = self._build_server(make_raw_config(config_admin_token="secret-token"))
+
+        with self.assertRaisesRegex(PermissionError, "Invalid admin token"):
+            server.activate_mapping_config_payload(sample_mapping_draft(), admin_token=None)
+
+    def test_mapping_activate_persists_patch_and_keeps_draft_audit_and_backup(self) -> None:
+        server = self._build_server(make_raw_config(config_admin_token="secret-token"))
+
+        payload = server.activate_mapping_config_payload(
+            sample_mapping_draft(),
+            admin_token="secret-token",
+        )
+        persisted = json.loads(self.config_path.read_text(encoding="utf-8"))
+        backups = sorted(self.base_dir.glob("config.json.*.bak"))
+        drafts = sorted((self.base_dir / "mapping_drafts").glob("mapping.*.json"))
+        audit_lines = (self.base_dir / "config_audit.jsonl").read_text(encoding="utf-8").splitlines()
+        audit = json.loads(audit_lines[0])
+
+        self.assertTrue(payload["activated"])
+        self.assertTrue(payload["valid"])
+        self.assertTrue(payload["restart_required"])
+        self.assertEqual(payload["backup_file"], backups[0].name)
+        self.assertEqual(payload["draft_file"], "mapping_drafts/{0}".format(drafts[0].name))
+        self.assertEqual(payload["audit_file"], "config_audit.jsonl")
+        self.assertEqual(persisted["network"]["controller_ip"], "192.168.1.20")
+        self.assertEqual(persisted["points"]["grid_active_power_kw"], 300)
+        self.assertEqual(
+            persisted["additional_inputs"][0]["channel_id"],
+            "site.outdoor_temperature_c",
+        )
+        self.assertEqual(json.loads(drafts[0].read_text(encoding="utf-8")), sample_mapping_draft())
+        self.assertEqual(audit["action"], "mapping.activate")
+        self.assertEqual(audit["backup_file"], backups[0].name)
+        self.assertEqual(audit["draft_file"], "mapping_drafts/{0}".format(drafts[0].name))
+        self.assertEqual(audit["patch_sections"], ["additional_inputs", "network", "points"])
+        validate_raw_config(persisted, base_dir=self.base_dir)
+
+    def test_mapping_activate_does_not_persist_invalid_draft(self) -> None:
+        server = self._build_server(make_raw_config(config_admin_token="secret-token"))
+        draft = sample_mapping_draft()
+        draft["raw_points"][0]["object_type"] = "ai"
+
+        payload = server.activate_mapping_config_payload(draft, admin_token="secret-token")
+        persisted = json.loads(self.config_path.read_text(encoding="utf-8"))
+
+        self.assertFalse(payload["activated"])
+        self.assertFalse(payload["valid"])
+        self.assertIn("grid.active_power_kw must use BACnet AV", " / ".join(payload["errors"]))
+        self.assertEqual(persisted["network"]["controller_ip"], "192.168.1.100")
+        self.assertEqual(list(self.base_dir.glob("config.json.*.bak")), [])
+        self.assertFalse((self.base_dir / "mapping_drafts").exists())
+        self.assertFalse((self.base_dir / "config_audit.jsonl").exists())
+
     def test_site_config_view_strips_admin_token_and_keeps_editable_sections(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
 

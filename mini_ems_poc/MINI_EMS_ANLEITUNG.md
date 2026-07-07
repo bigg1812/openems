@@ -209,6 +209,80 @@ Vor echtem IPC-Betrieb braucht jede neue oder geänderte Konfiguration mindesten
 3. IPC-Prüfung von Bind-Adresse, Secomea/VPN-Zugriff, Firewall und geplantem Task
 4. kurzer Funktionstest mit `health.json`, Logdatei und Dashboard, bevor echte Schreibfunktionen freigegeben werden
 
+### Neue Version an einem echten Projekt anwenden
+
+Der erste Projekttest beginnt **nicht** mit Schalten auf der Anlage. Ziel ist zuerst, eine echte Datenpunktliste
+oder einen kleinen read-only Discovery-Lauf in einen Mapping-Entwurf zu verwandeln. Erst danach wird entschieden,
+welche Punkte in die aktive Konfiguration übernommen werden.
+
+Empfohlener Ablauf:
+
+1. **Projektunterlagen sammeln**
+   - Excel-/CSV-Datenpunktliste vom MSR-/GLT-Partner
+   - bekannte Controller-IP und BACnet-Port
+   - Markierung, welche Punkte nur gelesen werden und welche Schreibpunkte sind
+   - Betreiber-/MSR-Freigabe für spätere Live-Lesetests
+
+2. **Lokal starten**
+
+   ```bash
+   cd /Users/gabriel/dev/openems/mini_ems_poc
+   /Users/gabriel/dev/openems/.venv/bin/python mini_ems.py --config config.local.json --loop
+   ```
+
+   Erwartung: Dashboard/API laufen lokal auf `http://127.0.0.1:8090`, BACnet bleibt simuliert und
+   `real_writes_enabled=false`.
+
+3. **Datenpunktliste importieren**
+
+   Aktuell ist das ein technischer API-Schritt; die geführte Upload-Oberfläche folgt in der Mapping-UI. Die Datei
+   wird als Inhalt an `POST /api/config/pointlist/import` gesendet. Ergebnis sind Rohpunkt-Kandidaten und ein
+   Mapping-Entwurf, keine aktive Konfiguration.
+
+   Minimales CSV-Beispiel:
+
+   ```csv
+   Object Reference;Name;Unit;Value;Mini EMS Kanal
+   /100.AV300;Netzleistung;kW;42,3;grid.active_power_kw
+   /100.AI1801;Außentemperatur;°C;8.4;site.outdoor_temperature_c
+   ```
+
+   Die Erkennung akzeptiert typische Spaltennamen wie `Object Reference`, `Name`, `Unit`, `Value`, `Access`,
+   `Device`, `Mini EMS Kanal` sowie deutsche Varianten wie `Datenpunkt`, `Bezeichnung`, `Einheit`, `Wert`,
+   `Zugriff`, `Gerät`.
+
+4. **Import-Ergebnis prüfen**
+
+   Prüfen:
+
+   - Sind `devices` korrekt erkannt?
+   - Sind die Rohpunkte (`raw_points`) plausibel?
+   - Sind Schreibpunkte nur als Kandidaten markiert und nicht automatisch aktiv?
+   - Gibt es Warnungen zu unbekannten Objekttypen, doppelten Punkten oder fehlenden Spalten?
+
+5. **Mapping-Entwurf validieren**
+
+   Der Entwurf wird mit `POST /api/config/mapping/preview` geprüft. Dieser Schritt erzeugt nur einen
+   Runtime-Config-Patch und überschreibt nichts.
+
+6. **Nur nach Review aktivieren**
+
+   Aktivieren erfolgt erst über `POST /api/config/mapping/activate` mit Admin-Token. Dabei entstehen Backup,
+   Entwurfsdatei und Audit-Eintrag. Danach ist ein geplanter Mini-EMS-Neustart nötig, weil viele
+   Konfigurationsfelder beim Start geladen werden.
+
+7. **Erster Standorttest nur read-only**
+
+   Am Standort zuerst nur wenige ungefährliche Punkte lesen, zum Beispiel Netzleistung, Außentemperatur und
+   einen Temperatur-/Energiezähler. Schreibpunkte wie BV/AV-Ausgänge bleiben deaktiviert, bis Punktliste,
+   Mapping, Backup, Audit, Fallback und MSR-Freigabe geklärt sind.
+
+8. **Live-Discovery nur mit Freigabe**
+
+   `POST /api/config/discovery/bacnet/preview` ist der spätere BACpypes3-Werkzeugpfad. Er bleibt read-only und
+   erzeugt nur Rohpunkt-Kandidaten. Ein echter Discovery-Lauf im GA-Netz braucht ein freigegebenes Zeitfenster,
+   kleine Objekt-/RPM-Batches und Beobachtung der Netzlast.
+
 ### Netzwerk
 
 ```json
@@ -618,6 +692,16 @@ Wichtige Endpunkte:
   - Tagesreport als CSV
 - `/api/diagnostics/read?channel_id=grid.active_power_kw&samples=3`
   - wiederholter Diagnose-Read
+- `POST /api/config/mapping/preview`
+  - validiert einen Mapping-Entwurf und erzeugt daraus nur einen Runtime-Config-Patch
+- `POST /api/config/mapping/activate`
+  - übernimmt einen validierten Mapping-Entwurf nur mit Admin-Token; erstellt Backup, Entwurfsdatei und Audit-Eintrag
+- `POST /api/config/pointlist/import`
+  - importiert eine CSV-/TSV-/XLSX-Datenpunktliste aus `filename` plus `content_base64` oder `content`; Ergebnis sind
+    Rohpunkt-Kandidaten und ein Mapping-Entwurf, keine aktive Konfiguration
+- `POST /api/config/discovery/bacnet/preview`
+  - nutzt den optionalen BACpypes3-Werkzeugpfad für read-only Discovery; Ergebnis sind Rohpunkt-Kandidaten, keine
+    Writes und keine automatische Aktivierung
 
 ## Betrieb auf Windows
 

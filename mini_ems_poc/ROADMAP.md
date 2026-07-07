@@ -159,7 +159,7 @@ Diese Linie sammelt sinnvolle Ausbauspuren, die für einen späteren professione
 Sie sind bewusst **nicht** als nächster Umsetzungsschritt gesetzt. Erst S5/S6 und der sichere Betriebs-/Hostingpfad
 müssen stabil genug sein, damit zusätzliche Protokoll- und Cloud-Komplexität nicht wieder zum Baukasten wird.
 
-- [ ] **S7. BACnet-Profi-Stack evaluieren: BACpypes3 und BAC0**
+- [x] **S7. BACnet-Profi-Stack evaluieren: BACpypes3 und BAC0**
   - **Was:** Prüfen, ob der eigene kleine BACnet-Adapter für größere Standorte durch `BACpypes3` oder den Wrapper
     `BAC0` ergänzt werden sollte. Fokus: viele dynamische BACnet-Punkte, Discovery, Punktlisten-Import,
     `Who-Is`/`I-Am`, `ReadPropertyMultiple`, BBMD/BACnet-Routing und perspektivisch BACnet/SC.
@@ -174,26 +174,36 @@ müssen stabil genug sein, damit zusätzliche Protokoll- und Cloud-Komplexität 
     freigegebenen EMS-Kanäle.
   - **Definition of Done:** Es gibt eine kurze technische Entscheidung: eigener Adapter weiterführen, BACpypes3 direkt
     nutzen oder BAC0 für Discovery/Import einsetzen; inklusive Teststrategie und klarer Grenze zu Schreibpfaden.
-  - **Stand (2026-07-05):** Evaluierung liegt vor in `BACNET_STACK_EVAL.md`. Empfehlung: produktiver Lese-/Schreibpfad
-    bleibt beim eigenen Adapter (`bacnet.py`); für die Discovery-/Import-Vorstufe (S8) `BACpypes3` **direkt** als
-    getrennter, **read-only** Werkzeugpfad (MIT, eine Abhängigkeit, direkte Broadcast-/RPM-Lastkontrolle) statt `BAC0`
+  - **Stand (2026-07-07):** Entscheidung bestätigt. Produktiver Lese-/Schreibpfad bleibt beim eigenen Adapter
+    (`bacnet.py`); für die Discovery-/Import-Vorstufe (S8) wird `BACpypes3` **direkt** als getrennter,
+    **read-only** Werkzeugpfad genutzt (MIT, eine Abhängigkeit, direkte Broadcast-/RPM-Lastkontrolle) statt `BAC0`
     (LGPL-3.0, zwei Abhängigkeiten, verdeckte Last). Fremd-Stack erzeugt nur Rohpunkt-**Kandidaten** für den
     Mapping-Entwurf (S5), niemals Kanäle oder Writes. Ist-Analyse, Optionsvergleich, RPM-/Broadcast-Lastregeln und
-    Teststrategie in `BACNET_STACK_EVAL.md`. Checkbox bleibt offen: **finale Wahl trifft der Nutzer.**
+    Teststrategie in `BACNET_STACK_EVAL.md`.
 
-- [ ] **S8. BACnet-Discovery und Punktlisten-Import als Mapping-Vorstufe bauen**
+- [x] **S8. BACnet-Discovery und Punktlisten-Import als Mapping-Vorstufe bauen**
   - **Was:** Einen späteren Importpfad entwerfen: erreichbare Controller finden, BACnet-Objekte/Punktlisten einlesen,
     Kandidaten mit Name, Objekt, Instanz, Einheit und aktueller Probe darstellen und daraus einen Mapping-Entwurf
-    erzeugen.
+    erzeugen. Zweiter gleichwertiger Einstieg: vorhandene Datenpunktlisten als Excel-/CSV-Datei hochladen,
+    relevante Spalten erkennen (Name, Objekt-/Instanzkennung, Einheit, Kommentar, Zugriff/Schreibpunkt-Hinweis),
+    daraus Rohpunkt-Kandidaten erzeugen und diese im selben Mapping-Flow sortieren, filtern, zuordnen und testen.
   - **Nutzen:** Inbetriebnahme wird schneller und weniger fehleranfällig, ohne dass die Runtime selbst automatisch
     fremde Punkte übernimmt.
-  - **Betroffen:** Mapping-UI, `mapping_config.py`, neue Diagnose-/Discovery-API, ggf. BACpypes3/BAC0.
+  - **Betroffen:** Mapping-UI, `mapping_config.py`, neue Diagnose-/Discovery-API, Excel-/CSV-Import,
+    `BACpypes3` als getrennter read-only Discovery-Pfad.
   - **Aufwand:** L
   - **Risiken:** Broadcasts und Objektlisten können GA-Netze belasten. Discovery muss read-only bleiben und darf keine
     Schreibpunkte aktivieren. Gefundene Punkte sind nur Kandidaten; fachliche Zuordnung, Plausibilität und
     Betreiberfreigabe bleiben Pflicht.
-  - **Definition of Done:** Ein Discovery-Lauf erzeugt nur einen Entwurf mit Rohpunkten; Aktivierung läuft weiterhin
-    über S5/S6 mit Validierung, Backup und Audit.
+  - **Definition of Done:** Discovery-Lauf oder Excel-/CSV-Upload erzeugt nur einen Entwurf mit Rohpunkten;
+    Aktivierung läuft weiterhin über S5/S6 mit Validierung, Backup und Audit.
+  - **Stand (2026-07-07):** Erledigt als erster sicherer Import-/Discovery-Schnitt. `pointlist_import.py`
+    importiert CSV/TSV/XLSX-Datenpunktlisten in Rohpunkt-Kandidaten und Mapping-Entwürfe; `bacnet_discovery.py`
+    kapselt den optionalen BACpypes3-Pfad als read-only Preview mit Fake-testbarer Anwendungsschnittstelle. Neue
+    API-Endpunkte: `POST /api/config/pointlist/import` und `POST /api/config/discovery/bacnet/preview`.
+    Aktivierung bleibt ausschließlich über `POST /api/config/mapping/preview|activate` mit Validierung, Backup und
+    Audit. Ein echter Standort-Discovery-Lauf braucht weiterhin MSR-/Betreiberfreigabe und optional installierten
+    BACpypes3-Werkzeugpfad.
 
 - [ ] **S9. Northbound Outbox und MQTT/Cloud-Export read-only vorbereiten**
   - **Was:** Einen Exportpfad definieren, der normalisierte Mini-EMS-Werte aus Zeitreihe/Health in eine lokale Outbox
@@ -682,12 +692,12 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
 
 ## Empfohlener nächster Schritt
 
-**Strategisches Zentrum: S5/S6 Mapping-Kern zu Ende bauen.** S1-S4 haben den Edge-Integrationskern und das erste
-Modbus-Referenzmodell etabliert; jetzt entscheidet sich, ob Inbetriebnahme wirklich als fachlicher Mapping-Prozess
-statt JSON-Pflege funktioniert. S5 (Mapping-Entwurf als Konfigurationskern) und S6 (Aktivierung mit Backup/Audit)
-sind die aktive Arbeitslinie und tragen direkt die UX14-16-Umsetzung in `PRODUCT_UX_ROADMAP.md`. Alles danach
-(S7 Discovery-Stack, S8 Import, S9ff. Cloud-Pipeline) bleibt bewusst nachgeordnet, damit der Konfigurationskern
-nicht vor seiner Fertigstellung wieder aufgeweicht wird.
+**Strategisches Zentrum: Mapping-UI UX14-16 auf den gebauten API-Kern setzen.** S1-S4 haben den
+Edge-Integrationskern und das erste Modbus-Referenzmodell etabliert; S7/S8 sind jetzt als sicherer
+Discovery-/Import-Vorbau entschieden bzw. technisch vorbereitet. Als nächster lokaler Schritt bleibt, den
+Konfigurationsfluss in der UI wirklich als "Standort einrichten" abzubilden: importierte/entdeckte Rohpunkte
+anzeigen, fachlich zuordnen, testen und erst danach über den vorhandenen Preview-/Activate-Pfad übernehmen.
+S9ff. Cloud-Pipeline bleibt bewusst nachgeordnet.
 
 **Betriebspfad parallel: H2 abschließen.** Die Entscheidung ist gefallen (Release-Paket, initial PyInstaller,
 später Nuitka-kompatibel); offen ist die Umsetzung: Windows-Build-Pipeline, Bereinigung der Installationsskripte
@@ -697,6 +707,5 @@ H2 steht, damit nicht auf einem noch wechselnden Auslieferungsformat aufgesetzt 
 
 **Nur am Standort möglich: To-do 3 Online-Hosting-Nachweis.** Das Minimalkonzept liegt vollständig in
 `HOSTING_SICHERHEIT.md`, Teil 2, vor; es fehlt nur noch der reale Nachweis auf einem zweiten Rechner beim Kunden.
-Kein weiterer Konzeptaufwand nötig, nur Durchführung vor Ort. S7 (BACnet-Stack-Evaluierung) läuft unabhängig davon
-bereits als Prüfung, ohne den produktiven Adapter anzufassen. S8-S16 sowie die komplette Cloud-Data-Pipeline-Linie
+Kein weiterer Konzeptaufwand nötig, nur Durchführung vor Ort. S9-S16 sowie die komplette Cloud-Data-Pipeline-Linie
 (C1-C9) bleiben geparkte Zukunftsoptionen und werden erst nach stabilem Mapping-Kern und Betriebspfad neu bewertet.

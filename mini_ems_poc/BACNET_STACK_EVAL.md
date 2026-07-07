@@ -9,8 +9,10 @@ Grundsatz wie im `EDGE_INTEGRATION_CONTRACT.md`: **Der Code ist die Wahrheit.** 
 eigenen Adapter ist am Repo verifiziert (Datei/Zeile genannt), jede Aussage über eine Fremdbibliothek
 mit aktueller Quelle belegt (Stand der Recherche: 2026-07-05).
 
-Status: **Evaluierung, keine Umsetzung.** Diese Datei installiert keine Abhängigkeit und ändert keinen
-Laufzeitcode. Die S7-Checkbox bleibt offen; die finale Wahl trifft der Nutzer.
+Status: **Entscheidung bestätigt am 2026-07-07, keine Umsetzung.** Diese Datei installiert keine
+Abhängigkeit und ändert keinen Laufzeitcode. Festlegung: produktiver Lese-/Schreibpfad bleibt beim
+eigenen Adapter; `BACpypes3` wird später nur als getrennter read-only Discovery-/Import-Werkzeugpfad
+für S8 genutzt.
 
 ---
 
@@ -202,6 +204,12 @@ Betriebs- und Lizenzrisiko.
    ausgelieferten PyInstaller-Release-Pakets (H2). Discovery ist Konfigurator-Werkzeug, kein
    Laufzeitdienst auf der Kunden-IPC.
 
+5. **Datei-Import ist gleichwertig zu Live-Discovery.** Viele Standorte liefern zuerst eine
+   Datenpunktliste als Excel-/CSV-Datei. Dieser Upload-Pfad soll dieselben Rohpunkt-Kandidaten erzeugen
+   wie ein BACpypes3-Discovery-Lauf: Name, Gerät/Quelle, Objekttyp, Instanz, Einheit, Kommentar,
+   Zugriff/Schreibpunkt-Hinweis und optional eine Probe. Auch daraus entstehen keine aktiven Kanäle;
+   Sortieren, Filtern, Zuordnen, Testen und Aktivieren laufen über denselben S5/S6-Mapping-Pfad.
+
 ### RPM-/Broadcast-Lastgrenzen als konkrete Regeln
 
 - **`Who-Is` nur gezielt.** Bevorzugt gerichtete/rangebeschränkte `Who-Is` (Instanzbereich) oder
@@ -267,7 +275,8 @@ auf `127.0.0.1`, wie bei Modbus in `tests/test_modbus_adapter.py`).
 
 ## Bezug zur Roadmap
 
-- **S7 (diese Datei):** Entscheidung liegt vor; Checkbox bleibt offen bis zur Nutzerbestätigung.
+- **S7 (diese Datei):** Entscheidung bestätigt am 2026-07-07.
 - **S8:** setzt diese Entscheidung um — Discovery/Import als Mapping-Vorstufe, read-only, nur Kandidaten.
+  Der Import umfasst sowohl BACpypes3-Live-Discovery als auch Excel-/CSV-Datenpunktlisten.
 - **S5/S6:** bleiben der einzige Aktivierungspfad (Preview, Validierung, Backup, Audit).
 - **EDGE_INTEGRATION_CONTRACT.md:** Schreibpfad-Regeln bleiben unangetastet; Fremd-Stack niemals schreibend.

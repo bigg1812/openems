@@ -13,9 +13,11 @@ from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
+from .bacnet_discovery import preview_bacnet_discovery_payload
 from .config import ApiConfig, load_config, validate_raw_config
 from .logging_utils import log_event
 from .mapping_config import build_mapping_config_patch
+from .pointlist_import import import_pointlist_payload
 from .read_diagnostics import ChannelReadDiagnosticsService
 from .runtime_db import RuntimeDatabase
 from .spotmarket_plan import SpotmarketPlanWriter
@@ -219,6 +221,24 @@ class MiniEmsApiServer:
                     if parsed.path == "/api/config/mapping/preview":
                         payload = self._read_json_body()
                         self._send_json(api_server.preview_mapping_config_payload(payload))
+                        return
+                    if parsed.path == "/api/config/pointlist/import":
+                        payload = self._read_json_body()
+                        self._send_json(api_server.import_pointlist_payload(payload))
+                        return
+                    if parsed.path == "/api/config/discovery/bacnet/preview":
+                        payload = self._read_json_body()
+                        self._send_json(api_server.preview_bacnet_discovery_payload(payload))
+                        return
+                    if parsed.path == "/api/config/mapping/activate":
+                        payload = self._read_json_body()
+                        try:
+                            self._send_json(api_server.activate_mapping_config_payload(payload, self._admin_token()))
+                        except PermissionError as error:
+                            self._send_json(
+                                {"activated": False, "message": str(error)},
+                                status=HTTPStatus.FORBIDDEN,
+                            )
                         return
                     if parsed.path == "/api/report/preview":
                         payload = self._read_json_body()
@@ -478,16 +498,18 @@ class MiniEmsApiServer:
             }
         return result
 
+    def import_pointlist_payload(self, payload: Dict[str, object]) -> Dict[str, object]:
+        return import_pointlist_payload(payload)
+
+    def preview_bacnet_discovery_payload(self, payload: Dict[str, object]) -> Dict[str, object]:
+        return preview_bacnet_discovery_payload(payload)
+
     def save_site_config_payload(
         self,
         payload: Dict[str, object],
         admin_token: Optional[str],
     ) -> Dict[str, object]:
-        expected_token = self.api_config.config_admin_token
-        if not expected_token:
-            raise PermissionError("Config save is disabled: api.config_admin_token is not configured")
-        if admin_token is None or not hmac.compare_digest(str(admin_token), str(expected_token)):
-            raise PermissionError("Invalid admin token")
+        self._require_admin_token(admin_token, "Config save")
 
         try:
             raw = self._candidate_config_from_payload(payload)
@@ -504,6 +526,51 @@ class MiniEmsApiServer:
             "valid": True,
             "restart_required": True,
             "backup_file": backup_path.name,
+        }
+
+    def activate_mapping_config_payload(
+        self,
+        payload: Dict[str, object],
+        admin_token: Optional[str],
+    ) -> Dict[str, object]:
+        self._require_admin_token(admin_token, "Mapping activation")
+
+        preview = self.preview_mapping_config_payload(payload)
+        if not preview.get("valid"):
+            return {
+                "activated": False,
+                "valid": False,
+                "errors": list(preview.get("errors", [])),
+                "warnings": list(preview.get("warnings", [])),
+            }
+
+        config_path = self._require_config_path()
+        raw = _deep_merge_dicts(self._read_config_file(), preview["patch"])
+        validate_raw_config(raw, base_dir=self._config_base_dir())
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        backup_path = self._backup_config_file(config_path, timestamp)
+        draft_path = self._write_mapping_draft(payload, timestamp)
+        _write_json_preserve_order(config_path, raw)
+        load_config(config_path)
+        audit_path = self._append_config_audit(
+            {
+                "timestamp": timestamp,
+                "action": "mapping.activate",
+                "config_file": config_path.name,
+                "backup_file": backup_path.name,
+                "draft_file": str(draft_path.relative_to(config_path.parent)),
+                "restart_required": True,
+                "patch_sections": sorted(str(key) for key in preview["patch"].keys()),
+            }
+        )
+        return {
+            "activated": True,
+            "valid": True,
+            "restart_required": True,
+            "backup_file": backup_path.name,
+            "draft_file": str(draft_path.relative_to(config_path.parent)),
+            "audit_file": audit_path.name,
+            "warnings": list(preview.get("warnings", [])),
         }
 
     def update_spotmarket_lockout_settings(self, payload: Dict[str, object]) -> Dict[str, object]:
@@ -628,11 +695,34 @@ class MiniEmsApiServer:
             raise ValueError("Config file is not available")
         return self.config_path
 
-    def _backup_config_file(self, config_path: Path) -> Path:
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    def _require_admin_token(self, admin_token: Optional[str], action: str) -> None:
+        expected_token = self.api_config.config_admin_token
+        if not expected_token:
+            raise PermissionError("{0} is disabled: api.config_admin_token is not configured".format(action))
+        if admin_token is None or not hmac.compare_digest(str(admin_token), str(expected_token)):
+            raise PermissionError("Invalid admin token")
+
+    def _backup_config_file(self, config_path: Path, timestamp: Optional[str] = None) -> Path:
+        if timestamp is None:
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         backup_path = config_path.with_name("{0}.{1}.bak".format(config_path.name, timestamp))
         backup_path.write_bytes(config_path.read_bytes())
         return backup_path
+
+    def _write_mapping_draft(self, payload: Dict[str, object], timestamp: str) -> Path:
+        config_path = self._require_config_path()
+        draft_dir = config_path.parent / "mapping_drafts"
+        draft_path = draft_dir / "mapping.{0}.json".format(timestamp)
+        _write_json_preserve_order(draft_path, payload)
+        return draft_path
+
+    def _append_config_audit(self, entry: Dict[str, object]) -> Path:
+        config_path = self._require_config_path()
+        audit_path = config_path.parent / "config_audit.jsonl"
+        audit_path.parent.mkdir(parents=True, exist_ok=True)
+        with audit_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=True, sort_keys=True) + "\n")
+        return audit_path
 
 
 # GET-Endpunkte, die trotz GET im read-only Netzwerkmodus (H5) gesperrt bleiben,

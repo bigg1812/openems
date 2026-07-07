@@ -189,10 +189,11 @@ Leitentscheidungen:
     Plausibilität, Aktualität und Freigabestatus in Alltagssprache.
 
 - [ ] **UX17. Punktlisten-Import und Discovery als geführten Prüfprozess gestalten**
-  - **Was:** Wenn später BACnet-Discovery, BAC0/BACpypes3, Modbus-Registerlisten oder M-Bus-/MQTT-Importe hinzukommen,
-    darf die UI nicht einfach eine lange technische Rohpunktliste zeigen. Der Nutzer sieht einen geführten Ablauf:
-    Quelle auswählen, Punkte importieren, Kandidaten gruppieren, fachliche Bedeutung zuordnen, Werte testen,
-    Schreibpunkte separat freigeben.
+  - **Was:** Wenn später BACnet-Discovery, BACpypes3, Excel-/CSV-Datenpunktlisten, Modbus-Registerlisten oder
+    M-Bus-/MQTT-Importe hinzukommen, darf die UI nicht einfach eine lange technische Rohpunktliste zeigen. Der Nutzer
+    sieht einen geführten Ablauf: Quelle auswählen, Datei hochladen oder Live-Discovery starten, Spalten erkennen,
+    Punkte importieren, Kandidaten gruppieren, fachliche Bedeutung zuordnen, Werte testen, Schreibpunkte separat
+    freigeben.
   - **Nutzen:** Professionelle Protokolltiefe wird bedienbar. Discovery spart Inbetriebnahmezeit, ohne dass Nutzer
     glauben, automatisch gefundene Punkte seien automatisch richtige EMS-Kanäle.
   - **Betroffen:** Standort-einrichten-Flow, Mapping-Tabelle, Import-Preview, Test-Ergebnisse, Warntexte; technische
