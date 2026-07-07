@@ -265,6 +265,12 @@ Secomea-Fernzugriff ohnehin stattfindet):
 - **Secomea-Erreichbarkeit:** Regelmäßig prüfen, dass der Secomea-/VPN-Fernzugriff auf
   `192.168.244.10:8090` tatsächlich funktioniert (nicht erst, wenn ein Update ansteht) – siehe
   `HOSTING_SICHERHEIT.md`, Teil 2, Abschnitt 2.5, Schritt 4.
+- **Reverse Proxy (falls eingerichtet, H4):** Ist die optionale H4-Stufe aktiv (Reverse Proxy vor der
+  intern gebundenen API, siehe `HOSTING_SICHERHEIT.md`, Teil 4 und `proxy/README.md`), muss der Proxy für
+  ein Mini-EMS-Update **nicht** gestoppt werden. Er ist ein eigener Dienst; während Mini EMS in
+  Abschnitt 2.2/2.5 stoppt und wieder startet, liefert der Proxy kurz `502` und erholt sich automatisch,
+  sobald `127.0.0.1:8090` wieder antwortet. Neu geladen (`caddy reload`) werden muss der Proxy nur, wenn
+  sich die `Caddyfile` oder die `caddy.exe` selbst ändert – nicht bei einem reinen Mini-EMS-Update.
 
 ---
 
@@ -333,8 +339,10 @@ Konsistent zur Sichtbarkeits- und Änderungsmatrix in `HOSTING_SICHERHEIT.md`, T
   (diese Datei)
 - `packaging/README.md` – Build-Tooling, Release-Layout, Version-/Prüfsummen-Erzeugung, "Später Nuitka"
 - `HOSTING_SICHERHEIT.md` – Sichtbarkeits-/Änderungsmatrix (Teil 1), Netzwerkgrenzen, Secomea/VPN-Zugriff
-  (Teil 2), Installationslayout und Windows-Dateirechte (Teil 3, H3) – Grundlage für die Backup-Zielpfade
-  in Abschnitt 2.3 dieser Datei
+  (Teil 2), Installationslayout und Windows-Dateirechte (Teil 3, H3), API-Bindung und Reverse Proxy
+  (Teil 4, H4) – Grundlage für die Backup-Zielpfade in Abschnitt 2.3 dieser Datei
+- `proxy/README.md`, `proxy/Caddyfile`, `proxy/firewall_rules.ps1` – optionaler Reverse Proxy (H4); für ein
+  Mini-EMS-Update nicht zu stoppen (siehe Wartungsroutine, Abschnitt 4)
 - `EDGE_INTEGRATION_CONTRACT.md` – Lese-/Schreibrechte, Safety-Flags, Ausfallverhalten
 - `MINI_EMS_ANLEITUNG.md` – Betrieb, Pfade IPC vs. lokal, `health.json`-Felder, Windows-Task
 - `windows/install_task.ps1`, `run_mini_ems.cmd` – heutiger Start-/Task-Mechanismus (nur lesend

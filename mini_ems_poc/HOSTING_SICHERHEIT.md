@@ -1,6 +1,6 @@
 # Mini EMS – Hosting und Sicherheitsgrenze
 
-Diese Datei erledigt drei Dinge:
+Diese Datei erledigt vier Dinge:
 
 - **Teil 1 (H1 aus `ROADMAP.md`)** legt das Zielbild und die Sicherheitsgrenze fest: wer UI, Runtime-Dateien,
   Standortkonfiguration, Logs und Betriebsdaten sehen bzw. ändern darf.
@@ -10,6 +10,10 @@ Diese Datei erledigt drei Dinge:
   Installationslayout und Windows-Dateirechte um: wo App-Dateien und Standortdaten auf der Kunden-IPC
   liegen, wer welche Rechte auf welchen Ordner bekommt, und mit welchen `icacls`-Kommandos das umgesetzt
   wird.
+- **Teil 4 (H4 aus `ROADMAP.md`)** bindet die API intern und stellt das UI über einen geschützten Zugriff
+  bereit: eine Bindungs-Matrix (wann `127.0.0.1`, wann EMS-LAN-IP, warum nie `0.0.0.0`), eine
+  Reverse-Proxy-Empfehlung (Caddy) mit kopierfertigen Vorlagen unter `proxy/` und eine
+  Verifikations-Checkliste für den Standort.
 
 Grundsatz wie im `EDGE_INTEGRATION_CONTRACT.md`: **Der Code ist die Wahrheit.** Die Endpunkt-Listen und
 Aussagen zu Lese-/Schreibpfaden sind aus `mini_ems_runtime/http_api.py`, `config.json` und dem
@@ -644,6 +648,161 @@ Dokument):
 
 ---
 
+## Teil 4 – API-Bindung und Reverse Proxy (H4)
+
+Ziel von H4: Die technische Mini-EMS-API wird **nicht direkt im Netz ausgestellt**, sondern intern
+gebunden; der UI-Zugriff läuft kontrolliert über einen davor gesetzten Reverse Proxy mit HTTPS. Dieser
+Teil liefert das umsetzungsreife Feinkonzept: die Bindungs-Matrix, die Proxy-Empfehlung mit Begründung,
+die Verweise auf die kopierfertigen Vorlagen unter `proxy/`, die ehrliche Schutzabgrenzung und eine
+Verifikations-Checkliste für den Standort. Die Vorlagen selbst (`proxy/Caddyfile`,
+`proxy/firewall_rules.ps1`, `proxy/README.md`) ändern **nichts** an Mini EMS, an `config.json` oder an
+`windows/*.ps1`.
+
+**Abgrenzung vorweg:** Diese Stufe ist die **Vorstufe** vor dem Login (H6). Sie nimmt die API aus dem Netz,
+bringt TLS und kanalisiert den Zugriff über genau einen Einstiegspunkt – sie bringt **keinen** Login und
+**keine** Rollen. Der Schutz endet außerdem beim Kunden-Administrator der IPC (Grenze aus Teil 1.3).
+
+### 4.1 Bindungs-Matrix
+
+Die Bindung entscheidet, **welches Netzwerk-Interface** die API überhaupt annimmt. Sie ist die erste und
+wichtigste Grenze – noch vor Firewall, read-only Modus und Proxy.
+
+| # | Szenario | `api.host` (Bindung) | `api.read_only` | Reverse Proxy | Wer kommt an die API |
+|---|---|---|---|---|---|
+| 1 | Laptop / Simulation (`config.local.json`) | `127.0.0.1` | `false` (Default) | nein | nur der lokale Benutzer auf dem Laptop |
+| 2 | Secomea-/VPN-Pfad heute (Teil 2, Pfad a) | `192.168.244.10` (EMS-LAN-IP) | `true` | nein (optional) | Personen mit Secomea-/VPN-Zugang, **direkt** auf `8090` (ohne TLS/Login) |
+| 3 | **H4-Zielstufe: API lokal, Proxy davor** | `127.0.0.1` | `true` | **ja** (Caddy) | Kundennetz/VPN **nur über den HTTPS-Proxy**; `8090` ist im Netz unsichtbar |
+| 4 | (Anti-Muster, nie verwenden) | `0.0.0.0` | egal | egal | **alle Interfaces**, inkl. jedem versehentlich gerouteten Netz |
+
+**Wann `127.0.0.1`:** immer, wenn ein Proxy davorsteht (Szenario 3) oder reiner Lokalbetrieb vorliegt
+(Szenario 1). Die API hört dann nur auf Loopback und ist von keinem anderen Rechner direkt erreichbar –
+weder aus dem Kundennetz noch aus dem Internet. Der Proxy ist der einzige Sprecher zur API.
+
+**Wann die konkrete EMS-LAN-IP `192.168.244.10`:** im heutigen Secomea-Pfad (Szenario 2), solange **kein**
+Proxy eingerichtet ist. Dann muss die API auf dem LAN-Interface lauschen, damit der VPN-/Secomea-Client sie
+erreicht. Diese Bindung ist die **bestehende** Betriebsart aus Teil 2 – der Proxy ersetzt sie nicht,
+sondern tritt in Szenario 3 optional davor (siehe 4.5).
+
+**Warum nie `0.0.0.0`:** `0.0.0.0` bindet an **alle** Netzwerk-Interfaces gleichzeitig. Auf einer IPC mit
+mehreren Interfaces (EMS-LAN, ggf. weiteres Management-/WAN-Interface, VPN-Adapter) würde die API damit auch
+auf Interfaces lauschen, die nie dafür gedacht waren – im ungünstigsten Fall auf einem Interface mit
+Internet-Route. Eine konkrete Bindung (`127.0.0.1` oder `192.168.244.10`) stellt sicher, dass der Dienst nur
+auf dem einen vorgesehenen Weg annimmt. Das ist genau die Festlegung aus Teil 1.1 und
+`MINI_EMS_ANLEITUNG.md` ("sauberer und sicherer als `0.0.0.0`").
+
+**Zusammenspiel mit `api.read_only`:** Die Bindung sagt, *wer* die API erreicht; `api.read_only` sagt, *was*
+er dann darf. Beides ist unabhängig und wirkt additiv (defense in depth). In Szenario 3 gilt bewusst beides:
+`127.0.0.1` nimmt die API aus dem Netz, `read_only: true` sperrt zusätzlich serverseitig alle Schreib-/
+Aktiv-Endpunkte (siehe 2.1) – selbst wenn der Proxy einmal fehlkonfiguriert wäre, bliebe die API read-only.
+
+### 4.2 Reverse-Proxy-Empfehlung: Caddy
+
+Verglichen für die Windows-IPC:
+
+- **Caddy (Empfehlung).** Eine einzige Binary (`caddy.exe`), kein Installer, kein Runtime-Unterbau.
+  Automatisches, intern vertrauenswürdiges HTTPS über die eingebaute lokale CA (`tls internal`) – ohne
+  Internet-CA, was für eine IPC ohne öffentliche Erreichbarkeit passt. Die "eine Binary neben einer Konfig"-
+  Philosophie deckt sich mit dem Release-Paket-Ansatz aus `packaging/`.
+- **nginx für Windows.** Funktioniert, aber HTTPS-Zertifikate müssen manuell erzeugt und erneuert werden,
+  und der Windows-Build gilt als zweitrangig gepflegt. Mehr Handarbeit für denselben Zweck.
+- **IIS mit URL-Rewrite/ARR.** Bereits im Windows-Ökosystem, aber schwergewichtig: Rollen/Features
+  aktivieren, ARR- und URL-Rewrite-Module nachinstallieren, Zertifikate über den Windows-Zertifikatspeicher
+  verwalten. Deutlich mehr bewegliche Teile als eine einzelne Binary.
+
+**Empfehlung: Caddy** – eine Binary, automatisches internes HTTPS, einfache Integration als
+`sc.exe`-Windows-Dienst. Das hält die Betriebsschritte minimal und passt zur Release-Paket-Philosophie.
+Details und Installationsschritte: `proxy/README.md`.
+
+### 4.3 Konkrete Vorlagen unter `proxy/`
+
+Analog zu `packaging/` liegen die kopierfertigen Vorlagen in einem eigenen Verzeichnis:
+
+| Datei | Inhalt |
+|---|---|
+| `proxy/Caddyfile` | Reverse Proxy auf `127.0.0.1:8090`, `tls internal` (internes Zertifikat), `bind` auf die EMS-LAN-IP, auskommentierter `basic_auth`-Block als H6-Vorbereitung (kein Credential im Repo) |
+| `proxy/firewall_rules.ps1` | `New-NetFirewallRule`-Kommandos: Proxy-Port nur aus dem Kundennetz/VPN, `8090` eingehend aus dem Netz blockiert |
+| `proxy/README.md` | Installation als `sc.exe`-Dienst, Firewall, Client-Zertifikat, Prüfschritte, Update-Zusammenspiel, H6-Ausblick |
+
+Kernpunkte der `Caddyfile` (verifiziert gegen die aktuelle Caddy-v2-Dokumentation):
+
+- `bind 192.168.244.10` – der Proxy lauscht nur auf der EMS-LAN-IP, nicht auf allen Interfaces. Der `bind`-
+  Wert enthält bewusst keinen Port; der Port kommt aus der Site-Adresse.
+- `tls internal` – Caddy nutzt seine lokale, intern vertrauenswürdige CA und braucht keine Internet-CA.
+- `reverse_proxy 127.0.0.1:8090` – Weiterleitung an die lokal gebundene Mini-EMS-API.
+- `basic_auth { … }` – **auskommentiert**, Andockstelle für H6. Passwort-Hashes werden mit
+  `caddy hash-password` erzeugt und **außerhalb** des Repos gehalten (Caddy akzeptiert keine
+  Klartext-Passwörter). `basic_auth` ist die aktuelle Direktiven-Schreibweise (vor Caddy v2.8: `basicauth`).
+
+### 4.4 Was diese Stufe leistet – und was nicht
+
+**Leistet (H4):**
+
+- Die technische API ist **nicht mehr direkt im Netz**: Sie hört nur auf `127.0.0.1`, der einzige
+  Netzwerk-Sprecher ist der Proxy.
+- **TLS** für den UI-Zugriff über ein intern vertrauenswürdiges Zertifikat, ohne Internet-CA.
+- Der Zugriff ist auf **genau einen Einstiegspunkt kanalisiert** (der Proxy), zusätzlich per Firewall auf
+  das Kundennetz/VPN begrenzt.
+- Zusammen mit `api.read_only: true` bleiben Schreib-/Aktiv-Endpunkte serverseitig gesperrt (siehe 2.1).
+
+**Leistet NICHT (bewusst nicht Teil von H4):**
+
+- **Kein Login und keine Rollen.** Wer den Proxy im Kundennetz/VPN erreicht, sieht das Dashboard ohne
+  Passwort. Der `basic_auth`-Block ist vorbereitet, aber inaktiv – Login/Rollen (`viewer`/`operator`/
+  `admin`) kommen mit **H6** (`PRODUCT_UX_KONZEPT.md`, Abschnitt 3).
+- **Keine Uneinsehbarkeit gegenüber dem Kunden-Administrator.** Der Schutz ist eine Netzwerk- und
+  Zugriffsgrenze, keine kryptografische Uneinsehbarkeit auf der IPC. Wer lokalen Admin-Zugriff hat, kann
+  den Proxy umgehen und `127.0.0.1:8090` direkt ansprechen – das ist die Grenze aus **Teil 1.3** und wird
+  hier nicht anders behauptet.
+- **Kein Ersatz für die read-only Grenze.** Der Proxy ist kein Rollenfilter; die read-only Trennung bleibt
+  serverseitig über `api.read_only` (H5) verantwortlich, nicht über Proxy-Regeln.
+
+### 4.5 Abgrenzung zum Secomea-Pfad (Teil 2, Pfad a)
+
+Der heutige Pfad a bindet die API an die EMS-LAN-IP `192.168.244.10:8090` und erreicht sie über Secomea/VPN
+**direkt**, ohne Proxy und ohne TLS (Szenario 2 der Matrix). Der Reverse Proxy ist eine **optionale Stufe
+davor**, kein Ersatz:
+
+- Er verschiebt die API-Bindung auf `127.0.0.1` (Szenario 3), macht `8090` im Netz unsichtbar und stellt
+  denselben VPN-Zugriff über HTTPS und einen einzigen Einstiegspunkt bereit.
+- Solange der Proxy **nicht** eingerichtet ist, bleibt Pfad a unverändert gültig und betriebsfähig – die
+  H4-Stufe ist additiv, nicht erzwingend.
+- Die BACnet-Controller (`192.168.244.30/.40:47808`) bleiben in **beiden** Fällen außerhalb jedes
+  Fernzugriffs; daran ändert der Proxy nichts.
+
+### 4.6 Verifikations-Checkliste für den Standort
+
+Ausführbar erst auf der realen IPC (Windows-Build, echte Netze). Erwartete Ergebnisse jeweils dahinter:
+
+1. **API lokal erreichbar:** auf der IPC `curl http://127.0.0.1:8090/api/status` → `HTTP 200` mit
+   Statusdaten.
+2. **API nicht mehr im Netz:** vom zweiten Rechner (Kundennetz/VPN)
+   `curl http://192.168.244.10:8090/api/status` → Verbindung abgelehnt/Timeout (weil `api.host=127.0.0.1`).
+3. **Proxy lokal:** auf der IPC `curl -k https://<hostname>/api/status` → `HTTP 200` (Proxy erreicht die
+   lokale API).
+4. **Proxy vom zweiten Rechner:** aus dem Kundennetz/VPN `curl -k https://<hostname>/api/status` →
+   `HTTP 200`; das Dashboard `https://<hostname>/` lädt.
+5. **read-only greift über den Proxy:** `curl -k -X POST https://<hostname>/api/config/spotmarket-lockout`
+   → `HTTP 403` (`read_only_mode`); `curl -k https://<hostname>/api/diagnostics/read` → `HTTP 403`;
+   `curl -k https://<hostname>/api/status` meldet `api_read_only: true`.
+6. **TLS aktiv:** der Proxy antwortet auf `https://`, nicht auf `http://`; das Zertifikat stammt aus Caddys
+   interner CA (bei `-k` akzeptiert; für vertrauenswürdige Anzeige die Root-CA auf dem Client importieren,
+   siehe `proxy/README.md`).
+7. **Firewall:** `Get-NetFirewallRule -DisplayName "MiniEMS*"` zeigt die Allow-Regel für den Proxy-Port und
+   die Block-Regel für `8090`; ein Zugriff auf den Proxy-Port **von außerhalb** des Kundennetzes schlägt
+   fehl.
+
+**Offene Standort-Schritte (nur am realen Standort nachweisbar, deshalb bleibt die H4-Checkbox offen):**
+
+- Umstellen von `config.json` auf `api.host: 127.0.0.1` + `api.read_only: true` und Neustart von Mini EMS
+  (Admin-Arbeit an `config.json`, nicht in diesem Repo enthalten).
+- Installieren von `caddy.exe`, Anpassen der `Caddyfile`-Platzhalter, Registrieren des `sc.exe`-Dienstes.
+- Setzen der Firewall-Regeln mit den realen Kundennetz-/VPN-Subnetzen.
+- **DoD-Nachweis:** Zugriff funktioniert nur aus dem freigegebenen Kundennetz/VPN, und die Anlagen-API ist
+  nicht öffentlich erreichbar (Prüfschritte 2, 4, 7 gegen die reale Netztopologie). Dieser Nachweis kann nur
+  am Standort erbracht werden.
+
+---
+
 ## Querverweise
 
 - `ROADMAP.md` – strategische To-do-Linie "Geschütztes Kundenhosting" (H1–H9) und To-do 3
@@ -654,6 +813,8 @@ Dokument):
 - `mini_ems_runtime/config.py` – `resolve_path`/`base_dir`, Quelle der config-relativen Pfadauflösung in Teil 3.1
 - `packaging/README.md`, `packaging/RELEASE_HINWEISE.md` – Release-Layout, Frozen-Pfadauflösung (H2),
   Grundlage für das App-Dateien-Layout in Teil 3.1
+- `proxy/Caddyfile`, `proxy/firewall_rules.ps1`, `proxy/README.md` – kopierfertige Reverse-Proxy- und
+  Firewall-Vorlagen für Teil 4 (H4): API intern binden, HTTPS-Proxy davor, Zugriff kanalisieren
 - `UPDATE_WARTUNG.md` – Update-, Healthcheck- und Rollback-Ablauf (H7), App-Dateien-/Standortdaten-Liste
   (Abschnitt 1.3, Basis für Teil 3.1), Backup-Dateiliste (Abschnitt 2.3, Basis für Migrationshinweis 3.5),
   Verantwortlichkeiten remote (Secomea/VPN) vs. vor Ort, konsistent zur Sichtbarkeits-/Änderungsmatrix in
