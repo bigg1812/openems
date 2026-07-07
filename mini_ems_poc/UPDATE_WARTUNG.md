@@ -11,8 +11,8 @@ Wahrheit.** Pfade, Felder und Endpunkte hier sind aus `config.json`, `mini_ems_r
 **H2-Entscheidung getroffen:** `H2. Mini EMS als Release-Paket statt Git-Checkout ausliefern`
 ist entschieden. Die Festlegung des Nutzers lautet wörtlich: *"Release-Paket, initial PyInstaller, später
 Nuitka-kompatibel"*. Das konkrete Paketformat ist damit ein **One-Dir-Release** (ausführbares Artefakt
-`mini_ems`/`mini_ems.exe` + `dashboard/`, `mini_ems_runtime/templates/`, optional `sim/`, `VERSION`,
-`SHA256SUMS`, `RELEASE_HINWEISE.md`), gebaut über `packaging/build_release.ps1` (Windows/IPC) bzw.
+`mini_ems`/`mini_ems.exe` + `run_mini_ems_release.cmd`, `dashboard/`, `mini_ems_runtime/templates/`,
+optional `sim/`, `VERSION`, `SHA256SUMS`, `RELEASE_HINWEISE.md`), gebaut über `packaging/build_release.ps1` (Windows/IPC) bzw.
 `packaging/build_release.sh` (lokale Verifikation). Details: `packaging/README.md`. Der Prozess bleibt im
 Kern gleich; die zuvor als **[H2-abhängig]** markierten Stellen sind unten jetzt konkret auf dieses
 Paketformat aufgelöst. Die Trennung App-Dateien vs. Standortdaten (Abschnitt 1) ändert sich dadurch nicht:
@@ -41,9 +41,10 @@ Paketformat aufgelöst. Die Trennung App-Dateien vs. Standortdaten (Abschnitt 1)
 3. **App-Dateien vs. Standortdaten – klare Trennung.** Jedes Release-Paket-Format muss diese Trennung
    einhalten, unabhängig davon, wie es technisch gebaut ist:
    - **App-Dateien** (kommen aus dem Release-Paket, werden bei jedem Update ersetzt): Anwendungscode
-     bzw. ausführbares Artefakt, `dashboard/` (Assets), `run_mini_ems.cmd`, `windows/install_task.ps1`,
-     mitgelieferte Beispiel-/Vorlagedateien wie `data/spotmarket/spotmarket_manual_override.example.json`,
-     `sim/` (nur für lokale Simulation relevant, nicht IPC-Betriebsdaten).
+     bzw. ausführbares Artefakt, `dashboard/` (Assets), `run_mini_ems_release.cmd`,
+     mitgelieferte Beispiel-/Vorlagedateien wie `sim/` (nur für lokale Simulation relevant, nicht
+     IPC-Betriebsdaten). `windows/install_task.ps1` bleibt das Repository-Werkzeug zum Registrieren des Tasks,
+     ist aber kein laufend zu editierender Standortdatenbestandteil.
    - **Standortdaten** (bleiben unangetastet, werden vor dem Update gesichert): `config.json`,
      `data/runtime/`, `data/spotmarket/spotmarket_manual_override.json` (falls aktiv gesetzt),
      `logs/`, `runtime/`.
@@ -85,18 +86,18 @@ Durchführung remote via Secomea/VPN auf die IPC, wie in `HOSTING_SICHERHEIT.md`
 
 4. Geplanten Task stoppen:
    ```powershell
-   Stop-ScheduledTask -TaskName "MiniEmsPoC"
+   Stop-ScheduledTask -TaskName "MiniEmsPoCRelease"
    ```
 5. Prozess-Ende verifizieren, bevor Dateien angefasst werden:
    ```powershell
-   Get-ScheduledTask -TaskName "MiniEmsPoC" | Get-ScheduledTaskInfo
-   Get-Process python* -ErrorAction SilentlyContinue
+   Get-ScheduledTask -TaskName "MiniEmsPoCRelease" | Get-ScheduledTaskInfo
+   Get-Process mini_ems -ErrorAction SilentlyContinue
    ```
    Erwartung: `LastTaskResult` zeigt keinen laufenden Task mehr an, und es läuft kein
-   `python.exe`-Prozess mehr, der `mini_ems.py` referenziert. Falls doch, Prozess sauber beenden
+   `mini_ems.exe`-Prozess mehr. Falls doch, Prozess sauber beenden
    (nicht `taskkill /F` als ersten Reflex, sondern kurz abwarten – der Zykluscode reagiert nicht auf
    Kill-Signale, ein hängender Prozess deutet eher auf Task Scheduler-Wiederanlauf hin, siehe
-   `run_mini_ems.cmd`-Restart-Schleife) und erneut prüfen.
+   `run_mini_ems_release.cmd`-Restart-Schleife) und erneut prüfen.
 
 ### 2.3 Backup
 
@@ -131,12 +132,12 @@ Durchführung remote via Secomea/VPN auf die IPC, wie in `HOSTING_SICHERHEIT.md`
 9. Neuen Release-Ordner an die Installationsstelle entpacken/kopieren, ohne die unter Punkt 6 gesicherten
    Standortdaten-Dateien zu überschreiben. Beim entschiedenen One-Dir-Format heißt das konkret: den
    bisherigen Release-Ordner (aus Punkt 7 als `MiniEMS_vorher` beiseitegelegt) durch den neuen ersetzen.
-   Der neue Ordner enthält `mini_ems.exe`, `_internal/`-Laufzeitdateien bei aktivierter `_internal`-Struktur
-   bzw. die flach danebenliegenden Laufzeitdateien, `dashboard/`, `mini_ems_runtime/templates/`, optional
-   `sim/`, `VERSION`, `SHA256SUMS` und `RELEASE_HINWEISE.md`. Die Zielaussage bleibt: Code/Assets/Vorlagen
-   werden ersetzt; `config.json`, `data/runtime/`, `runtime/`, `logs/` liegen außerhalb des Release-Ordners
-   und bleiben unverändert. Der Start erfolgt weiter über den geplanten Windows-Task
-   (`windows/install_task.ps1`) mit externem `--config <pfad>\config.json`.
+   Der neue Ordner enthält `mini_ems.exe`, `run_mini_ems_release.cmd`, `_internal/`-Laufzeitdateien bei
+   aktivierter `_internal`-Struktur bzw. die flach danebenliegenden Laufzeitdateien, `dashboard/`,
+   `mini_ems_runtime/templates/`, optional `sim/`, `VERSION`, `SHA256SUMS` und `RELEASE_HINWEISE.md`.
+   Die Zielaussage bleibt: Code/Assets/Vorlagen werden ersetzt; `config.json`, `data/runtime/`, `runtime/`,
+   `logs/` liegen außerhalb des Release-Ordners und bleiben unverändert. Der Start erfolgt über den
+   geplanten Windows-Task (`windows/install_task.ps1 -Mode release`) mit externem `--config <pfad>\config.json`.
 10. Nach dem Ersetzen erneut Prüfsumme kontrollieren: Die mitgelieferte `SHA256SUMS` gegen die tatsächlichen
     Dateien im installierten Ordner prüfen (nicht nur vor dem Kopieren, auch am Zielort, um
     Übertragungsfehler auszuschließen). Unter Windows z. B. je Datei
@@ -153,10 +154,10 @@ Durchführung remote via Secomea/VPN auf die IPC, wie in `HOSTING_SICHERHEIT.md`
 
 13. Geplanten Task wieder starten:
     ```powershell
-    Start-ScheduledTask -TaskName "MiniEmsPoC"
+    Start-ScheduledTask -TaskName "MiniEmsPoCRelease"
     ```
 14. Kurz warten (mindestens ein Zyklus, siehe `timing.cycle_seconds` in `config.json`, aktuell `60`
-    Sekunden) und danach `Get-ScheduledTaskInfo -TaskName "MiniEmsPoC"` prüfen: `LastTaskResult` soll
+    Sekunden) und danach `Get-ScheduledTaskInfo -TaskName "MiniEmsPoCRelease"` prüfen: `LastTaskResult` soll
     `0` sein bzw. der Task soll im Zustand "Running" stehen.
 
 ### 2.6 Healthcheck

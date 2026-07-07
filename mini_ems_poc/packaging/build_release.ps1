@@ -64,7 +64,8 @@ $Platform = "Windows-$env:PROCESSOR_ARCHITECTURE"
 ) | Set-Content -Path (Join-Path $ReleaseDir "VERSION") -Encoding ascii
 Write-Host "[build] wrote VERSION ($Version, $GitCommit)"
 
-# --- RELEASE_HINWEISE.md: what is package vs. site data ---------------------
+# --- Release launcher + notes: package vs. site data ------------------------
+Copy-Item (Join-Path $ProjectDir "run_mini_ems_release.cmd") (Join-Path $ReleaseDir "run_mini_ems_release.cmd") -Force
 Copy-Item (Join-Path $ScriptDir "RELEASE_HINWEISE.md") (Join-Path $ReleaseDir "RELEASE_HINWEISE.md") -Force
 
 # --- SHA256SUMS over every release file (excluding the sums file itself) -----

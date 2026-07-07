@@ -623,11 +623,10 @@ unten):
    Dateiliste wie beim Backup-Schritt in `UPDATE_WARTUNG.md` 2.3.
 4. Release-Paket nach `C:\Program Files\MiniEMS` entpacken (identisch zum "Release-Ordner tauschen" aus
    `UPDATE_WARTUNG.md` 2.4, nur mit neuem Zielpfad statt In-Place-Ersetzung im Checkout-Ordner).
-5. Geplanten Task auf den neuen Installationsort umstellen: neues Startkommando mit
-   `--config "C:\ProgramData\MiniEMS\config.json"` und Arbeitsverzeichnis/Executable-Pfad
-   `C:\Program Files\MiniEMS`. **Diese Umstellung betrifft `windows/install_task.ps1` bzw. dessen
-   Nachfolgeversion – wird hier nur benannt, nicht ausgeführt oder inhaltlich vorweggenommen**, weil an
-   dieser Datei parallel gearbeitet wird.
+5. Geplanten Task auf den neuen Installationsort umstellen: `windows/install_task.ps1 -Mode release`
+   registriert einen separaten Release-Task, der `C:\Program Files\MiniEMS\run_mini_ems_release.cmd`
+   mit `C:\ProgramData\MiniEMS\config.json` startet. Der Launcher ruft `mini_ems.exe --config
+   C:\ProgramData\MiniEMS\config.json --loop` auf; Arbeitsverzeichnis ist `C:\Program Files\MiniEMS`.
 6. Funktionstest wie in 3.4 durchführen, bevor der alte Checkout-Ordner entfernt wird.
 7. Erst nach bestandenem Funktionstest den alten Task deregistrieren/alten Checkout-Ordner archivieren
    oder löschen – nicht vorher, damit im Fehlerfall der bekannte funktionierende Zustand sofort wieder
@@ -642,9 +641,9 @@ Dokument):
   Windows-Version).
 - Der DoD-Nachweis selbst: ein Test als echter normaler Windows-Benutzer, dass Runtime-Dateien nicht
   lesbar/änderbar sind, bei laufendem Task und funktionierendem UI-Zugriff.
-- Die Umstellung von `windows/install_task.ps1` auf den neuen Installationspfad und ggf. auf einen
-  dedizierten Task-/Dienst-Benutzer statt `SYSTEM` – das ist Gegenstand der parallel laufenden Session
-  an dieser Datei und wird hier nicht vorgegriffen.
+- Die Umstellung auf einen dedizierten Task-/Dienst-Benutzer statt `SYSTEM` bleibt eine spätere
+  Betriebsentscheidung. Der Release-Task-Pfad selbst ist über `windows/install_task.ps1 -Mode release`
+  und `run_mini_ems_release.cmd` vorbereitet.
 
 ---
 
@@ -819,5 +818,5 @@ Ausführbar erst auf der realen IPC (Windows-Build, echte Netze). Erwartete Erge
   (Abschnitt 1.3, Basis für Teil 3.1), Backup-Dateiliste (Abschnitt 2.3, Basis für Migrationshinweis 3.5),
   Verantwortlichkeiten remote (Secomea/VPN) vs. vor Ort, konsistent zur Sichtbarkeits-/Änderungsmatrix in
   Teil 1
-- `windows/install_task.ps1` – heutiger Task-Mechanismus (nur lesend referenziert; Umstellung auf das
-  Ziel-Layout aus Teil 3 ist dort noch nicht vorgenommen)
+- `windows/install_task.ps1` – Task-Mechanismus für heutigen Checkout-Betrieb (`-Mode checkout`) und
+  Release-Ziel-Layout (`-Mode release` mit `run_mini_ems_release.cmd`)

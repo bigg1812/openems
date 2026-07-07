@@ -18,6 +18,7 @@ und alle Betriebsdaten sind **niemals** Teil des Pakets.
 | `build_release.sh` | Build für macOS/Linux – lokale Verifikation |
 | `build_release.ps1` | Build für Windows – IPC-Release-Erstellung |
 | `RELEASE_HINWEISE.md` | wird ins Paket kopiert: Paket vs. Standortdaten |
+| `../run_mini_ems_release.cmd` | wird ins Paket kopiert: Launcher für `mini_ems.exe --config <ProgramData>\config.json --loop` |
 | `.gitignore` | ignoriert die Arbeitsverzeichnisse `build/` und `dist/` |
 
 Die PyInstaller-Arbeitsverzeichnisse (`packaging/build/`, `packaging/dist/`)
@@ -31,6 +32,7 @@ Der Build erzeugt ein One-Dir-Paket unter `packaging/dist/mini_ems/`:
 ```text
 mini_ems/
 |-- mini_ems(.exe)                     # ausführbares Artefakt
+|-- run_mini_ems_release.cmd           # Windows-Launcher für den geplanten Task
 |-- _internal/                         # PyInstaller-Laufzeit (nicht editieren)
 |-- dashboard/                         # UI-Assets als DATEN neben dem Binary
 |   `-- vendor/
@@ -77,6 +79,23 @@ packaging/dist/mini_ems/mini_ems --config <pfad>/config.local.json --loop
 `config.json`/`config.local.json` bleiben **außerhalb** des Pakets und werden per
 `--config` übergeben. Betriebsdaten (SQLite, Logs, `runtime/`) entstehen relativ
 zur Config, nicht im Paket.
+
+## Geplanten Task auf Release-Paket registrieren
+
+Nach dem Kopieren des Release-Ordners nach `C:\Program Files\MiniEMS` und der Standortdaten nach
+`C:\ProgramData\MiniEMS`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File windows\install_task.ps1 `
+  -Mode release `
+  -TaskName MiniEmsPoCRelease `
+  -AppDir "C:\Program Files\MiniEMS" `
+  -ConfigPath "C:\ProgramData\MiniEMS\config.json" `
+  -StartNow:$false
+```
+
+Der alte Checkout-Task bleibt damit als Rollback erhalten. Cutover: alten Task stoppen, neuen Task starten,
+Healthcheck fahren; bei Problemen den neuen Task stoppen und den alten wieder starten.
 
 ## Frozen-Pfadauflösung (Code)
 

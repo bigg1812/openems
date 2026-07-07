@@ -60,7 +60,8 @@ fi
 } > "${RELEASE_DIR}/VERSION"
 echo "[build] wrote VERSION (${SEMVER}, ${GIT_COMMIT}${GIT_DIRTY})"
 
-# --- RELEASE_HINWEISE.md: what is package vs. site data ---------------------
+# --- Release launcher + notes: package vs. site data ------------------------
+cp "${PROJECT_DIR}/run_mini_ems_release.cmd" "${RELEASE_DIR}/run_mini_ems_release.cmd"
 cp "${SCRIPT_DIR}/RELEASE_HINWEISE.md" "${RELEASE_DIR}/RELEASE_HINWEISE.md"
 
 # --- SHA256SUMS over every release file (excluding the sums file itself) -----

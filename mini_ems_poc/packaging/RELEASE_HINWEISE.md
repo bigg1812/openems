@@ -7,6 +7,9 @@ und Rollback-Ablauf: siehe `UPDATE_WARTUNG.md` im Repository.
 ## Was zum Paket gehört (wird bei einem Update ersetzt)
 
 - `mini_ems` bzw. `mini_ems.exe` – das ausführbare Artefakt.
+- `run_mini_ems_release.cmd` – Windows-Launcher für den geplanten Task. Startet
+  `mini_ems.exe --config <externe config.json> --loop` und schreibt die
+  Konsolenausgabe nach `<Standortdaten>\logs\mini_ems_stdout.log`.
 - `_internal/` – von PyInstaller mitgelieferte Laufzeitbibliotheken (nicht von
   Hand bearbeiten).
 - `dashboard/` – UI-Assets (inklusive `vendor/`). Liegen als Dateien neben dem

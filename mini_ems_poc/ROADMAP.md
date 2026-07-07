@@ -476,28 +476,31 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
 
 - [ ] **H2. Mini EMS als Release-Paket statt Git-Checkout ausliefern**
   - **Was:** Die Kunden-IPC bekommt kein vollständiges Repository mehr, sondern ein versioniertes Release-Paket, z. B.
-    `mini_ems.exe`, `dashboard/`, `config.json`, Startskripte, Checksums und Versionsdatei.
+    `mini_ems.exe`, `dashboard/`, Release-Launcher, Checksums und Versionsdatei; `config.json` bleibt externe
+    Standortkonfiguration.
   - **Nutzen:** Normale Nutzer können nicht einfach den gesamten Python-Code lesen. Updates werden kontrollierter und
     professioneller als ein manueller Git-Ordner auf der IPC.
-  - **Betroffen:** Packaging-Konzept, `run_mini_ems.cmd`, `windows/install_task.ps1`, Release-Artefakt, Standortkonfiguration.
+  - **Betroffen:** Packaging-Konzept, `run_mini_ems_release.cmd`, `windows/install_task.ps1`, Release-Artefakt,
+    Standortkonfiguration.
   - **Aufwand:** M
   - **Risiken:** PyInstaller ist einfacher, aber leichter extrahierbar; Nuitka ist für weniger beiläufige Code-Einsicht
     geeigneter, aber aufwendiger. `config.json` darf nicht in ein hart kodiertes Paket verschwinden.
   - **Definition of Done:** Eine Test-IPC kann Mini EMS ohne Git-Repo starten; der Betriebspfad bleibt `config.json` plus
     geplanter Windows-Task.
   - **Entscheidung (Nutzer, wörtlich):** *"Release-Paket, initial PyInstaller, später Nuitka-kompatibel"*.
-    Umsetzung: One-Dir-Release (ausführbares Artefakt + `dashboard/` + `mini_ems_runtime/templates/`,
-    optional `sim/`, plus `VERSION`, `SHA256SUMS`, `RELEASE_HINWEISE.md`) über `packaging/`
+    Umsetzung: One-Dir-Release (ausführbares Artefakt + `run_mini_ems_release.cmd` + `dashboard/` +
+    `mini_ems_runtime/templates/`, optional `sim/`, plus `VERSION`, `SHA256SUMS`, `RELEASE_HINWEISE.md`) über `packaging/`
     (`mini_ems.spec`, `build_release.ps1` für Windows/IPC, `build_release.sh` für lokale Verifikation).
     `config.json` und Betriebsdaten sind nie Teil des Pakets; der Betriebspfad bleibt externes `config.json`
     plus geplanter Windows-Task. Die Frozen-Pfadauflösung ist bewusst generisch gehalten (Ressourcen neben
     dem Executable, kein `sys._MEIPASS` im Runtime-Code), damit sie ohne Umbau auch für Nuitka trägt.
-  - **Stand:** Packaging-Tooling und die minimale Frozen-Pfadauflösung (`mini_ems_runtime/resources.py`,
-    eine Zeile in `app.py`) liegen vor; der lokale Build-Nachweis auf macOS ist erbracht (PyInstaller-Build,
-    `--once`-Zyklus schreibt `health.json`, `--loop` liefert `/api/status` und `/dashboard`, alle 85 Tests
-    grün). Offen bleiben der Windows-Build auf der IPC und der Start auf einer Test-IPC ohne Git-Repo – das
-    kann nur der Nutzer am Standort erbringen; deshalb bleibt die H2-Checkbox offen. Details:
-    `packaging/README.md`; aufgelöste Betriebsschritte: `UPDATE_WARTUNG.md`.
+  - **Stand:** Packaging-Tooling, Release-Launcher (`run_mini_ems_release.cmd`), `install_task.ps1 -Mode release`
+    und die minimale Frozen-Pfadauflösung (`mini_ems_runtime/resources.py`, eine Zeile in `app.py`) liegen vor; der
+    lokale Build-Nachweis auf macOS ist erbracht (PyInstaller-Build, `--once`-Zyklus schreibt `health.json`,
+    `--loop` liefert `/api/status` und `/dashboard`, alle Mini-EMS-Tests grün). Offen bleiben der Windows-Build auf
+    der IPC und der Start auf einer Test-IPC ohne Git-Repo – das kann nur der Nutzer am Standort erbringen; deshalb
+    bleibt die H2-Checkbox offen. Details: `packaging/README.md`; aufgelöste Betriebsschritte:
+    `UPDATE_WARTUNG.md`.
 
 - [ ] **H3. Runtime-Dateien und Konfiguration sauber schützen**
   - **Was:** Installation z. B. unter `C:\Program Files\MiniEMS` oder `C:\ProgramData\MiniEMS`, mit Windows-Rechten nur

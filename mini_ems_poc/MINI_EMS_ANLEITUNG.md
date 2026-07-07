@@ -727,13 +727,38 @@ Verwende dazu:
 
 - [windows/install_task.ps1](C:/dev/openems/mini_ems_poc/windows/install_task.ps1)
 - [run_mini_ems.cmd](C:/dev/openems/mini_ems_poc/run_mini_ems.cmd)
+- [run_mini_ems_release.cmd](C:/Program%20Files/MiniEMS/run_mini_ems_release.cmd) im Release-Paket
 
 Wichtig:
 
 - den Installer in einer PowerShell als Administrator ausfuehren
 - der Task startet beim Systemstart
-- `run_mini_ems.cmd` nutzt bevorzugt die projektlokale `.venv`
-- wenn der Python-Prozess mit Fehlercode endet, startet der Wrapper ihn nach kurzer Pause neu
+- `run_mini_ems.cmd` nutzt im Checkout-Betrieb bevorzugt die projektlokale `.venv`
+- `run_mini_ems_release.cmd` startet im Release-Betrieb `mini_ems.exe --config C:\ProgramData\MiniEMS\config.json --loop`
+- wenn der Runtime-Prozess mit Fehlercode endet, startet der Wrapper ihn nach kurzer Pause neu
+
+Checkout-Task (alter/Rollback-Pfad):
+
+```powershell
+cd C:\dev\openems\mini_ems_poc
+powershell -ExecutionPolicy Bypass -File .\windows\install_task.ps1 `
+  -Mode checkout `
+  -TaskName MiniEmsPoC `
+  -ProjectDir C:\dev\openems\mini_ems_poc `
+  -StartNow:$false
+```
+
+Release-Task (Zielpfad H2/H3):
+
+```powershell
+cd C:\dev\openems\mini_ems_poc
+powershell -ExecutionPolicy Bypass -File .\windows\install_task.ps1 `
+  -Mode release `
+  -TaskName MiniEmsPoCRelease `
+  -AppDir "C:\Program Files\MiniEMS" `
+  -ConfigPath "C:\ProgramData\MiniEMS\config.json" `
+  -StartNow:$false
+```
 
 ### Neustart nach Codeaenderungen
 
