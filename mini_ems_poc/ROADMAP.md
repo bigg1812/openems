@@ -727,7 +727,9 @@ noch offenen H2-Windows-Build voraussetzt. H5: Die technische Grundlage (`api.re
 alle nicht-GET-Endpunkte) ist umgesetzt und getestet; offen bleibt der reale Nachweis von einem zweiten Rechner
 am Standort. To-do 3: Das Minimalkonzept (Pfad a: Secomea/VPN, Pfad b: Export mit Login, Empfehlung und
 Checkliste) liegt vollständig in `HOSTING_SICHERHEIT.md`, Teil 2, vor; auch hier fehlt nur der reale Nachweis
-beim Kunden. H4/H6/H8/H9 (API-Bindung, Login/Rollen, Audit, geschützte Konfigurations-UI) folgen erst danach.
+beim Kunden. H4 ist inzwischen ebenfalls als Feinkonzept mit kopierfertigen Vorlagen vorbereitet
+(`HOSTING_SICHERHEIT.md` Teil 4, `proxy/`) und gehört damit in denselben Standort-Block; H6/H8/H9
+(Login/Rollen, Audit, geschützte Konfigurations-UI) folgen erst danach.
 
 **Geparkt: S9-S16 und die komplette Cloud-Data-Pipeline (C1-C9).** Northbound-Export, M-Bus-Integration,
 Semantik-Export und Write-Back-Sicherheit (S9-S16) sowie Payload-Vertrag, Broker-Wahl, Event-Log,
