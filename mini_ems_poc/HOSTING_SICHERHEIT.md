@@ -790,12 +790,18 @@ Ausführbar erst auf der realen IPC (Windows-Build, echte Netze). Erwartete Erge
    die Block-Regel für `8090`; ein Zugriff auf den Proxy-Port **von außerhalb** des Kundennetzes schlägt
    fehl.
 
+**Stand Pilot-IPC 2026-07-08:** Die IPC-seitige Umschaltung ist ausgeführt. `config.json` setzt
+`api.host: 127.0.0.1` und `api.read_only: true`, die produktive Caddyfile proxyt auf `127.0.0.1:8090`,
+Mini EMS läuft nach Neustart über `MiniEmsPoCRelease`, und Caddy wurde reloadet. Lokal auf der IPC verifiziert:
+`127.0.0.1:8090/api/status` meldet `api_read_only: true`, `192.168.244.10:8090` ist nicht mehr erreichbar,
+`https://192.168.244.10/api/status` und `/dashboard` liefern HTTP 200, `GET /api/diagnostics/read` und
+`POST /api/config/spotmarket-lockout` liefern HTTP 403, und die H4-Firewallregeln sind aktiv.
+
 **Offene Standort-Schritte (nur am realen Standort nachweisbar, deshalb bleibt die H4-Checkbox offen):**
 
-- Umstellen von `config.json` auf `api.host: 127.0.0.1` + `api.read_only: true` und Neustart von Mini EMS
-  (Admin-Arbeit an `config.json`, nicht in diesem Repo enthalten).
-- Installieren von `caddy.exe`, Anpassen der `Caddyfile`-Platzhalter, Registrieren des `sc.exe`-Dienstes.
-- Setzen der Firewall-Regeln mit den realen Kundennetz-/VPN-Subnetzen.
+- Vom zweiten Rechner im freigegebenen Kundennetz/VPN/Secomea prüfen: `https://192.168.244.10/api/status`
+  und Dashboard laden, `http://192.168.244.10:8090/api/status` darf nicht mehr erreichbar sein.
+- Von außerhalb des Kundennetz-/VPN-Bereichs prüfen, dass der Proxy-Port nicht erreichbar ist.
 - **DoD-Nachweis:** Zugriff funktioniert nur aus dem freigegebenen Kundennetz/VPN, und die Anlagen-API ist
   nicht öffentlich erreichbar (Prüfschritte 2, 4, 7 gegen die reale Netztopologie). Dieser Nachweis kann nur
   am Standort erbracht werden.

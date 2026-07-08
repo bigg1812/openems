@@ -600,6 +600,17 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     `README_UMSCHALTUNG.md`). Checkbox bleibt **offen**: Der DoD (Zugriff nur aus Kundennetz/VPN, Anlagen-API nicht
     öffentlich) verlangt die Umschaltung und den Nachweis vom zweiten Rechner am Standort – Achtung
     Secomea-Erreichbarkeit, siehe Risiko-Abschnitt im Umschalt-README. Bericht: `agent_d/H4_PROXY_BERICHT.md`.
+  - **Stand (2026-07-08): IPC-seitige H4-Umschaltung ausgeführt und lokal verifiziert.**
+    `C:\ProgramData\MiniEMS\config.json` bindet die API jetzt an `127.0.0.1:8090` und setzt
+    `api.read_only: true`; die produktive `Caddyfile` proxyt auf `127.0.0.1:8090`. Mini EMS wurde über
+    `MiniEmsPoCRelease` neu gestartet, Caddy reloadet. Verifikation auf der IPC: `GET /api/status` auf
+    `http://127.0.0.1:8090` liefert `api_read_only: true` und `runtime_status: live`;
+    `http://192.168.244.10:8090/api/status` ist nicht mehr erreichbar; `https://192.168.244.10/api/status`
+    und `/dashboard` liefern über den Proxy HTTP 200; `netstat` zeigt `8090` nur auf `127.0.0.1` und
+    `443` auf `192.168.244.10`; Firewall-Regeln `MiniEMS Proxy HTTPS (nur Kundennetz)` und
+    `MiniEMS API 8090 (nur lokal, Netz blockiert)` sind aktiv. Backups liegen auf der IPC unter
+    `C:\ProgramData\MiniEMS\backups\h4_h5_20260708_185158`. Checkbox bleibt offen bis zum
+    zweiten-Rechner-/Secomea-Nachweis aus dem freigegebenen Kundennetz/VPN.
 
 - [ ] **H5. Read-only Netzwerkmodus zuerst**
   - **Was:** Für den ersten geschützten Netzwerkzugriff nur Dashboard, Status, Historie und Reports freigeben. Schreibende
@@ -624,6 +635,11 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     read_only=true sperrt jeden blockierten Endpunkt mit 403; Freigabeliste bleibt erreichbar; Status-Feld vorhanden).
     Checkbox bleibt **offen**: Die DoD verlangt den Nachweis von einem zweiten Rechner am Standort – das kann nur der
     Nutzer/Betreiber vor Ort erbringen (Pilot-Checkliste in `HOSTING_SICHERHEIT.md` 2.5, jetzt inkl. `api.read_only`-Schritt).
+  - **Stand (2026-07-08): Auf der Pilot-IPC aktiviert und lokal verifiziert.** `GET /api/status` meldet
+    `api_read_only: true`; `GET /api/diagnostics/read` liefert HTTP 403; `POST
+    /api/config/spotmarket-lockout` liefert HTTP 403 mit `read_only_mode`. Dashboard und Status bleiben über
+    `https://192.168.244.10` erreichbar. Offen bleibt auch hier nur der zweite-Rechner-Nachweis aus dem
+    Kundennetz/VPN.
 
 - [ ] **H6. UI-Zugriff mit Login und einfacher Rollenlogik absichern**
   - **Was:** Mindestens Passwortschutz für das UI; später Rollen wie `viewer`, `operator`, `admin`. Für den ersten Schritt
@@ -775,16 +791,17 @@ Kandidaten fachlich zugeordnet, getestet und kontrolliert übernommen werden kö
 `PRODUCT_UX_ROADMAP.md` UX14 (Standort einrichten), UX15 (fachliche Mapping-Tabelle), UX16 ("Alle Punkte
 testen") und UX12 (rollenbasierte Freigabeseite, an S6 gekoppelt).
 
-**Standort-Schritte als Block: H2/H3/H4/H5/To-do 3.** Auf der Pilot-IPC am 2026-07-07 deutlich vorangebracht.
+**Standort-Schritte als Block: H2/H3/H4/H5/To-do 3.** Auf der Pilot-IPC am 2026-07-07 deutlich vorangebracht
+und am 2026-07-08 für H4/H5 IPC-seitig umgeschaltet.
 **H2: erledigt** – Release-Paket (`mini_ems.exe`) läuft über Task `MiniEmsPoCRelease`, per `SHA256SUMS` verifiziert,
 Alt-Autostarts entschärft; Rest ist Betriebs-Hygiene (dirty-Build, kein Versions-Endpunkt). **H3: erledigt** –
 `icacls`-Härtung auf `C:\ProgramData\MiniEMS` angewandt (keine Users-/Everyone-ACE, Vererbung gekappt), Anlage
-unter den Rechten stabil; Rest ist ein formaler Klick-Test unter einem Nicht-Admin-Konto. **H4: Proxy im
-Parallelbetrieb** – Caddy läuft als Task `MiniEmsDashboardCaddy` auf `https://192.168.244.10`, beide Pfade (8090
-direkt + Proxy) liefern 200; die eigentliche Umschaltung (API auf `127.0.0.1` + read-only + 8090 sperren) ist als
-geprüftes, nicht ausgeführtes Skriptpaket vorbereitet. **H5:** Die technische Grundlage (`api.read_only`,
-deny-by-default) ist umgesetzt und getestet; offen bleibt der reale Nachweis von einem zweiten Rechner am Standort
-(hängt an der H4-Umschaltung). **To-do 3:** Minimalkonzept (Secomea/VPN bzw. Export mit Login) liegt in
+unter den Rechten stabil; Rest ist ein formaler Klick-Test unter einem Nicht-Admin-Konto. **H4: IPC-seitig
+umgeschaltet** – API bindet nur noch auf `127.0.0.1:8090`, Caddy läuft als Task `MiniEmsDashboardCaddy` auf
+`https://192.168.244.10`, 8090 ist aus dem LAN nicht mehr erreichbar und die H4-Firewallregeln sind aktiv.
+**H5:** `api.read_only` ist auf der Pilot-IPC aktiv; Diagnose-Read und POST-Konfigurationspfade liefern HTTP 403.
+Offen bleibt der reale Nachweis von einem zweiten Rechner am Standort über Kundennetz/VPN/Secomea. **To-do 3:**
+Minimalkonzept (Secomea/VPN bzw. Export mit Login) liegt in
 `HOSTING_SICHERHEIT.md`, Teil 2, vor; der zweite-Rechner-Nachweis fehlt noch. Danach folgen H6/H8/H9
 (Login/Rollen, Audit, geschützte Konfigurations-UI).
 
