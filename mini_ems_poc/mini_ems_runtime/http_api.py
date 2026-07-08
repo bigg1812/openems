@@ -550,6 +550,7 @@ class MiniEmsApiServer:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         backup_path = self._backup_config_file(config_path, timestamp)
         draft_path = self._write_mapping_draft(payload, timestamp)
+        draft_file = draft_path.relative_to(config_path.parent).as_posix()
         _write_json_preserve_order(config_path, raw)
         load_config(config_path)
         audit_path = self._append_config_audit(
@@ -558,7 +559,7 @@ class MiniEmsApiServer:
                 "action": "mapping.activate",
                 "config_file": config_path.name,
                 "backup_file": backup_path.name,
-                "draft_file": str(draft_path.relative_to(config_path.parent)),
+                "draft_file": draft_file,
                 "restart_required": True,
                 "patch_sections": sorted(str(key) for key in preview["patch"].keys()),
             }
@@ -568,7 +569,7 @@ class MiniEmsApiServer:
             "valid": True,
             "restart_required": True,
             "backup_file": backup_path.name,
-            "draft_file": str(draft_path.relative_to(config_path.parent)),
+            "draft_file": draft_file,
             "audit_file": audit_path.name,
             "warnings": list(preview.get("warnings", [])),
         }
