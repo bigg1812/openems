@@ -474,7 +474,7 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     zum UX-Rollenmodell) und die ehrliche Risiko-Abgrenzung stehen in `HOSTING_SICHERHEIT.md`, Teil 1; querverwiesen aus
     `README.md` und `MINI_EMS_ANLEITUNG.md`.
 
-- [ ] **H2. Mini EMS als Release-Paket statt Git-Checkout ausliefern**
+- [x] **H2. Mini EMS als Release-Paket statt Git-Checkout ausliefern**
   - **Was:** Die Kunden-IPC bekommt kein vollständiges Repository mehr, sondern ein versioniertes Release-Paket, z. B.
     `mini_ems.exe`, `dashboard/`, Release-Launcher, Checksums und Versionsdatei; `config.json` bleibt externe
     Standortkonfiguration.
@@ -497,12 +497,29 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
   - **Stand:** Packaging-Tooling, Release-Launcher (`run_mini_ems_release.cmd`), `install_task.ps1 -Mode release`
     und die minimale Frozen-Pfadauflösung (`mini_ems_runtime/resources.py`, eine Zeile in `app.py`) liegen vor; der
     lokale Build-Nachweis auf macOS ist erbracht (PyInstaller-Build, `--once`-Zyklus schreibt `health.json`,
-    `--loop` liefert `/api/status` und `/dashboard`, alle Mini-EMS-Tests grün). Offen bleiben der Windows-Build auf
-    der IPC und der Start auf einer Test-IPC ohne Git-Repo – das kann nur der Nutzer am Standort erbringen; deshalb
-    bleibt die H2-Checkbox offen. Details: `packaging/README.md`; aufgelöste Betriebsschritte:
-    `UPDATE_WARTUNG.md`.
+    `--loop` liefert `/api/status` und `/dashboard`, alle Mini-EMS-Tests grün). Details: `packaging/README.md`;
+    aufgelöste Betriebsschritte: `UPDATE_WARTUNG.md`.
+  - **Nachweis auf der realen Pilot-IPC erbracht (2026-07-07):** Der Windows-Build (PyInstaller, `version=2026.07`,
+    `build_date=2026-07-07T08:57:37Z`) liegt unter `C:\Program Files\MiniEMS` und ist per `SHA256SUMS` verifiziert
+    (40/40 Dateien unverändert). Der Listener auf `192.168.244.10:8090` ist
+    `C:\Program Files\MiniEMS\mini_ems.exe --config C:\ProgramData\MiniEMS\config.json --loop`, gestartet über den
+    geplanten Task `MiniEmsPoCRelease` (SYSTEM, Trigger Systemstart) – kein Python, kein Git-Checkout als
+    Laufzeitbasis. Betriebsdaten (`health.json` status=healthy/live, `mini_ems.log`, SQLite) werden laufend unter
+    `C:\ProgramData\MiniEMS` fortgeschrieben; die alten Runtime-Dateien im Checkout sind seit dem Umschalten
+    eingefroren. `/dashboard` und `/api/status` antworten mit HTTP 200 und frischen Daten. Damit ist der DoD (Start
+    ohne Git-Repo, Betriebspfad `config.json` + geplanter Task) auf der realen IPC erfüllt. Der konkurrierende
+    Alt-Autostart wurde entschärft (siehe „Autostart-Bereinigung" unten). **Restpunkte (Betriebs-Hygiene, keine
+    H2-Lücken):** (1) das laufende Release ist ein dirty-Build (`git_commit=be4d81b8ad4d+dirty`) – nächster Build aus
+    committetem Stand für ein reproduzierbares Release; (2) die API hat keinen Versions-Endpunkt, Version nur über die
+    `VERSION`-Datei belegbar (optionales Follow-up).
+  - **Autostart-Bereinigung (2026-07-07):** Auf der IPC existierten noch drei konkurrierende Alt-Autostarts. Der alte
+    Dev-Task `MiniEmsPoC` (Boot-Trigger auf den Git-Checkout) wäre beim Reboot mit dem Release-Task um Port 8090
+    kollidiert; er ist jetzt **deaktiviert** (nicht gelöscht). Der Legacy-Dienst `MiniEmsPoC` (Autostart, nie
+    lauffähig, Fehler 1053) steht auf **Manual**. Der überholte Task `MiniEmsDashboardProxy` (zeigte auf
+    `dashboard_proxy.py` im Checkout) ist **deaktiviert**. Reboot-Prognose: Es startet genau ein Pfad –
+    `MiniEmsPoCRelease`. Alle Änderungen reversibel; Rollback-Kommandos im Bericht `agent_b/ALTLASTEN_BERICHT.md`.
 
-- [ ] **H3. Runtime-Dateien und Konfiguration sauber schützen**
+- [x] **H3. Runtime-Dateien und Konfiguration sauber schützen**
   - **Was:** Installation z. B. unter `C:\Program Files\MiniEMS` oder `C:\ProgramData\MiniEMS`, mit Windows-Rechten nur
     für Administratoren und einen definierten Mini-EMS-Task-/Service-Benutzer. Logs, Datenbank und Standortkonfiguration
     werden getrennt abgelegt.
@@ -518,10 +535,27 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     `resolve_path`/`base_dir`), Rechtemodell als Tabelle (SYSTEM/Administratoren/Task-Benutzer/normale
     Benutzer je Ordner), kopierbare `icacls`-Kommandos mit Prüfkommandos, Betriebsrisiken-Abschnitt
     (Mindestrechte des Task-Benutzers, typische Symptome bei zu strengen Rechten, Funktionstest) und
-    Migrationsreihenfolge vom heutigen Git-Checkout zum Ziel-Layout. Checkbox bleibt offen: Der DoD
-    ("normale Benutzer können Runtime-Dateien nicht lesen/ändern") ist erst nach Anwendung der ACLs auf
-    der realen IPC nachweisbar – das setzt den in H2 noch offenen Windows-Build voraus und kann nur am
-    Standort erbracht werden. Details: `HOSTING_SICHERHEIT.md`, Teil 3.
+    Migrationsreihenfolge vom heutigen Git-Checkout zum Ziel-Layout. Details: `HOSTING_SICHERHEIT.md`, Teil 3.
+  - **Stand (2026-07-07): Auf der realen Pilot-IPC angewandt und plant-stabil verifiziert.** Die ACLs aus
+    `HOSTING_SICHERHEIT.md` 3.3 sind auf `C:\ProgramData\MiniEMS` gesetzt: Vererbung gekappt (`inheritance:r`),
+    Wurzel nur noch `BUILTIN\Administratoren:(OI)(CI)F` und `SYSTEM:(OI)(CI)F`, `config.json` `SYSTEM:(R)`,
+    `data`/`logs`/`runtime` `SYSTEM:(OI)(CI)M`; die rekursive Prüfung bestätigt **keinen** `Benutzer`-/`Users`-/
+    `Everyone`-Eintrag mehr im gesamten Baum. Damit ist der DoD strukturell erfüllt: Ohne jede Users-/Everyone-ACE
+    und mit gekappter Vererbung hat **kein** normaler Benutzer Lese-/Schreibzugriff (ein nicht-elevated Zugriff auf
+    den Ordner liefert „Zugriff verweigert"). Der Funktionstest nach 3.4 ist bestanden: Die Anlage lief unter den
+    gehärteten Rechten stabil weiter (health status=healthy/live, Zyklen laufen, SQLite/Log wachsen, keine
+    `PermissionError` nach der Härtung). Ein Rollback-Anker (`icacls /save`) liegt im Nachweis-Ordner
+    (`agent_c/acl_backup.txt`). **Betriebs-Lehre aus dem Lauf (wichtig für spätere IPCs):** Ein erster
+    Härtungsversuch, der `inheritance:r` **vor** den SYSTEM-Grants auf den Unterordnern ausführte, entzog SYSTEM
+    kurzzeitig den Schreibzugriff auf `data\spotmarket` und verursachte einen ~5-minütigen Zyklus-Ausfall
+    (`PermissionError` auf `spotmarket_price_cache.json`, `app.cycle_failed`). Die Reparatur (Besitzübernahme,
+    ACL-Restore, Erholung abwarten, dann Neuhärtung in korrigierter Reihenfolge – **Grants zuerst, dann
+    `inheritance:r`**) stellte den Betrieb wieder her; der Ausfall heilte vollständig selbst. Konsequenz für 3.3:
+    Reihenfolge „Grants auf Wurzel/Unterordner setzen, danach Vererbung kappen" ist verbindlich, und `data\spotmarket`
+    muss das SYSTEM-Schreibrecht via `(OI)(CI)` von `data` erben. **Restpunkt:** ein Klick-Test unter einem echten,
+    dedizierten Nicht-Admin-Windows-Konto bei laufendem Task ist die Gürtel-und-Hosenträger-Bestätigung; die
+    ACL-Struktur (keine Users-/Everyone-ACE) garantiert das Ergebnis bereits kategorisch. Nachweisprotokoll:
+    `agent_c/H3_ACL_BERICHT.md` bzw. `agent_c/verify_stable_log.txt`.
 
 - [ ] **H4. API intern binden, UI über geschützten Zugriff bereitstellen**
   - **Was:** Die Mini-EMS-API nur an `127.0.0.1` oder eine definierte IPC-Netzwerkadresse binden. Davor optional einen
@@ -546,6 +580,37 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     offenen Windows-Build, das Umstellen von `config.json` auf `api.host: 127.0.0.1` + `api.read_only: true`
     und die Installation von Caddy/Firewall auf der realen IPC voraus. Offene Standort-Schritte und
     Verifikations-Checkliste: `HOSTING_SICHERHEIT.md`, Teil 4, Abschnitt 4.6.
+  - **Stand (2026-07-07): Caddy-Proxy auf der IPC installiert und im Parallelbetrieb nachgewiesen.**
+    `caddy.exe v2.11.4` liegt unter `C:\Program Files\Caddy`, die produktive `Caddyfile` unter
+    `C:\ProgramData\MiniEMS\proxy\Caddyfile` (bind `192.168.244.10:443`, `tls internal`, `skip_install_trust`,
+    upstream aktuell `192.168.244.10:8090` für den Parallelbetrieb). Der Proxy läuft als geplanter Task
+    `MiniEmsDashboardCaddy` (SYSTEM, Trigger Systemstart, Crash-Restart) – **nicht** als `sc.exe`-Dienst: Caddy `run`
+    ist ein Konsolenprozess ohne Windows-Service-Handler, der als nativer Dienst nach ~30 s START_PENDING vom SCM
+    beendet wird (dieselbe Ursache wie beim Legacy-`MiniEmsPoC`-Dienst, Fehler 1053). Der Task-Weg entspricht dem
+    `MiniEmsPoCRelease`-Muster. **Zweite Stolperstelle, im Repo-Template behoben:** Auto-HTTPS wollte zusätzlich
+    einen HTTP→HTTPS-Redirect-Listener auf **Port 80** binden; Port 80 ist auf dieser IPC durch `http.sys` belegt,
+    was den gesamten Config-Load scheitern ließ. Fix: globale Option `auto_https disable_redirects` (HTTPS auf 443
+    bleibt aktiv, kein Port-80-Listener) – jetzt Teil von `proxy/Caddyfile`. Nachweis Parallelbetrieb: direkt
+    `http://192.168.244.10:8090/dashboard` und `/api/status` = HTTP 200 (unverändert), gleichzeitig über den Proxy
+    `https://192.168.244.10/dashboard` und `/api/status` = HTTP 200 (`curl -k`, internes Zertifikat); Plant blieb
+    durchgehend healthy. Additive Firewall-Allow-Regel für 443 (`192.168.244.0/24`) gesetzt; die 8090-Block-Regel
+    bewusst **nicht** (gehört zur Umschaltung). Die eigentliche H4-Umschaltung (API auf `127.0.0.1`,
+    `api.read_only: true`, Caddyfile-Upstream auf `127.0.0.1:8090`, 8090 aus dem Netz sperren) ist als geprüftes,
+    **nicht ausgeführtes** Skriptpaket vorbereitet (`agent_d/umschaltung/` mit `umschalten.ps1`, `rollback.ps1`,
+    `README_UMSCHALTUNG.md`). Checkbox bleibt **offen**: Der DoD (Zugriff nur aus Kundennetz/VPN, Anlagen-API nicht
+    öffentlich) verlangt die Umschaltung und den Nachweis vom zweiten Rechner am Standort – Achtung
+    Secomea-Erreichbarkeit, siehe Risiko-Abschnitt im Umschalt-README. Bericht: `agent_d/H4_PROXY_BERICHT.md`.
+  - **Stand (2026-07-08): IPC-seitige H4-Umschaltung ausgeführt und lokal verifiziert.**
+    `C:\ProgramData\MiniEMS\config.json` bindet die API jetzt an `127.0.0.1:8090` und setzt
+    `api.read_only: true`; die produktive `Caddyfile` proxyt auf `127.0.0.1:8090`. Mini EMS wurde über
+    `MiniEmsPoCRelease` neu gestartet, Caddy reloadet. Verifikation auf der IPC: `GET /api/status` auf
+    `http://127.0.0.1:8090` liefert `api_read_only: true` und `runtime_status: live`;
+    `http://192.168.244.10:8090/api/status` ist nicht mehr erreichbar; `https://192.168.244.10/api/status`
+    und `/dashboard` liefern über den Proxy HTTP 200; `netstat` zeigt `8090` nur auf `127.0.0.1` und
+    `443` auf `192.168.244.10`; Firewall-Regeln `MiniEMS Proxy HTTPS (nur Kundennetz)` und
+    `MiniEMS API 8090 (nur lokal, Netz blockiert)` sind aktiv. Backups liegen auf der IPC unter
+    `C:\ProgramData\MiniEMS\backups\h4_h5_20260708_185158`. Checkbox bleibt offen bis zum
+    zweiten-Rechner-/Secomea-Nachweis aus dem freigegebenen Kundennetz/VPN.
 
 - [ ] **H5. Read-only Netzwerkmodus zuerst**
   - **Was:** Für den ersten geschützten Netzwerkzugriff nur Dashboard, Status, Historie und Reports freigeben. Schreibende
@@ -570,6 +635,11 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     read_only=true sperrt jeden blockierten Endpunkt mit 403; Freigabeliste bleibt erreichbar; Status-Feld vorhanden).
     Checkbox bleibt **offen**: Die DoD verlangt den Nachweis von einem zweiten Rechner am Standort – das kann nur der
     Nutzer/Betreiber vor Ort erbringen (Pilot-Checkliste in `HOSTING_SICHERHEIT.md` 2.5, jetzt inkl. `api.read_only`-Schritt).
+  - **Stand (2026-07-08): Auf der Pilot-IPC aktiviert und lokal verifiziert.** `GET /api/status` meldet
+    `api_read_only: true`; `GET /api/diagnostics/read` liefert HTTP 403; `POST
+    /api/config/spotmarket-lockout` liefert HTTP 403 mit `read_only_mode`. Dashboard und Status bleiben über
+    `https://192.168.244.10` erreichbar. Offen bleibt auch hier nur der zweite-Rechner-Nachweis aus dem
+    Kundennetz/VPN.
 
 - [ ] **H6. UI-Zugriff mit Login und einfacher Rollenlogik absichern**
   - **Was:** Mindestens Passwortschutz für das UI; später Rollen wie `viewer`, `operator`, `admin`. Für den ersten Schritt
@@ -721,18 +791,19 @@ Kandidaten fachlich zugeordnet, getestet und kontrolliert übernommen werden kö
 `PRODUCT_UX_ROADMAP.md` UX14 (Standort einrichten), UX15 (fachliche Mapping-Tabelle), UX16 ("Alle Punkte
 testen") und UX12 (rollenbasierte Freigabeseite, an S6 gekoppelt).
 
-**Standort-Schritte als Block: H2/H3/H5/To-do 3.** Bei allen vieren steht das Konzept, offen ist nur noch die
-reale Durchführung am Standort. H2: Entscheidung getroffen (Release-Paket, initial PyInstaller, später
-Nuitka-kompatibel), Packaging-Tooling und Frozen-Pfadauflösung liegen vor; offen bleiben der Windows-Build auf
-der IPC und der Test-IPC-Nachweis ohne Git-Checkout. H3: Installationslayout und Windows-`icacls`-Rechte sind
-in `HOSTING_SICHERHEIT.md`, Teil 3, fertig konzipiert; offen bleibt die Anwendung auf der realen IPC, was den
-noch offenen H2-Windows-Build voraussetzt. H5: Die technische Grundlage (`api.read_only`, deny-by-default für
-alle nicht-GET-Endpunkte) ist umgesetzt und getestet; offen bleibt der reale Nachweis von einem zweiten Rechner
-am Standort. To-do 3: Das Minimalkonzept (Pfad a: Secomea/VPN, Pfad b: Export mit Login, Empfehlung und
-Checkliste) liegt vollständig in `HOSTING_SICHERHEIT.md`, Teil 2, vor; auch hier fehlt nur der reale Nachweis
-beim Kunden. H4 ist inzwischen ebenfalls als Feinkonzept mit kopierfertigen Vorlagen vorbereitet
-(`HOSTING_SICHERHEIT.md` Teil 4, `proxy/`) und gehört damit in denselben Standort-Block; H6/H8/H9
-(Login/Rollen, Audit, geschützte Konfigurations-UI) folgen erst danach.
+**Standort-Schritte als Block: H2/H3/H4/H5/To-do 3.** Auf der Pilot-IPC am 2026-07-07 deutlich vorangebracht
+und am 2026-07-08 für H4/H5 IPC-seitig umgeschaltet.
+**H2: erledigt** – Release-Paket (`mini_ems.exe`) läuft über Task `MiniEmsPoCRelease`, per `SHA256SUMS` verifiziert,
+Alt-Autostarts entschärft; Rest ist Betriebs-Hygiene (dirty-Build, kein Versions-Endpunkt). **H3: erledigt** –
+`icacls`-Härtung auf `C:\ProgramData\MiniEMS` angewandt (keine Users-/Everyone-ACE, Vererbung gekappt), Anlage
+unter den Rechten stabil; Rest ist ein formaler Klick-Test unter einem Nicht-Admin-Konto. **H4: IPC-seitig
+umgeschaltet** – API bindet nur noch auf `127.0.0.1:8090`, Caddy läuft als Task `MiniEmsDashboardCaddy` auf
+`https://192.168.244.10`, 8090 ist aus dem LAN nicht mehr erreichbar und die H4-Firewallregeln sind aktiv.
+**H5:** `api.read_only` ist auf der Pilot-IPC aktiv; Diagnose-Read und POST-Konfigurationspfade liefern HTTP 403.
+Offen bleibt der reale Nachweis von einem zweiten Rechner am Standort über Kundennetz/VPN/Secomea. **To-do 3:**
+Minimalkonzept (Secomea/VPN bzw. Export mit Login) liegt in
+`HOSTING_SICHERHEIT.md`, Teil 2, vor; der zweite-Rechner-Nachweis fehlt noch. Danach folgen H6/H8/H9
+(Login/Rollen, Audit, geschützte Konfigurations-UI).
 
 **Geparkt: S9-S16 und die komplette Cloud-Data-Pipeline (C1-C9).** Northbound-Export, M-Bus-Integration,
 Semantik-Export und Write-Back-Sicherheit (S9-S16) sowie Payload-Vertrag, Broker-Wahl, Event-Log,

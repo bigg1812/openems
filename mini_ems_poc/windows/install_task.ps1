@@ -60,7 +60,7 @@ try {
 
         $cmdPath = (Resolve-Path $LauncherPath).Path
         $workingDirectory = (Resolve-Path $AppDir).Path
-        $actionArgument = "/c `"$cmdPath`" `"$ConfigPath`""
+        $actionArgument = "/c `"`"$cmdPath`" `"$ConfigPath`"`""
         Write-Host "Installing release task '$TaskName'"
         Write-Host "  launcher : $cmdPath"
         Write-Host "  config   : $ConfigPath"
@@ -86,7 +86,7 @@ try {
 
         $cmdPath = (Resolve-Path $cmdPath).Path
         $workingDirectory = (Resolve-Path $ProjectDir).Path
-        $actionArgument = "/c `"$cmdPath`""
+        $actionArgument = "/c `"`"$cmdPath`"`""
         Write-Host "Installing checkout task '$TaskName'"
         Write-Host "  launcher : $cmdPath"
         Write-Host "  python   : $resolvedPython"

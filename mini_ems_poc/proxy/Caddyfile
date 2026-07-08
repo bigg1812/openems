@@ -27,6 +27,20 @@
 	# Admin-API von Caddy nur auf localhost lassen (Default), nie ins Netz.
 	admin 127.0.0.1:2019
 
+	# Root-CA NICHT in den Windows-Zertifikatspeicher installieren. Im
+	# Dienst-/Task-Betrieb (kein Desktop) blockiert der Installationsversuch
+	# sonst den Start ("installing root certificate ... prompted for password").
+	# Clients vertrauen der CA per manuellem Import von root.crt oder pruefen
+	# mit curl -k (siehe README.md, "Zertifikat auf dem Client").
+	skip_install_trust
+
+	# Keinen HTTP->HTTPS-Redirect-Listener auf Port 80 anlegen. Auf einer IPC
+	# ist Port 80 haeufig durch http.sys/IIS belegt; der fehlgeschlagene
+	# 80er-Bind laesst sonst den GESAMTEN Config-Load scheitern und Caddy
+	# beendet sich. Fuer eine intern-only HTTPS-Appliance ist der 80er-Redirect
+	# ohnehin unnoetig. HTTPS auf 443 bleibt unveraendert aktiv.
+	auto_https disable_redirects
+
 	# Optional: Debug-Logs bei der Ersteinrichtung einschalten.
 	# debug
 }
