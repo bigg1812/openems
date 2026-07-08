@@ -17,6 +17,25 @@ ein sinnvoller späterer Ausbaupunkt entsteht, wird er hier oder in `PRODUCT_UX_
 gilt: als Zukunftsoption mit Nutzen, Einordnung und Risiken dokumentieren, aber nicht automatisch als nächster
 Implementierungsschritt behandeln.
 
+## Aktueller IPC-Stand (2026-07-08)
+
+Der echte IPC ist nicht mehr im alten Git-Checkout-Betrieb. Der belegte Standortzustand ist:
+
+- Mini EMS läuft als Release-Paket unter `C:\Program Files\MiniEMS` mit externer
+  `C:\ProgramData\MiniEMS\config.json`.
+- Der geplante Task `MiniEmsPoCRelease` startet `mini_ems.exe --config
+  "C:\ProgramData\MiniEMS\config.json" --loop`; Alt-Autostarts sind entschärft.
+- `C:\ProgramData\MiniEMS` ist per ACL gehärtet; normale Windows-Benutzer haben keinen direkten Zugriff auf
+  Standortdaten, Logs oder Runtime-Dateien.
+- H4/H5 sind auf der IPC lokal umgeschaltet: Mini EMS bindet auf `127.0.0.1:8090`, Caddy lauscht auf
+  `192.168.244.10:443` und proxyt auf `127.0.0.1:8090`, `api.read_only` ist aktiv.
+- Lokal auf der IPC ist verifiziert: `/api/status` meldet `api_read_only: true`, direkte Zugriffe auf
+  `192.168.244.10:8090` sind nicht mehr erreichbar, HTTPS über Caddy liefert `HTTP 200`, aktive/schreibende
+  Endpunkte liefern `HTTP 403`.
+
+Damit sind H2 und H3 erledigt; H4/H5 sind IPC-seitig umgeschaltet. Offen bleibt der reale Nachweis von einem
+zweiten Rechner im freigegebenen Kundennetz/VPN/Secomea.
+
 ## Strategische Ergänzung (2026-07-01)
 
 Die Erkenntnis aus der Architektur- und Marktbetrachtung ist: Mini EMS sollte nicht über den aktuellen

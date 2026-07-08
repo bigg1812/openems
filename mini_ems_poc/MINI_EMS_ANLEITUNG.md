@@ -811,6 +811,12 @@ Wichtig:
 8. lokale Read-only-API plus Dashboard
 9. Spotmarktfenster aus echten Preisreihen
 10. manueller Override fuer `BV:401`
+11. Release-Betrieb auf dem echten IPC: `MiniEmsPoCRelease` startet `mini_ems.exe` aus
+    `C:\Program Files\MiniEMS` mit externer `C:\ProgramData\MiniEMS\config.json`
+12. Geschuetztes Dateilayout auf dem echten IPC: Standortdaten unter `C:\ProgramData\MiniEMS` sind per ACL
+    auf Administratoren und `SYSTEM` begrenzt
+13. Caddy laeuft als HTTPS-Proxy auf `192.168.244.10:443` und leitet intern auf `127.0.0.1:8090` weiter
+14. Die Mini-EMS-API bindet auf dem IPC nur noch lokal (`127.0.0.1:8090`); `api.read_only` ist aktiv
 
 ### Beobachtungshinweise
 
@@ -829,13 +835,19 @@ lokal mit `config.local.json` liegen die gleichen Dateien unter `runtime/local/`
    Healthy-Zeitstempel aelter als `watchdog.max_cycle_age_seconds`, meldet `health.json` den Status
    `stale_runtime` (Felder `stale_runtime`, `runtime_status`). Ohne konfigurierten Schwellwert bleibt der
    Watchdog rein beobachtend; der Watchdog meldet nur "kein Zyklus mehr" und loest keine Safe-Mode-/Steuerlogik aus.
-4. UI spaeter weiter in Richtung OpenEMS-inspirierte Bedienoberflaeche ausbauen
+4. Zweiten Rechner im Kundennetz/VPN gegen `https://192.168.244.10` testen und sicherstellen, dass
+   schreibende/aktive Endpunkte `HTTP 403` liefern
+5. UI spaeter weiter in Richtung OpenEMS-inspirierte Bedienoberflaeche ausbauen
 
 ## Meine aktuelle Empfehlung
 
 Weiter in dieser Reihenfolge:
 
-1. Runtime stabil betreiben und beobachten
-2. Reports auf Basis der SQLite-Historie nutzen
-3. `BV:400` im echten Betrieb absichern
-4. danach UI und Betriebsoberflaeche ausbauen
+1. Auf dem Laptop weiterentwickeln; `config.local.json` bleibt der sichere Simulationspfad
+2. Am IPC nur noch den zweiten-Rechner-/Secomea-Nachweis fuer H4/H5 fahren:
+   `https://192.168.244.10` muss funktionieren, `http://192.168.244.10:8090` darf nicht mehr direkt erreichbar sein,
+   aktive/schreibende Endpunkte muessen `HTTP 403` liefern
+3. Danach den Mapping-Kern weiterbauen: Mapping-Entwurf, Preview, Aktivierung mit Backup/Audit und
+   gefuehrte Standort-einrichten-UI
+4. `BV:400` im echten Betrieb fachlich absichern, bevor neue schreibende Eingriffe ausgebaut werden
+5. Reports auf Basis der SQLite-Historie nutzen und UI/Betriebsoberflaeche weiter ausbauen
