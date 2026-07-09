@@ -168,6 +168,17 @@ class ReadOnlyDefaultOffTest(ReadOnlyApiTestBase):
         self.assertIn("api_read_only", payload)
         self.assertFalse(payload["api_read_only"])
 
+    def test_status_exposes_app_version(self) -> None:
+        # Additives Softwareversion-Feld (H2): im Testbetrieb ohne VERSION-Datei
+        # liefert der Server die dev-Variante mit den erwarteten Schluesseln.
+        status, raw = self._request("GET", "/api/status")
+        self.assertEqual(status, 200)
+        payload = json.loads(raw.decode("utf-8"))
+        self.assertIn("app_version", payload)
+        self.assertEqual(payload["app_version"]["version"], "dev")
+        self.assertIn("git_commit", payload["app_version"])
+        self.assertIn("build_date", payload["app_version"])
+
     def test_gate_never_fires_when_read_only_off(self) -> None:
         # Standard-Verhalten unveraendert: bei Default off darf die zentrale
         # Read-only-Sperre auf keinem der im read-only Modus gesperrten Pfade
