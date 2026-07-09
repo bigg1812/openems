@@ -3,6 +3,11 @@
 Diese Anleitung beschreibt den Zielablauf fuer eine neue Mini-EMS-Installation auf einem IPC.
 Sie geht davon aus, dass noch kein alter Mini-EMS-Prozess laeuft.
 
+Stand 2026-07-09: Die Pilot-IPC ist bereits einen Schritt weiter gehaertet (Release-Task hinter Caddy,
+API nur lokal, `api.read_only`). Diese Datei beschreibt den frischen Erstaufbau bis zur lauffaehigen
+Release-Installation; danach folgen die Haertungsschritte aus `HOSTING_SICHERHEIT.md` und laufende Updates
+aus `UPDATE_WARTUNG.md`.
+
 ## Grundidee
 
 Mini EMS besteht aus zwei getrennten Teilen:
@@ -152,6 +157,10 @@ Erwartung:
 - `/api/status` antwortet
 - `health.status` ist `healthy` oder ein fachlich erklaerbarer Zustand
 
+Wenn die H4/H5-Haertung bereits angewandt ist, ist diese Direktpruefung bewusst nicht mehr gueltig: dann
+lauscht `8090` nur auf `127.0.0.1`, und der Netz-/Secomea-Zugriff laeuft ueber Caddy auf
+`https://192.168.244.10`.
+
 ## 8. Prozesspfad pruefen
 
 Die Prozessnummer aus `OwningProcess` einsetzen:
@@ -220,3 +229,12 @@ Dann muss der alte Prozessbaum bewusst gestoppt werden, bevor der Release-Task s
 
 Das war der Grund, warum die Umstellung beim ersten IPC-Test deutlich komplizierter war als eine
 frische Installation.
+
+## Danach: Haertung und Update-Ablauf
+
+Dieser Ablauf endet mit einer direkt im Netz erreichbaren API (`192.168.244.10:8090`, ohne TLS, ohne
+`api.read_only`). Das ist der Ausgangszustand fuer ein neues Projekt, nicht der empfohlene Dauerzustand.
+Fuer die weiteren Haertungsschritte (API intern auf `127.0.0.1` binden, Caddy-Reverse-Proxy mit HTTPS
+davor, `api.read_only` aktivieren, Windows-Dateirechte) siehe `HOSTING_SICHERHEIT.md`, Teile 3 und 4.
+Laufende Updates nach diesem Erstaufbau laufen ueber `UPDATE_WARTUNG.md` (Skript-first:
+`windows/update_release.ps1`).

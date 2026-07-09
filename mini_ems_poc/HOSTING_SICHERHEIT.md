@@ -100,6 +100,13 @@ Anlagen-API öffentlich freizugeben und ohne Schreibfunktionen online zu stellen
 geforderte **dokumentierte Minimalkonzept** als Entscheidungsvorlage; der reale Nachweis auf einem
 zweiten Rechner am Standort ist bewusst noch offen (siehe `ROADMAP.md`, To-do 3).
 
+**Stand (2026-07-08):** Die IPC-seitige H4-Umschaltung (Teil 4) ist inzwischen ausgeführt: Die API
+bindet nicht mehr auf der EMS-LAN-IP direkt, sondern nur noch auf `127.0.0.1:8090`; der Zugriff läuft
+über den Caddy-Proxy auf `https://192.168.244.10`. Pfad (a) unten beschreibt weiterhin das gültige
+Grundkonzept (Secomea/VPN statt Datenexport nach außen) und bleibt als Entscheidungsvorlage stehen; die
+konkreten Adress-/Port-Angaben in 2.1-2.5 (direkt `192.168.244.10:8090`) entsprechen dem Stand **vor**
+der H4-Umschaltung. Für den aktuellen Zugriffsweg auf der Pilot-IPC gilt Teil 4, Abschnitt 4.6.
+
 ### 2.1 Endpunkt-Einstufung (Basis für beide Pfade)
 
 *Stand: 2026-07-07 – abgeglichen mit `mini_ems_runtime/http_api.py` inkl. Commit `e5417edd2`
@@ -385,8 +392,9 @@ C:\ProgramData\MiniEMS\                        <- Standortdaten (Task-Benutzer s
 
 **Wie die Runtime das findet:** Der Betriebspfad bleibt unverändert das, was H2 und `UPDATE_WARTUNG.md`
 bereits festlegen: `config.json` liegt außerhalb des Release-Pakets und wird als **Argument beim Start**
-übergeben (`--config <pfad>\config.json`), heute über `run_mini_ems.cmd` bzw. den davon gestarteten
-Python-/Executable-Aufruf. Im Ziel-Layout wäre das Argument `--config C:\ProgramData\MiniEMS\config.json`.
+übergeben (`--config <pfad>\config.json`). Im aktuellen Release-Betrieb übernimmt das
+`run_mini_ems_release.cmd` mit `--config C:\ProgramData\MiniEMS\config.json`; der ältere
+Checkout-Betrieb nutzte dafür `run_mini_ems.cmd` und `mini_ems.py`.
 
 Alle übrigen Datenpfade sind **config-relativ**, nicht fest verdrahtet auf einen bestimmten
 Windows-Ordner. Das ist an `mini_ems_runtime/config.py` nachvollziehbar:
@@ -585,7 +593,7 @@ wiedererkennbar ist):
 **Kurzer Funktionstest nach dem Setzen der Rechte** (Verweis auf `UPDATE_WARTUNG.md` Abschnitt 2.6,
 hier auf das Rechte-Setzen zugeschnitten statt auf ein volles Update):
 
-1. Task starten (`Start-ScheduledTask -TaskName "MiniEmsPoC"`) und mindestens einen Zyklus abwarten
+1. Task starten (`Start-ScheduledTask -TaskName "MiniEmsPoCRelease"`) und mindestens einen Zyklus abwarten
    (`timing.cycle_seconds`, siehe `config.json`).
 2. `runtime\health.json` öffnen: `status` muss `healthy` sein, `runtime_status` muss `live` sein,
    `last_cycle_at` muss aktuell sein – identische Prüfpunkte wie in `UPDATE_WARTUNG.md` 2.6, Punkt 15.
@@ -600,20 +608,24 @@ Schlägt einer dieser Punkte fehl, ist das erste Verdachtsmoment ein zu enges Da
 Ordner, der zum jeweiligen Symptom passt (siehe Liste oben) – nicht zwingend ein Code- oder
 Konfigurationsfehler.
 
-### 3.5 Migrationshinweis: vom heutigen Zustand zum Ziel-Layout
+### 3.5 Migrationshinweis: vom alten Checkout zum Release-Ziel-Layout
 
-**Heutiger Zustand:** Git-Checkout unter `C:\dev\openems\mini_ems_poc` (siehe `MINI_EMS_ANLEITUNG.md`,
-Ordnerstruktur), Task läuft über `windows/install_task.ps1` als `SYSTEM`, `run_mini_ems.cmd` startet
-`python.exe mini_ems.py --config "%PROJECT_DIR%\config.json" --loop` mit `WorkingDirectory` = Projektordner.
-Alle Standortdaten liegen als Unterordner desselben Checkouts. Es gibt keine Windows-ACL-Sonderbehandlung
-gegenüber dem Standard-Benutzerordner.
+**Historischer Ausgangszustand vor H2/H3:** Git-Checkout unter `C:\dev\openems\mini_ems_poc` (siehe
+`MINI_EMS_ANLEITUNG.md`, Ordnerstruktur), Task über `windows/install_task.ps1 -Mode checkout`,
+`run_mini_ems.cmd` startet `python.exe mini_ems.py --config "%PROJECT_DIR%\config.json" --loop` mit
+`WorkingDirectory` = Projektordner. Alle Standortdaten lagen als Unterordner desselben Checkouts; es gab
+keine Windows-ACL-Sonderbehandlung gegenüber dem Standard-Benutzerordner.
 
-**Reihenfolge der Migration** (kann erst nach dem in H2 vorausgesetzten Windows-Build erfolgen, siehe
-unten):
+**Aktueller Pilot-Stand (seit 2026-07-08):** Diese Migration ist auf der IPC bereits vollzogen:
+App-Dateien liegen unter `C:\Program Files\MiniEMS`, Standortdaten unter `C:\ProgramData\MiniEMS`, der
+Task `MiniEmsPoCRelease` startet das Release-Paket, und die Alt-Autostarts sind entschärft. Der folgende
+Ablauf bleibt als Vorlage für neue Standorte oder Rollback-/Migrationsprüfungen stehen.
 
-1. **Voraussetzung, bereits an anderer Stelle offen:** Windows-Build des Release-Pakets auf/für die IPC
-   (`packaging\build_release.ps1`), siehe `ROADMAP.md` H2-Stand. Ohne dieses Paket gibt es keine
-   App-Dateien-Menge, die nach `C:\Program Files\MiniEMS` kopiert werden könnte.
+**Reihenfolge der Migration:**
+
+1. **Voraussetzung:** Windows-Build des Release-Pakets auf/für die IPC (`packaging\build_release.ps1`),
+   siehe `packaging/README.md`. Ohne dieses Paket gibt es keine App-Dateien-Menge, die nach
+   `C:\Program Files\MiniEMS` kopiert werden könnte.
 2. Zielordner anlegen und Rechte setzen wie in 3.3 beschrieben (kann vorbereitend erfolgen, sobald die
    Zielverzeichnisse feststehen, unabhängig vom fertigen Release-Build).
 3. Aktuelle Standortdaten aus dem bestehenden Checkout **kopieren, nicht verschieben** (Originale bleiben
@@ -632,13 +644,10 @@ unten):
    oder löschen – nicht vorher, damit im Fehlerfall der bekannte funktionierende Zustand sofort wieder
    verfügbar ist (gleiches Rollback-Prinzip wie in `UPDATE_WARTUNG.md` Abschnitt 3).
 
-**Was erst nach dem H2-Windows-Build auf der realen IPC passieren kann** (nicht vorwegnehmbar in diesem
-Dokument):
+**Was nur am realen Standort sicher nachweisbar ist:**
 
 - Das tatsächliche Kopieren der Standortdaten und das Entpacken des Release-Pakets in die Zielordner.
-- Das Setzen und Prüfen der `icacls`-ACLs auf der realen Windows-Installation (die Kommandos in 3.3 sind
-  kopierbereit, aber ungetestet gegen die reale IPC-Umgebung, reale Kontonamen und reale
-  Windows-Version).
+- Das Setzen und Prüfen der `icacls`-ACLs auf der realen Windows-Installation.
 - Der DoD-Nachweis selbst: ein Test als echter normaler Windows-Benutzer, dass Runtime-Dateien nicht
   lesbar/änderbar sind, bei laufendem Task und funktionierendem UI-Zugriff.
 - Die Umstellung auf einen dedizierten Task-/Dienst-Benutzer statt `SYSTEM` bleibt eine spätere

@@ -409,16 +409,25 @@ Leitentscheidungen:
 
 ## Empfohlener nächster Schritt
 
-**Aktive Linie: UX12 als Abschluss des Mapping-Blocks "Standort einrichten".** Reporting-Zielbild,
-Startseite, visuelle Richtung, Wording, Rollenmodell und Responsive-Prüfung (UX1/2/3/4/5/6/7/8/9/10/11), der
-Demo-Flow (UX13) und der geführte Inbetriebnahmeprozess (UX14 Ablauf Standort/Geräte/Datenpunkte/Testen/
-Aktivieren, UX15 fachliche Mapping-Tabelle, UX16 "Alle Punkte testen") sind erledigt. Offen aus dem Block
-bleibt UX12 (rollenbasierte Konfigurationsseite als Freigabeprozess); die Aktivierung mit Backup/Audit (S6)
-und die Token-Sperre sind in der UI bereits sichtbar verankert, UX12 kann darauf aufsetzen.
+**UX-seitig ist der Mapping-Block "Standort einrichten" bis auf UX12 fertig; die aktive Entwicklungslinie
+liegt aktuell auf der technischen Seite (`ROADMAP.md`, S13-S15).** Reporting-Zielbild, Startseite, visuelle
+Richtung, Wording, Rollenmodell und Responsive-Prüfung (UX1/2/3/4/5/6/7/8/9/10/11), der Demo-Flow (UX13)
+und der geführte Inbetriebnahmeprozess (UX14 Ablauf Standort/Geräte/Datenpunkte/Testen/Aktivieren, UX15
+fachliche Mapping-Tabelle, UX16 "Alle Punkte testen") sind erledigt. Offen aus dem Block bleibt UX12
+(rollenbasierte Konfigurationsseite als Freigabeprozess); UX12 bleibt an die Formalisierung von S6
+(Mapping-Aktivierung mit Backup und Audit, `ROADMAP.md`, Checkbox weiterhin offen) gekoppelt, auch wenn
+Token-Sperre und Aktivierung mit Backup/Neustarthinweis in der UI bereits genutzt werden. Solange S6 nicht
+aktiv bearbeitet wird, ist UX12 damit ebenfalls kein aktueller Umsetzungsschritt. Die zuletzt abgeschlossene
+technische Linie ist stattdessen `ROADMAP.md` S13-S15 (professioneller Write-Back und Anlagen-Safety);
+S13/S14 sind softwareseitig fertig, S15 bleibt als MSR-/Standortabnahme offen und löst aktuell keinen
+eigenen UX-Punkt aus.
 
-**Standort-Schritte laufen parallel, außerhalb dieser Roadmap.** H2 (Windows-Build + Test-IPC-Nachweis), H3
-(ACL-Anwendung auf realer IPC), H5 (Nachweis von einem zweiten Rechner) und To-do 3 (Online-Hosting-Nachweis)
-aus `ROADMAP.md` sind reine Standort-/Betriebsnachweise ohne offenen UX-Bedarf und werden dort geführt.
+**Standort-Schritte laufen parallel, außerhalb dieser Roadmap.** H2 (Release-Paket) und H3 (ACL-Härtung)
+sind auf der Pilot-IPC erledigt. Offen bleibt bei H4 (API intern binden/Proxy) und H5 (Read-only
+Netzwerkmodus) derselbe reale Nachweis von einem zweiten Rechner am Standort über Kundennetz/VPN/Secomea,
+ebenso bei To-do 3 (Online-Hosting-Nachweis). H6 (Login/Rollen) ist als Auswahlentscheidung noch offen.
+Diese Punkte aus `ROADMAP.md` sind reine Standort-/Betriebsnachweise bzw. Betriebsentscheidungen ohne
+offenen UX-Bedarf und werden dort geführt.
 
 **Geparkt: UX17-UX22.** Punktlisten-Import/Discovery als geführter Prüfprozess (UX17), Cloud-/Northbound-Export
 (UX18), schreibende Eingriffe und Fallback (UX19), Semantik-/Datenqualitätsabdeckung (UX20), Datenauflösung und

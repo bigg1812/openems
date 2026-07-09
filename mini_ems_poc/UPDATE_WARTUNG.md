@@ -5,8 +5,9 @@ einen dokumentierten Ablauf für Update, Healthcheck und Rollback auf der Kunden
 
 Grundsatz wie in `HOSTING_SICHERHEIT.md` und `EDGE_INTEGRATION_CONTRACT.md`: **Der Code ist die
 Wahrheit.** Pfade, Felder und Endpunkte hier sind aus `config.json`, `mini_ems_runtime/state_store.py`,
-`mini_ems_runtime/cycle.py`, `mini_ems_runtime/http_api.py`, `run_mini_ems.cmd` und
-`windows/install_task.ps1` abgeleitet. Weicht diese Datei vom Code ab, gilt der Code.
+`mini_ems_runtime/cycle.py`, `mini_ems_runtime/http_api.py`, `run_mini_ems_release.cmd`,
+`windows/install_task.ps1`, `windows/update_release.ps1` und `windows/smoketest_release.ps1` abgeleitet.
+Weicht diese Datei vom Code ab, gilt der Code.
 
 **H2-Entscheidung getroffen:** `H2. Mini EMS als Release-Paket statt Git-Checkout ausliefern`
 ist entschieden. Die Festlegung des Nutzers lautet wörtlich: *"Release-Paket, initial PyInstaller, später
@@ -236,6 +237,10 @@ Durchführung remote via Secomea/VPN auf die IPC, wie in `HOSTING_SICHERHEIT.md`
     ```text
     GET http://192.168.244.10:8090/api/status
     ```
+    Ist die H4-Stufe aktiv (Reverse Proxy, siehe unten und `HOSTING_SICHERHEIT.md` Teil 4) – wie
+    aktuell auf der Pilot-IPC – bindet die API nur noch lokal auf `127.0.0.1:8090`; der äquivalente
+    Aufruf läuft dann über den Proxy: `GET https://192.168.244.10/api/status`, während
+    `http://192.168.244.10:8090/api/status` nicht mehr erreichbar sein darf.
 17. Dashboard (`/dashboard`) im Browser öffnen und stichprobenartig prüfen, dass aktuelle Werte
     (Netzleistung, Außentemperatur, Preis) angezeigt werden und keine dauerhaften Stale-/Bad-Badges
     zu sehen sind.
@@ -326,9 +331,10 @@ Secomea-Fernzugriff ohnehin stattfindet):
   geplant sind, und ob ein Neustart der IPC bevorsteht. Ein Windows-Neustart startet den geplanten Task
   automatisch neu (`New-ScheduledTaskTrigger -AtStartup` in `windows/install_task.ps1`); nach einem
   IPC-Neustart trotzdem einen Healthcheck (Abschnitt 2.6) durchführen.
-- **Secomea-Erreichbarkeit:** Regelmäßig prüfen, dass der Secomea-/VPN-Fernzugriff auf
-  `192.168.244.10:8090` tatsächlich funktioniert (nicht erst, wenn ein Update ansteht) – siehe
-  `HOSTING_SICHERHEIT.md`, Teil 2, Abschnitt 2.5, Schritt 4.
+- **Secomea-Erreichbarkeit:** Regelmäßig prüfen, dass der Secomea-/VPN-Fernzugriff tatsächlich
+  funktioniert (nicht erst, wenn ein Update ansteht) – siehe `HOSTING_SICHERHEIT.md`, Teil 2, Abschnitt
+  2.5, Schritt 4. Ohne H4-Proxy ist das der direkte Zugriff auf `192.168.244.10:8090`; ist H4 aktiv (wie
+  aktuell auf der Pilot-IPC), prüfen statt dessen `https://192.168.244.10`, siehe die nächste Zeile.
 - **Reverse Proxy (falls eingerichtet, H4):** Ist die optionale H4-Stufe aktiv (Reverse Proxy vor der
   intern gebundenen API, siehe `HOSTING_SICHERHEIT.md`, Teil 4 und `proxy/README.md`), muss der Proxy für
   ein Mini-EMS-Update **nicht** gestoppt werden. Er ist ein eigener Dienst; während Mini EMS in
@@ -420,6 +426,6 @@ Konsistent zur Sichtbarkeits- und Änderungsmatrix in `HOSTING_SICHERHEIT.md`, T
 - `windows/update_release.ps1`, `windows/smoketest_release.ps1` – Skript-Umsetzung des Standard-Update-,
   Rollback- und Smoketest-Ablaufs (Standardweg, siehe oben)
 - `CHANGELOG.md` – Änderungen pro Release; der Build legt einen versionierten Schnappschuss ins Paket
-- `windows/install_task.ps1`, `run_mini_ems.cmd` – heutiger Start-/Task-Mechanismus (nur lesend
-  referenziert, hier nicht verändert)
+- `windows/install_task.ps1`, `run_mini_ems_release.cmd` – Produktions-Startpfad; `run_mini_ems.cmd`
+  bleibt Checkout-/Fallback-Pfad (nur lesend referenziert, hier nicht verändert)
 - `config.json` – Quelle der Pfade für Backup/Healthcheck (Datenbank, Logging, API)
