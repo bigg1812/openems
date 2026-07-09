@@ -20,6 +20,61 @@ Paketformat aufgelöst. Die Trennung App-Dateien vs. Standortdaten (Abschnitt 1)
 
 ---
 
+## Standardweg: Update per Skript (empfohlen)
+
+Der reguläre Update- und Rollback-Ablauf läuft über zwei PowerShell-Skripte im
+Ordner `windows/`. Die nummerierten Abschnitte 2 und 3 unten bleiben als
+**Fallback- und Referenzbeschreibung** erhalten: Sie beschreiben genau die
+Schritte, die die Skripte automatisieren, und dienen als manueller Weg, falls
+ein Skript nicht nutzbar ist.
+
+- **`windows/update_release.ps1`** – ein Update fahren:
+
+  ```powershell
+  .\windows\update_release.ps1 -PackagePath <Ordner-des-neuen-Release-Pakets>
+  # Defaults: -AppDir "C:\Program Files\MiniEMS", -SiteDir "C:\ProgramData\MiniEMS",
+  #           -TaskName "MiniEmsPoCRelease"
+  ```
+
+  Ablauf: `SHA256SUMS` des Pakets prüfen → Task stoppen und Prozess-Ende
+  verifizieren → bisherigen App-Ordner nach `<AppDir>_vorher_<version>`
+  umbenennen (Rollback-Kandidat) → neues Paket nach `AppDir` kopieren → Task
+  starten → Smoketest. Standortdaten in `SiteDir` (`config.json`, `data\`,
+  `logs\`, `runtime\`) werden **nie** angefasst. Für einen Trockenlauf `-WhatIf`
+  anhängen.
+
+- **Rollback** bei fehlgeschlagenem Smoketest:
+
+  ```powershell
+  .\windows\update_release.ps1 -Rollback
+  ```
+
+  Schiebt den jüngsten `<AppDir>_vorher_*`-Ordner zurück und startet den Task
+  wieder.
+
+- **`windows/smoketest_release.ps1`** – Smoketest solo (wird vom Update-Skript
+  automatisch aufgerufen):
+
+  ```powershell
+  .\windows\smoketest_release.ps1 -ExpectedVersion 2026.07.1
+  ```
+
+  Prüft frische `runtime\health.json` (`last_cycle_at` neu, `runtime_status`
+  `live`, `status` `healthy`), `/api/status` inkl. erwarteter `app_version` und
+  `api_read_only` wie in `config.json` konfiguriert, sowie das Log auf neue
+  `ERROR`-Zeilen. Exit-Code `0` = bestanden, `1` = nicht bestanden.
+
+Der Grundsatz "Kein zweiter Blindversuch" (Abschnitt 1) gilt auch hier: Nach
+einem fehlgeschlagenen Smoketest folgen Rollback und Ursachenklärung, keine
+sofortige zweite Installation.
+
+**Hinweis (Stand 2026-07-09):** Beide Skripte sind auf dem Laptop entwickelt und
+sorgfältig reviewt, aber noch nicht auf der realen IPC gelaufen (auf dem
+Build-Laptop ist kein PowerShell verfügbar). Beim ersten IPC-Einsatz zuerst mit
+`-WhatIf` prüfen, dann scharf fahren.
+
+---
+
 ## 1. Grundsätze
 
 1. **Updates laufen ausschließlich über versionierte Release-Pakete mit Prüfsumme.** Es gibt keine
@@ -59,6 +114,11 @@ Paketformat aufgelöst. Die Trennung App-Dateien vs. Standortdaten (Abschnitt 1)
 ---
 
 ## 2. Standard-Update-Ablauf
+
+*Fallback-/Referenzweg. Der empfohlene Weg ist das Skript
+`windows/update_release.ps1` (siehe "Standardweg" oben); diese Checkliste
+beschreibt die Schritte, die das Skript automatisiert, und den manuellen Ablauf,
+falls das Skript nicht nutzbar ist.*
 
 Nummerierte Checkliste für ein reguläres Update auf der Kunden-IPC. Schritte, die schon heute mit dem
 bestehenden Code (`run_mini_ems.cmd`, `windows/install_task.ps1`, `config.json`) ausführbar sind, sind
@@ -196,6 +256,9 @@ Aufbewahrungsregel (siehe Abschnitt 4) behalten. Besteht er nicht → Rollback (
 
 ## 3. Rollback-Ablauf
 
+*Fallback-/Referenzweg. Der empfohlene Weg ist `windows/update_release.ps1
+-Rollback` (siehe "Standardweg" oben).*
+
 ### 3.1 Wann zurückrollen
 
 Rollback auslösen, wenn nach dem Update **mindestens einer** dieser Healthcheck-Befunde auftritt:
@@ -297,6 +360,14 @@ Secomea-Fernzugriff ohnehin stattfindet):
 
   Zusätzlich liegt `SHA256SUMS` (Prüfsummen über alle Paketdateien) im selben Ordner. Damit ist die
   Anforderung erfüllt: **eine lesbare, versionierte Kennung liegt am Installationsort.**
+- **Version zur Laufzeit sichtbar:** Die Runtime liest die `VERSION`-Datei beim Start und stellt sie
+  additiv unter `/api/status` als `app_version` (`version`, `git_commit`, `build_date`) bereit; die
+  Systemstatus-Seite des Dashboards zeigt sie als dezente Zeile "Softwareversion". Der Smoketest nutzt
+  dieses Feld, um nach dem Update die erwartete Version zu bestätigen. Im Git-Betrieb ohne `VERSION`
+  erscheint `dev`.
+- **Changelog im Paket:** Neben `VERSION` liegt eine `CHANGELOG.md` als Schnappschuss des
+  `[Unreleased]`-Standes unter der gewählten Versionsüberschrift (erzeugt vom Build, siehe
+  `packaging/README.md`, Abschnitt "Release erstellen").
 - **Laufende Version auf der IPC feststellen:** `VERSION` im Installationsordner öffnen:
 
   ```powershell
@@ -346,6 +417,9 @@ Konsistent zur Sichtbarkeits- und Änderungsmatrix in `HOSTING_SICHERHEIT.md`, T
   Mini-EMS-Update nicht zu stoppen (siehe Wartungsroutine, Abschnitt 4)
 - `EDGE_INTEGRATION_CONTRACT.md` – Lese-/Schreibrechte, Safety-Flags, Ausfallverhalten
 - `MINI_EMS_ANLEITUNG.md` – Betrieb, Pfade IPC vs. lokal, `health.json`-Felder, Windows-Task
+- `windows/update_release.ps1`, `windows/smoketest_release.ps1` – Skript-Umsetzung des Standard-Update-,
+  Rollback- und Smoketest-Ablaufs (Standardweg, siehe oben)
+- `CHANGELOG.md` – Änderungen pro Release; der Build legt einen versionierten Schnappschuss ins Paket
 - `windows/install_task.ps1`, `run_mini_ems.cmd` – heutiger Start-/Task-Mechanismus (nur lesend
   referenziert, hier nicht verändert)
 - `config.json` – Quelle der Pfade für Backup/Healthcheck (Datenbank, Logging, API)

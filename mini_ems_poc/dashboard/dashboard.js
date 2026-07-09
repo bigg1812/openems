@@ -747,6 +747,23 @@ function renderSignals(payload) {
       <span>${escapeHtml(row.text)}</span>
     </article>
   `).join("");
+
+  renderSoftwareVersion(payload.app_version || {});
+}
+
+/* Softwareversion (H2): dezente Zeile auf der Systemstatus-Seite. Zeigt die
+   Version aus der VERSION-Datei des Release-Pakets bzw. "dev" im Git-Betrieb. */
+function renderSoftwareVersion(appVersion) {
+  const version = appVersion.version || "unbekannt";
+  const details = [];
+  if (appVersion.git_commit) {
+    details.push(`Stand ${appVersion.git_commit}`);
+  }
+  if (appVersion.build_date) {
+    details.push(`gebaut ${formatTimestamp(appVersion.build_date)}`);
+  }
+  const text = details.length ? `${version} (${details.join(", ")})` : version;
+  setText("software-version", text);
 }
 
 function renderWindows(plan) {

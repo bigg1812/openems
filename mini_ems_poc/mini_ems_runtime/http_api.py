@@ -38,6 +38,7 @@ class MiniEmsApiServer:
         config_path: Optional[Path] = None,
         spotmarket_plan_writer: Optional[SpotmarketPlanWriter] = None,
         price_source_resolution: str = "quarterhour",
+        app_version: Optional[Dict[str, object]] = None,
     ):
         self.api_config = api_config
         self.runtime_db = runtime_db
@@ -51,6 +52,9 @@ class MiniEmsApiServer:
         self.config_path = Path(config_path) if config_path is not None else None
         self.spotmarket_plan_writer = spotmarket_plan_writer
         self.price_source_resolution = str(price_source_resolution).lower()
+        # Additive Softwareversion fuer /api/status und die Systemstatus-Seite.
+        # Direkt konstruierte Server (Tests) ohne VERSION liefern die dev-Variante.
+        self.app_version = app_version or {"version": "dev", "git_commit": None, "build_date": None}
         self._server: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -430,6 +434,9 @@ class MiniEmsApiServer:
             "recent_cycles": self.runtime_db.get_recent_cycles(limit=12),
             # Additiver Modus-Hinweis fuer das UI (H5): read-only Netzwerkmodus aktiv?
             "api_read_only": bool(self.api_config.read_only),
+            # Additive Softwareversion (H2): version/git_commit/build_date aus der
+            # VERSION-Datei des Release-Pakets bzw. dev im Git-Betrieb.
+            "app_version": self.app_version,
         }
 
     def _get_weather_payload(self) -> Dict[str, object]:

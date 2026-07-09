@@ -11,7 +11,14 @@
 # packaging/ and are git-ignored.
 set -euo pipefail
 
-SEMVER="${MINI_EMS_VERSION:-2026.07.0}"
+# Version is a required, explicit input (schema JJJJ.MM.n). No silently ageing
+# default: a stale hard-coded version is a reproducibility trap.
+SEMVER="${MINI_EMS_VERSION:-}"
+if [ -z "${SEMVER}" ]; then
+  echo "[build] FEHLER: Version fehlt. Setze MINI_EMS_VERSION=JJJJ.MM.n (z. B. 2026.07.1)." >&2
+  echo "[build]        Beispiel: MINI_EMS_VERSION=2026.07.1 packaging/build_release.sh" >&2
+  exit 2
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -63,6 +70,29 @@ echo "[build] wrote VERSION (${SEMVER}, ${GIT_COMMIT}${GIT_DIRTY})"
 # --- Release launcher + notes: package vs. site data ------------------------
 cp "${PROJECT_DIR}/run_mini_ems_release.cmd" "${RELEASE_DIR}/run_mini_ems_release.cmd"
 cp "${SCRIPT_DIR}/RELEASE_HINWEISE.md" "${RELEASE_DIR}/RELEASE_HINWEISE.md"
+
+# --- CHANGELOG snapshot into the package (repo CHANGELOG is NOT rewritten) ---
+# The [Unreleased] heading becomes the versioned snapshot heading in the copy
+# that ships with the package. The repo CHANGELOG.md stays manual maintenance.
+REPO_CHANGELOG="${PROJECT_DIR}/CHANGELOG.md"
+RELEASE_DATE="$(date -u +%Y-%m-%d)"
+if [ -f "${REPO_CHANGELOG}" ]; then
+  if ! awk '
+      /^## \[Unreleased\]/ {inblock=1; next}
+      /^## \[/ && inblock {inblock=0}
+      inblock && /^[-*] / {found=1}
+      END {exit(found?0:1)}
+    ' "${REPO_CHANGELOG}"; then
+    echo "[build] WARNUNG: [Unreleased] in CHANGELOG.md ist leer - Paket-Changelog ohne neue Eintraege." >&2
+  fi
+  awk -v ver="${SEMVER}" -v d="${RELEASE_DATE}" '
+      /^## \[Unreleased\]/ {print "## [" ver "] - " d; next}
+      {print}
+    ' "${REPO_CHANGELOG}" > "${RELEASE_DIR}/CHANGELOG.md"
+  echo "[build] wrote CHANGELOG.md snapshot (${SEMVER}, ${RELEASE_DATE})"
+else
+  echo "[build] WARNUNG: CHANGELOG.md nicht gefunden unter ${REPO_CHANGELOG}" >&2
+fi
 
 # --- SHA256SUMS over every release file (excluding the sums file itself) -----
 (

@@ -531,6 +531,13 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     H2-Lücken):** (1) das laufende Release ist ein dirty-Build (`git_commit=be4d81b8ad4d+dirty`) – nächster Build aus
     committetem Stand für ein reproduzierbares Release; (2) die API hat keinen Versions-Endpunkt, Version nur über die
     `VERSION`-Datei belegbar (optionales Follow-up).
+  - **Stand (2026-07-09): Version zur Laufzeit sichtbar, Release-Ablauf reproduzierbar.** Der Restpunkt (2) ist
+    aufgelöst: Die Runtime liest die `VERSION`-Datei beim Start (`mini_ems_runtime/resources.py`,
+    `read_app_version`) und stellt sie additiv unter `/api/status` als `app_version`
+    (`version`/`git_commit`/`build_date`) bereit – kein neuer Endpunkt. Die Systemstatus-Seite des Dashboards
+    zeigt eine dezente Zeile "Softwareversion"; im Git-Betrieb erscheint `dev`. Die Build-Skripte verlangen die
+    Version jetzt als Pflicht-Parameter (Schema `JJJJ.MM.n`), es gibt eine `CHANGELOG.md` (Repo-Pflege) mit
+    Build-Schnappschuss ins Paket; der präzise "Release erstellen"-Ablauf steht in `packaging/README.md`.
   - **Autostart-Bereinigung (2026-07-07):** Auf der IPC existierten noch drei konkurrierende Alt-Autostarts. Der alte
     Dev-Task `MiniEmsPoC` (Boot-Trigger auf den Git-Checkout) wäre beim Reboot mit dem Release-Task um Port 8090
     kollidiert; er ist jetzt **deaktiviert** (nicht gelöscht). Der Legacy-Dienst `MiniEmsPoC` (Autostart, nie
@@ -681,6 +688,14 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
   - **Erledigt:** Der vollständige Ablauf (Grundsätze, Standard-Update-Checkliste, Rollback, Wartungsroutine,
     Versionierung, Verantwortlichkeiten) steht in `UPDATE_WARTUNG.md`, paketformneutral formuliert mit explizit
     markierten H2-abhängigen Stellen; querverwiesen aus `HOSTING_SICHERHEIT.md` und `MINI_EMS_ANLEITUNG.md`.
+  - **Stand (2026-07-09): Ablauf als Skripte automatisiert.** `windows/update_release.ps1` setzt den
+    H7-Standardablauf um (SHA256SUMS prüfen → Task stoppen + Prozess-Ende verifizieren → App-Ordner nach
+    `<AppDir>_vorher_<version>` umbenennen als Rollback-Kandidat → neues Paket kopieren → Task starten →
+    Smoketest); `-Rollback` schiebt den vorherigen Stand zurück. `windows/smoketest_release.ps1` prüft frische
+    `health.json`, `/api/status` inkl. erwarteter `app_version`/`api_read_only` und das Log auf neue
+    ERROR-Zeilen (Exit-Code 0/1). Standortdaten (`SiteDir`) werden nie angefasst. `UPDATE_WARTUNG.md` ist auf
+    Skript-first umgestellt, die manuellen Schritte bleiben als Fallback-Referenz. Der Lauf beider Skripte auf
+    der realen IPC steht noch aus (bisher nur Review; kein PowerShell auf dem Build-Laptop verfügbar).
 
 - [ ] **H8. Audit, Nachvollziehbarkeit und Betreiberfreigabe**
   - **Was:** UI-Zugriffe, Runtime-Starts, Konfigurationsänderungen und spätere Schreibaktionen nachvollziehbar loggen.
