@@ -1229,6 +1229,204 @@ select:focus {
   white-space: pre-wrap;
 }
 
+/* Standort einrichten (UX14/UX15/UX16): geführte Inbetriebnahme.
+   Nur vorhandene Tokens und Muster (Karte + Statusbalken + Badge). */
+.setup-steps {
+  display: flex;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-3);
+  padding: 0;
+  list-style: none;
+}
+
+.setup-steps li {
+  flex: 1 1 0;
+  min-width: 0;
+  display: grid;
+}
+
+.setup-step {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--neutral);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.setup-step:hover {
+  background: var(--surface-strong);
+}
+
+.setup-step:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.setup-step strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.setup-step small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup-step.done {
+  border-left-color: var(--ok);
+}
+
+.setup-step.warn {
+  border-left-color: var(--warn);
+}
+
+.setup-step.alert {
+  border-left-color: var(--alert);
+}
+
+.setup-panels {
+  display: grid;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+/* Datei-Auswahl als Button: das eigentliche Input bleibt unsichtbar, aber fokussierbar. */
+.setup-file-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.setup-file-button input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.setup-file-button:focus-within {
+  box-shadow: var(--ring);
+}
+
+.setup-device-head {
+  display: grid;
+  gap: 2px;
+}
+
+.setup-device-head small {
+  color: var(--muted);
+}
+
+.mapping-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+.mapping-toolbar-select select {
+  width: auto;
+  min-width: 150px;
+}
+
+.mapping-main strong {
+  display: block;
+  font-weight: 600;
+}
+
+.mapping-main small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.mapping-assign select {
+  min-width: 190px;
+}
+
+.mapping-assign .mapping-unsupported {
+  display: block;
+  margin-top: var(--sp-1);
+  color: var(--warn);
+  font-size: 11px;
+  white-space: normal;
+}
+
+.mapping-source {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* Prüfergebnis in Alltagssprache: darf umbrechen, Farbe folgt dem Ton. */
+.mapping-table td.mapping-result {
+  min-width: 220px;
+  max-width: 360px;
+  white-space: normal;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mapping-table td.mapping-result.ok {
+  color: var(--ok);
+}
+
+.mapping-table td.mapping-result.warn {
+  color: var(--warn);
+}
+
+.mapping-table td.mapping-result.alert {
+  color: var(--alert);
+}
+
+.mapping-detail-row > td {
+  background: var(--surface-soft);
+  white-space: normal;
+}
+
+.mapping-detail-grid {
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+}
+
+.test-progress {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Channel workbench */
 .channel-layout {
   display: grid;
@@ -1990,6 +2188,19 @@ textarea:focus {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  /* Standort einrichten: Schritte brechen kontrolliert um (UX9-Muster auto-fit). */
+  .setup-steps {
+    flex-wrap: wrap;
+  }
+
+  .setup-steps li {
+    flex: 1 1 180px;
+  }
+
+  .mapping-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dashboard-layout .tool-panel[data-widget="price"],
   .tool-panel.wide {
     grid-row: auto;
@@ -2082,6 +2293,29 @@ textarea:focus {
 
   .config-point-health {
     grid-column: auto;
+  }
+
+  /* Standort einrichten kompakt: Schritte und Werkzeugleisten einspaltig. */
+  .setup-steps li {
+    flex-basis: 100%;
+  }
+
+  .setup-actions .button,
+  .setup-actions .setup-file-button {
+    flex: 1 1 auto;
+  }
+
+  .mapping-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mapping-toolbar-select select {
+    width: 100%;
+  }
+
+  .mapping-detail-grid {
+    grid-template-columns: 1fr;
   }
 
   th,

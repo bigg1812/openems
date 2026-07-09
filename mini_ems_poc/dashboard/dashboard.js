@@ -83,7 +83,7 @@ const PAGES = {
 const PAGE_SUBTITLES = {
   analyse: "Messwerte und Datenqualität über frei wählbare Zeiträume prüfen.",
   berichte: "Tagesbericht anzeigen, herunterladen oder einen eigenen Bericht zusammenstellen.",
-  konfiguration: "Datenquellen, Messpunkte und Betriebsparameter prüfen und vorbereiten.",
+  konfiguration: "Standort Schritt für Schritt einrichten: Datenpunkte aufnehmen, zuordnen, testen und aktivieren.",
   system: "Systemzustand, Kommunikation und letzte Läufe kontrollieren.",
 };
 
@@ -330,6 +330,7 @@ function bindUi() {
   document.getElementById("site-config-save").addEventListener("click", saveSiteConfig);
   document.getElementById("site-config-form").addEventListener("input", handleSiteConfigChange);
   document.getElementById("site-config-form").addEventListener("change", handleSiteConfigChange);
+  bindSetupUi();
 }
 
 function initRouter() {
@@ -357,6 +358,7 @@ function showPage(page) {
   }
   if (page === "konfiguration") {
     updateSiteConfigPreview();
+    renderSetupPage();
   }
 }
 
@@ -423,6 +425,7 @@ async function refreshDashboard() {
     await renderDashboardCharts();
     await refreshWorkbench();
     updateReportLinks();
+    syncSetupReadOnly(statusPayload);
     dashboardLoaded = true;
   } catch (error) {
     renderGlobalError(error);
@@ -1498,12 +1501,14 @@ async function loadSiteConfigFromBackend() {
     const response = await fetch("/api/config/site", { cache: "no-store" });
     if (response.status === 404) {
       setSiteConfigFeedback("Backend-Konfiguration noch nicht angebunden; Prototypvorlage aktiv.", "neutral");
+      markSetupLoadFailed();
       return;
     }
     if (!response.ok) {
       throw new Error(`Serverstatus ${response.status}`);
     }
     const payload = await response.json();
+    seedSetupFromSiteConfig(payload);
     if (appState.siteConfig.dirty) {
       return;
     }
@@ -1515,6 +1520,7 @@ async function loadSiteConfigFromBackend() {
   } catch (error) {
     setText("site-config-source", "Prototypvorlage");
     setSiteConfigFeedback(`Backend-Konfiguration konnte nicht geladen werden: ${error.message}`, "neutral");
+    markSetupLoadFailed();
   }
 }
 
@@ -1929,6 +1935,1404 @@ function setSiteConfigFeedback(message, state = "neutral") {
   }
   target.className = `config-feedback ${state}`;
   target.textContent = message || "-";
+}
+
+/* ============================================================
+   Standort einrichten (UX14/UX15/UX16): geführte Inbetriebnahme.
+   Standort -> Geräte -> Datenpunkte -> Testen -> Aktivieren.
+   Die Tabelle zeigt die fachliche Bedeutung zuerst; Technikdetails
+   liegen im einklappbaren Technikbereich je Zeile.
+   ============================================================ */
+
+const SETUP_STEPS = [
+  { id: "standort", label: "Standort" },
+  { id: "geraete", label: "Geräte" },
+  { id: "punkte", label: "Datenpunkte" },
+  { id: "testen", label: "Testen" },
+  { id: "aktivieren", label: "Aktivieren" },
+];
+
+const SETUP_STATUS_WORDS = {
+  assigned: "zugeordnet",
+  review: "prüfen",
+  write: "Schreibpunkt",
+  tested: "geprüft",
+  failed: "keine Antwort",
+};
+
+const SETUP_STATUS_BADGE = {
+  assigned: "",
+  review: "warn",
+  write: "",
+  tested: "ok",
+  failed: "error",
+};
+
+/* Zugriffsart der Mini-EMS-Kernkanäle; alle weiteren Kanäle werden nur gelesen. */
+const SETUP_CHANNEL_ACCESS = {
+  "grid.active_power_kw": "read",
+  "tariff.current_price_ct_kwh": "readwrite",
+  "ems.lockout_grid": "write",
+  "ems.lockout_spotmarket": "write",
+};
+
+const SETUP_CORE_POINTS = [
+  { key: "grid_active_power_kw", channelId: "grid.active_power_kw", objectType: "av" },
+  { key: "current_price_av", channelId: "tariff.current_price_ct_kwh", objectType: "av" },
+  { key: "grid_lockout_bv", channelId: "ems.lockout_grid", objectType: "bv" },
+  { key: "spotmarket_lockout_bv", channelId: "ems.lockout_spotmarket", objectType: "bv" },
+];
+
+const SETUP_SUPPORTED_TYPES = new Set(["ai", "av", "bv"]);
+/* Lastdisziplin (BACNET_STACK_EVAL): Punkte nacheinander mit Pause lesen. */
+const SETUP_TEST_PAUSE_MS = 350;
+
+const setupState = {
+  loaded: false,
+  loadFailed: false,
+  siteConfig: null,
+  saveEnabled: false,
+  readOnly: false,
+  devices: [],
+  rows: [],
+  filters: { status: "alle", group: "alle", sort: "gruppe" },
+  test: { running: false, abort: false, summary: null, summaryTone: "neutral" },
+  preview: { valid: null, message: null, tone: "neutral", patch: null },
+  activation: { done: false },
+};
+
+/* ---------- Zustandsableitung (rein, ohne DOM) ---------- */
+
+function setupChannelLabel(channelId) {
+  const meta = CUSTOMER_CHANNEL_LABELS.get(channelId);
+  return (meta && meta.label) || "Datenpunkt";
+}
+
+function setupObjectTypeLabel(objectType) {
+  return String(objectType || "").toUpperCase() || "-";
+}
+
+function setupToInt(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number) : fallback;
+}
+
+function setupOptionalNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+/* Aktive Konfiguration -> Geräte und Mapping-Zeilen (Vorbelegung der Tabelle). */
+function buildSetupFromSiteConfig(config) {
+  const safe = config && typeof config === "object" ? config : {};
+  const network = safe.network && typeof safe.network === "object" ? safe.network : {};
+  const host = typeof network.controller_ip === "string" ? network.controller_ip : "";
+  const port = setupToInt(network.controller_port, 47808);
+  const devices = [{ id: "anlage", name: "Anlagensteuerung", host, port, origin: "active" }];
+  const deviceByTarget = new Map([[`${host}:${port}`, "anlage"]]);
+  const rows = [];
+
+  const points = safe.points && typeof safe.points === "object" ? safe.points : {};
+  SETUP_CORE_POINTS.forEach((core) => {
+    const instance = setupOptionalNumber(points[core.key]);
+    if (instance === null) {
+      return;
+    }
+    rows.push(makeSetupRow({
+      id: `aktiv:${core.channelId}`,
+      deviceId: "anlage",
+      protocol: "bacnet",
+      objectType: core.objectType,
+      instance,
+      name: setupChannelLabel(core.channelId),
+      access: SETUP_CHANNEL_ACCESS[core.channelId],
+      channelId: core.channelId,
+      origin: "active",
+      sourceLabel: "Aktive Konfiguration",
+    }));
+  });
+
+  const inputs = Array.isArray(safe.additional_inputs) ? safe.additional_inputs : [];
+  inputs.forEach((input) => {
+    if (!input || typeof input !== "object" || typeof input.channel_id !== "string") {
+      return;
+    }
+    const protocol = protocolValue(input.protocol);
+    let deviceId = "anlage";
+    if (protocol === "bacnet" && typeof input.controller_ip === "string" && input.controller_ip.trim()) {
+      const targetHost = input.controller_ip.trim();
+      const targetPort = setupToInt(input.controller_port, port);
+      const key = `${targetHost}:${targetPort}`;
+      if (!deviceByTarget.has(key)) {
+        const id = `geraet_${devices.length + 1}`;
+        devices.push({ id, name: `Weiteres Gerät (${targetHost})`, host: targetHost, port: targetPort, origin: "active" });
+        deviceByTarget.set(key, id);
+      }
+      deviceId = deviceByTarget.get(key);
+    }
+    rows.push(makeSetupRow({
+      id: `aktiv:${input.channel_id}`,
+      deviceId,
+      protocol,
+      objectType: protocol === "bacnet" ? bacnetObjectTypeValue(input.object_type) : String(input.protocol || ""),
+      instance: setupOptionalNumber(input.instance) ?? "",
+      name: setupTextOr(input.description, setupChannelLabel(input.channel_id)),
+      access: "read",
+      channelId: input.channel_id,
+      origin: "active",
+      sourceLabel: "Aktive Konfiguration",
+      plausibleMin: setupOptionalNumber(input.plausible_min),
+      plausibleMax: setupOptionalNumber(input.plausible_max),
+      maxAgeSeconds: setupOptionalNumber(input.max_age_seconds),
+      readIntervalCycles: setupToInt(input.read_interval_cycles, 1),
+      includeInHealth: input.include_in_health === true,
+    }));
+  });
+
+  return { devices, rows };
+}
+
+function setupTextOr(value, fallback) {
+  const text = value === null || value === undefined ? "" : String(value).trim();
+  return text || fallback;
+}
+
+function makeSetupRow(fields) {
+  const protocol = fields.protocol || "bacnet";
+  const objectType = fields.objectType || "";
+  return {
+    id: String(fields.id),
+    deviceId: fields.deviceId || "anlage",
+    protocol,
+    objectType,
+    instance: fields.instance === undefined ? "" : fields.instance,
+    name: fields.name || "Datenpunkt",
+    unit: fields.unit || "",
+    access: fields.access || "read",
+    channelId: fields.channelId || "",
+    origin: fields.origin || "import",
+    sourceLabel: fields.sourceLabel || "",
+    comment: fields.comment || "",
+    listValue: fields.listValue ?? null,
+    plausibleMin: fields.plausibleMin ?? null,
+    plausibleMax: fields.plausibleMax ?? null,
+    maxAgeSeconds: fields.maxAgeSeconds ?? null,
+    readIntervalCycles: fields.readIntervalCycles || 1,
+    includeInHealth: fields.includeInHealth === true,
+    supported: protocol === "bacnet" && SETUP_SUPPORTED_TYPES.has(objectType),
+    test: null,
+    detailsOpen: false,
+  };
+}
+
+/* Import-/Discovery-Antwort -> neue Geräte und Kandidaten-Zeilen. */
+function importResultToSetup(payload, existingRowIds, existingDeviceIds) {
+  const safe = payload && typeof payload === "object" ? payload : {};
+  const devices = [];
+  (Array.isArray(safe.devices) ? safe.devices : []).forEach((device) => {
+    if (!device || typeof device.id !== "string" || existingDeviceIds.has(device.id)) {
+      return;
+    }
+    devices.push({
+      id: device.id,
+      name: setupTextOr(device.name, device.id),
+      host: setupTextOr(device.host, ""),
+      port: setupToInt(device.port, 47808),
+      origin: "import",
+    });
+  });
+
+  const suggestions = new Map();
+  (Array.isArray(safe.suggested_mappings) ? safe.suggested_mappings : []).forEach((mapping) => {
+    if (mapping && typeof mapping.channel_id === "string" && typeof mapping.source_point_id === "string"
+      && CUSTOMER_CHANNEL_LABELS.has(mapping.channel_id)) {
+      suggestions.set(mapping.source_point_id, mapping.channel_id);
+    }
+  });
+
+  const rows = [];
+  const candidates = Array.isArray(safe.candidates) ? safe.candidates : [];
+  candidates.forEach((candidate) => {
+    if (!candidate || typeof candidate.id !== "string" || existingRowIds.has(candidate.id)) {
+      return;
+    }
+    const source = candidate.source && typeof candidate.source === "object" ? candidate.source : {};
+    const sourceParts = [setupTextOr(source.filename, "Import")];
+    if (Number.isFinite(Number(source.row))) {
+      sourceParts.push(`Zeile ${Number(source.row)}`);
+    }
+    const row = makeSetupRow({
+      id: candidate.id,
+      deviceId: setupTextOr(candidate.device_id, ""),
+      protocol: "bacnet",
+      objectType: String(candidate.object_type || "").toLowerCase(),
+      instance: setupOptionalNumber(candidate.instance) ?? "",
+      name: setupTextOr(candidate.name, "Datenpunkt"),
+      unit: setupTextOr(candidate.unit, ""),
+      access: ["read", "write", "readwrite"].includes(candidate.access) ? candidate.access : "read",
+      channelId: suggestions.get(candidate.id) || "",
+      origin: "import",
+      sourceLabel: sourceParts.join(" · "),
+      comment: setupTextOr(source.comment, ""),
+      listValue: setupOptionalNumber(candidate.value),
+    });
+    if (row.channelId) {
+      applySetupChannelDefaults(row);
+    }
+    rows.push(row);
+  });
+
+  return {
+    devices,
+    rows,
+    errors: Array.isArray(safe.errors) ? safe.errors.map(String) : [],
+    warnings: Array.isArray(safe.warnings) ? safe.warnings.map(String) : [],
+    valid: safe.valid === true,
+  };
+}
+
+/* Beim Zuordnen sinnvolle Plausibilitäts-/Aktualitätswerte vorbelegen. */
+function applySetupChannelDefaults(row) {
+  const defaults = CONFIG_CHANNEL_DEFAULTS.find((entry) => entry.channel_id === row.channelId);
+  if (!defaults) {
+    return;
+  }
+  if (row.plausibleMin === null && defaults.plausible_min !== "") {
+    row.plausibleMin = setupOptionalNumber(defaults.plausible_min);
+  }
+  if (row.plausibleMax === null && defaults.plausible_max !== "") {
+    row.plausibleMax = setupOptionalNumber(defaults.plausible_max);
+  }
+  if (row.maxAgeSeconds === null) {
+    row.maxAgeSeconds = setupOptionalNumber(defaults.max_age_seconds);
+  }
+}
+
+function setupEffectiveAccess(row) {
+  if (row.channelId && SETUP_CHANNEL_ACCESS[row.channelId]) {
+    return SETUP_CHANNEL_ACCESS[row.channelId];
+  }
+  if (row.channelId) {
+    return "read";
+  }
+  return row.access || "read";
+}
+
+function setupRowStatus(row) {
+  if (setupEffectiveAccess(row) === "write") {
+    return "write";
+  }
+  if (row.test) {
+    if (row.test.tone === "ok") {
+      return "tested";
+    }
+    if (row.test.tone === "alert") {
+      return "failed";
+    }
+    return "review";
+  }
+  if (!row.supported) {
+    return "review";
+  }
+  return row.channelId ? "assigned" : "review";
+}
+
+function setupRowGroup(row) {
+  if (row.channelId) {
+    const meta = CUSTOMER_CHANNEL_LABELS.get(row.channelId);
+    return (meta && meta.group) || "EMS";
+  }
+  return "Nicht zugeordnet";
+}
+
+function setupCounts(rows) {
+  const counts = { found: rows.length, assigned: 0, review: 0, write: 0, tested: 0, failed: 0, testable: 0 };
+  rows.forEach((row) => {
+    const status = setupRowStatus(row);
+    if (status === "write") {
+      counts.write += 1;
+    } else if (status === "tested") {
+      counts.tested += 1;
+    } else if (status === "failed") {
+      counts.failed += 1;
+    } else if (status === "assigned") {
+      counts.assigned += 1;
+    } else {
+      counts.review += 1;
+    }
+    if (row.channelId && setupEffectiveAccess(row) !== "write") {
+      counts.testable += 1;
+    }
+  });
+  return counts;
+}
+
+/* Zuordnung als Mapping-Entwurf für Vorschau/Aktivierung; problems = verständliche Hürden. */
+function buildSetupMappingDraft(devices, rows) {
+  const problems = [];
+  const assigned = rows.filter((row) => row.channelId && row.supported);
+  if (!assigned.length) {
+    problems.push("Noch kein Datenpunkt zugeordnet. Bitte in der Tabelle mindestens einem Punkt eine Bedeutung geben.");
+  }
+  const channelCounts = new Map();
+  assigned.forEach((row) => {
+    channelCounts.set(row.channelId, (channelCounts.get(row.channelId) || 0) + 1);
+  });
+  channelCounts.forEach((count, channelId) => {
+    if (count > 1) {
+      problems.push(`„${setupChannelLabel(channelId)}“ ist mehrfach zugeordnet. Bitte nur einen Punkt je Bedeutung wählen.`);
+    }
+  });
+  const usedDeviceIds = new Set(assigned.map((row) => row.deviceId));
+  const draftDevices = devices.filter((device) => usedDeviceIds.has(device.id));
+  draftDevices.forEach((device) => {
+    if (!String(device.host || "").trim()) {
+      problems.push(`Für „${device.name}“ fehlt die Geräteadresse. Bitte im Schritt Geräte ergänzen.`);
+    }
+  });
+  assigned.forEach((row) => {
+    if (setupOptionalNumber(row.instance) === null) {
+      problems.push(`Für „${setupChannelLabel(row.channelId)}“ fehlt die Adresse (Instanz) im Technikbereich.`);
+    }
+  });
+
+  const draft = {
+    devices: draftDevices.map((device) => ({
+      id: device.id,
+      name: device.name,
+      protocol: "bacnet",
+      host: String(device.host || "").trim(),
+      port: setupToInt(device.port, 47808),
+    })),
+    raw_points: assigned.map((row) => ({
+      id: row.id,
+      device_id: row.deviceId,
+      object_type: row.objectType,
+      instance: setupToInt(row.instance, 0),
+      name: row.name,
+      unit: row.unit || "",
+    })),
+    mappings: assigned.map((row) => {
+      const entry = {
+        channel_id: row.channelId,
+        source_point_id: row.id,
+        label: setupChannelLabel(row.channelId),
+        access: setupEffectiveAccess(row),
+        read_interval_cycles: setupToInt(row.readIntervalCycles, 1),
+        include_in_health: row.includeInHealth === true,
+      };
+      if (row.plausibleMin !== null) {
+        entry.plausible_min = row.plausibleMin;
+      }
+      if (row.plausibleMax !== null) {
+        entry.plausible_max = row.plausibleMax;
+      }
+      if (row.maxAgeSeconds !== null) {
+        entry.max_age_seconds = row.maxAgeSeconds;
+      }
+      return entry;
+    }),
+  };
+  return { draft, problems };
+}
+
+/* Welche Kanäle kann die laufende Anlage jetzt schon live lesen? */
+function setupActiveChannelInfo(config) {
+  const info = new Map();
+  const safe = config && typeof config === "object" ? config : {};
+  const points = safe.points && typeof safe.points === "object" ? safe.points : {};
+  SETUP_CORE_POINTS.forEach((core) => {
+    const instance = setupOptionalNumber(points[core.key]);
+    if (instance !== null && SETUP_CHANNEL_ACCESS[core.channelId] !== "write") {
+      info.set(core.channelId, { instance });
+    }
+  });
+  (Array.isArray(safe.additional_inputs) ? safe.additional_inputs : []).forEach((input) => {
+    if (input && typeof input === "object" && typeof input.channel_id === "string") {
+      info.set(input.channel_id, { instance: setupOptionalNumber(input.instance) });
+    }
+  });
+  return info;
+}
+
+/* Live-Read-Ergebnis in Inbetriebnahme-Sprache übersetzen (UX16). */
+function translateSetupDiagnostic(row, payload) {
+  const safe = payload && typeof payload === "object" ? payload : {};
+  const value = toNumber(safe.value);
+  const meta = row.channelId ? CUSTOMER_CHANNEL_LABELS.get(row.channelId) : null;
+  const unit = row.unit || (meta && meta.unit) || "";
+  const valueLabel = Number.isFinite(value) ? formatNumber(value, unit, 2) : "";
+  const status = String(safe.status || "").toLowerCase();
+  const errorText = String(safe.error || "");
+
+  if (!Number.isFinite(value) || status === "error") {
+    return { tone: "alert", text: "Keine Antwort von der Anlage. Bitte Adresse und Verbindung prüfen.", valueLabel: "" };
+  }
+  const min = row.plausibleMin;
+  const max = row.plausibleMax;
+  const outOfRange = (min !== null && value < min) || (max !== null && value > max);
+  if (safe.plausible === false || errorText.includes("value_out_of_range") || outOfRange) {
+    return { tone: "warn", text: "Wert kommt an, aber bitte Einheit und erwarteten Bereich prüfen.", valueLabel };
+  }
+  if (String(safe.quality || "").toLowerCase() === "stale" || errorText.includes("value_stale")) {
+    return { tone: "warn", text: "Wert kommt an, ist aber veraltet. Bitte die Aktualität der Quelle prüfen.", valueLabel };
+  }
+  if (status === "warning") {
+    return { tone: "warn", text: "Wert kommt an, aber nicht alle Einzelmessungen kamen an.", valueLabel };
+  }
+  const hasRange = min !== null || max !== null;
+  return {
+    tone: "ok",
+    text: hasRange ? "Wert kommt an und liegt im erwarteten Bereich." : "Wert kommt an.",
+    valueLabel,
+  };
+}
+
+function translateSetupReadFailure(httpStatus, message) {
+  if (httpStatus === 403) {
+    return { tone: "warn", text: "Test über den Netzwerkzugriff nicht möglich. Prüfung nur lokal bzw. administrativ an der Anlage.", valueLabel: "" };
+  }
+  if (String(message || "").includes("Unknown channel_id")) {
+    return { tone: "warn", text: "Noch nicht aktiv. Dieser Punkt ist nach Aktivierung und Neustart prüfbar.", valueLabel: "" };
+  }
+  return { tone: "alert", text: "Keine Antwort von der Anlage. Bitte Adresse und Verbindung prüfen.", valueLabel: "" };
+}
+
+/* Schrittzustände für den Fortschrittsbalken (UX14). */
+function computeSetupSteps(state) {
+  const counts = setupCounts(state.rows);
+  const steps = [];
+
+  let standort = { state: "open", detail: "Konfiguration wird geladen." };
+  if (state.loaded) {
+    const runtime = state.siteConfig && state.siteConfig.runtime ? state.siteConfig.runtime : {};
+    standort = { state: "done", detail: setupEnvironmentLabel(runtime.environment) };
+  } else if (state.loadFailed) {
+    standort = { state: "error", detail: "Konfiguration nicht erreichbar." };
+  }
+  steps.push({ id: "standort", label: "Standort", ...standort });
+
+  const usedDeviceIds = new Set(state.rows.filter((row) => row.channelId && row.supported).map((row) => row.deviceId));
+  const usedDevices = state.devices.filter((device) => usedDeviceIds.has(device.id));
+  const missingHost = usedDevices.filter((device) => !String(device.host || "").trim());
+  if (missingHost.length) {
+    steps.push({ id: "geraete", label: "Geräte", state: "error", detail: `Adresse fehlt: ${missingHost[0].name}` });
+  } else if (usedDevices.length) {
+    steps.push({ id: "geraete", label: "Geräte", state: "done", detail: usedDevices.length === 1 ? "1 Gerät" : `${usedDevices.length} Geräte` });
+  } else {
+    steps.push({ id: "geraete", label: "Geräte", state: "open", detail: "Noch kein Gerät in Verwendung." });
+  }
+
+  const openPoints = counts.review;
+  if (!counts.found) {
+    steps.push({ id: "punkte", label: "Datenpunkte", state: "open", detail: "Punktliste hochladen." });
+  } else if (openPoints === 0 && counts.assigned + counts.write + counts.tested + counts.failed > 0) {
+    steps.push({ id: "punkte", label: "Datenpunkte", state: "done", detail: `${counts.found} Punkte zugeordnet.` });
+  } else {
+    steps.push({ id: "punkte", label: "Datenpunkte", state: "open", detail: `${openPoints} von ${counts.found} zu prüfen.` });
+  }
+
+  if (state.readOnly) {
+    steps.push({ id: "testen", label: "Testen", state: "locked", detail: "Nur lokal/administrativ möglich." });
+  } else if (counts.failed) {
+    steps.push({ id: "testen", label: "Testen", state: "error", detail: `${counts.failed} ohne Antwort.` });
+  } else if (counts.testable && counts.tested >= counts.testable) {
+    steps.push({ id: "testen", label: "Testen", state: "done", detail: `${counts.tested} Punkte geprüft.` });
+  } else if (counts.tested) {
+    steps.push({ id: "testen", label: "Testen", state: "open", detail: `${counts.tested} von ${counts.testable} geprüft.` });
+  } else {
+    steps.push({ id: "testen", label: "Testen", state: "open", detail: "Noch nicht geprüft." });
+  }
+
+  if (state.activation.done) {
+    steps.push({ id: "aktivieren", label: "Aktivieren", state: "done", detail: "Aktiviert, Neustart erforderlich." });
+  } else if (state.readOnly) {
+    steps.push({ id: "aktivieren", label: "Aktivieren", state: "locked", detail: "Nur lokal/administrativ möglich." });
+  } else if (state.loaded && !state.saveEnabled) {
+    steps.push({ id: "aktivieren", label: "Aktivieren", state: "locked", detail: "Kein Admin-Token auf der Anlage eingerichtet." });
+  } else if (state.preview.valid === true) {
+    steps.push({ id: "aktivieren", label: "Aktivieren", state: "open", detail: "Geprüft, bereit zur Aktivierung." });
+  } else if (state.preview.valid === false) {
+    steps.push({ id: "aktivieren", label: "Aktivieren", state: "error", detail: "Prüfung meldet Fehler." });
+  } else {
+    steps.push({ id: "aktivieren", label: "Aktivieren", state: "open", detail: "Zuordnung noch nicht geprüft." });
+  }
+
+  return steps;
+}
+
+function setupEnvironmentLabel(environment) {
+  const labels = { local: "Laptop-Simulation", ipc: "Produktiver IPC", test: "Testumgebung" };
+  return labels[String(environment || "").toLowerCase()] || "Betriebsumgebung unbekannt";
+}
+
+/* Hauptbotschaft der Seite: "Ist dieser Standort bereit?" (UX14). */
+function buildSetupHeroMessage(steps, counts, state) {
+  if (state.readOnly) {
+    return {
+      level: "warn",
+      headline: "Nur-Lese-Zugriff: Inbetriebnahme hier nicht möglich.",
+      detail: "Ansehen ist möglich. Datenpunkte ändern, testen und aktivieren geht nur über den lokalen bzw. administrativen Zugriff auf der Anlage.",
+    };
+  }
+  if (state.activation.done) {
+    return {
+      level: "ok",
+      headline: "Zuordnung aktiviert. Ein Neustart der Steuerung ist erforderlich.",
+      detail: "Nach dem Neustart liest die Anlage die neue Zuordnung. Danach die Punkte erneut testen.",
+    };
+  }
+  const doneCount = steps.filter((step) => step.state === "done").length;
+  const errorStep = steps.find((step) => step.state === "error");
+  const countsLine = `${counts.found} Datenpunkte gefunden · ${counts.assigned + counts.write + counts.tested + counts.failed} zugeordnet · ${counts.review} zu prüfen · ${doneCount} von ${steps.length} Schritten erledigt.`;
+  if (errorStep) {
+    return {
+      level: "warn",
+      headline: "Der Standort ist noch nicht bereit.",
+      detail: `${countsLine} Bitte zuerst den Schritt „${errorStep.label}“ klären: ${errorStep.detail}`,
+    };
+  }
+  if (doneCount === steps.length) {
+    return {
+      level: "ok",
+      headline: "Dieser Standort ist bereit, gelesen und geregelt zu werden.",
+      detail: countsLine,
+    };
+  }
+  const nextStep = steps.find((step) => step.state !== "done");
+  return {
+    level: "neutral",
+    headline: "Der Standort ist noch nicht vollständig eingerichtet.",
+    detail: `${countsLine} Nächster Schritt: ${nextStep ? nextStep.label : "-"}.`,
+  };
+}
+
+/* ---------- Laden und Zusammenführen ---------- */
+
+function seedSetupFromSiteConfig(payload) {
+  const safe = payload && typeof payload === "object" ? payload : {};
+  setupState.siteConfig = safe.config && typeof safe.config === "object" ? safe.config : null;
+  setupState.saveEnabled = safe.save_enabled === true;
+  setupState.loaded = setupState.siteConfig !== null;
+  setupState.loadFailed = !setupState.loaded;
+  if (setupState.loaded) {
+    const seeded = buildSetupFromSiteConfig(setupState.siteConfig);
+    const importedDevices = setupState.devices.filter((device) => device.origin === "import");
+    const importedRows = setupState.rows.filter((row) => row.origin !== "active");
+    setupState.devices = [...seeded.devices, ...importedDevices];
+    setupState.rows = [...seeded.rows, ...importedRows];
+  }
+  renderSetupPage();
+}
+
+function markSetupLoadFailed() {
+  if (!setupState.loaded) {
+    setupState.loadFailed = true;
+    renderSetupPage();
+  }
+}
+
+function syncSetupReadOnly(statusPayload) {
+  const readOnly = statusPayload && statusPayload.api_read_only === true;
+  if (readOnly !== setupState.readOnly) {
+    setupState.readOnly = readOnly;
+    renderSetupPage();
+  }
+}
+
+function setupRowById(rowId) {
+  return setupState.rows.find((row) => row.id === rowId) || null;
+}
+
+function setupMainDevice() {
+  return setupState.devices.find((device) => device.id === "anlage") || setupState.devices[0] || { host: "", port: 47808 };
+}
+
+/* ---------- Import und Discovery ---------- */
+
+async function handleSetupPointlistUpload(input) {
+  const file = input.files && input.files[0];
+  if (!file) {
+    return;
+  }
+  setSetupImportFeedback(`Punktliste „${file.name}“ wird gelesen …`, "neutral");
+  try {
+    const contentBase64 = await setupFileToBase64(file);
+    const mainDevice = setupMainDevice();
+    const payload = await postJson("/api/config/pointlist/import", {
+      filename: file.name,
+      content_base64: contentBase64,
+      default_device: { id: "punktliste", name: "Importiertes Gerät", host: mainDevice.host || "", port: mainDevice.port || 47808 },
+    });
+    applySetupImport(payload, `Punktliste „${file.name}“`);
+  } catch (error) {
+    setSetupImportFeedback(error.message, "warn");
+  } finally {
+    input.value = "";
+  }
+}
+
+async function handleSetupDiscovery() {
+  setSetupImportFeedback("Die Anlage wird durchsucht (nur lesend) …", "neutral");
+  const mainDevice = setupMainDevice();
+  try {
+    const payload = await postJson("/api/config/discovery/bacnet/preview", {
+      target_host: mainDevice.host || "",
+      target_port: mainDevice.port || 47808,
+    });
+    applySetupImport(payload, "Discovery");
+  } catch (error) {
+    setSetupImportFeedback(error.message, "warn");
+  }
+}
+
+function applySetupImport(payload, sourceName) {
+  const merged = importResultToSetup(
+    payload,
+    new Set(setupState.rows.map((row) => row.id)),
+    new Set(setupState.devices.map((device) => device.id)),
+  );
+  if (!merged.valid && !merged.rows.length) {
+    setSetupImportFeedback(
+      merged.errors.length ? merged.errors.join(" / ") : `${sourceName}: keine verwertbaren Datenpunkte gefunden.`,
+      "warn",
+    );
+    renderSetupPage();
+    return;
+  }
+  setupState.devices = [...setupState.devices, ...merged.devices];
+  setupState.rows = [...setupState.rows, ...merged.rows];
+  setupState.preview = { valid: null, message: null, tone: "neutral", patch: null };
+  const assignedCount = merged.rows.filter((row) => row.channelId).length;
+  const parts = [`${sourceName}: ${merged.rows.length} Punkte übernommen, ${assignedCount} davon bereits zugeordnet.`];
+  if (merged.warnings.length) {
+    const shown = merged.warnings.slice(0, 3).join(" / ");
+    parts.push(merged.warnings.length > 3 ? `Hinweise: ${shown} (und ${merged.warnings.length - 3} weitere)` : `Hinweise: ${shown}`);
+  }
+  setSetupImportFeedback(parts.join(" "), merged.warnings.length ? "warn" : "ok");
+  renderSetupPage();
+}
+
+function setupFileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Die Datei konnte nicht gelesen werden."));
+    reader.onload = () => {
+      const bytes = new Uint8Array(reader.result);
+      let binary = "";
+      const chunkSize = 0x8000;
+      for (let index = 0; index < bytes.length; index += chunkSize) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunkSize));
+      }
+      resolve(btoa(binary));
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/* ---------- Alle Punkte testen (UX16) ---------- */
+
+async function runSetupTests() {
+  if (setupState.test.running || setupState.readOnly) {
+    return;
+  }
+  const activeInfo = setupActiveChannelInfo(setupState.siteConfig);
+  const targets = [];
+  setupState.rows.forEach((row) => {
+    if (!row.channelId) {
+      return;
+    }
+    if (setupEffectiveAccess(row) === "write") {
+      row.test = { tone: "neutral", text: "Schreibpunkt erkannt. Freigabe erforderlich – wird beim Test nicht angesprochen.", valueLabel: "" };
+      return;
+    }
+    targets.push(row);
+  });
+  if (!targets.length) {
+    setSetupTestSummary("Kein Punkt ist testbar. Bitte zuerst Datenpunkte zuordnen.", "warn");
+    renderSetupPage();
+    return;
+  }
+
+  setupState.test.running = true;
+  setupState.test.abort = false;
+  setupState.test.summary = null;
+  setSetupTestControls(true);
+  let done = 0;
+  const runTones = { ok: 0, warn: 0, alert: 0 };
+
+  for (const row of targets) {
+    if (setupState.test.abort) {
+      break;
+    }
+    setSetupTestProgress(`Prüfe ${done + 1} von ${targets.length}: ${setupChannelLabel(row.channelId)}`);
+    const info = activeInfo.get(row.channelId);
+    if (!info) {
+      row.test = { tone: "warn", text: "Noch nicht aktiv. Dieser Punkt ist nach Aktivierung und Neustart prüfbar.", valueLabel: "" };
+    } else {
+      const outcome = await fetchSetupDiagnostic(row.channelId);
+      if (outcome.ok) {
+        row.test = translateSetupDiagnostic(row, outcome.payload);
+        const draftInstance = setupOptionalNumber(row.instance);
+        if (info.instance !== null && draftInstance !== null && info.instance !== draftInstance) {
+          row.test = {
+            ...row.test,
+            text: `${row.test.text} Getestet wurde die derzeit aktive Adresse; die geänderte Adresse gilt erst nach Aktivierung.`,
+          };
+        }
+      } else {
+        row.test = translateSetupReadFailure(outcome.status, outcome.message);
+      }
+    }
+    if (row.test && runTones[row.test.tone] !== undefined) {
+      runTones[row.test.tone] += 1;
+    }
+    done += 1;
+    renderSetupTableAndSteps();
+    if (done < targets.length && !setupState.test.abort) {
+      await setupWait(SETUP_TEST_PAUSE_MS);
+    }
+  }
+
+  const writeCount = setupCounts(setupState.rows).write;
+  const aborted = setupState.test.abort && done < targets.length;
+  const summaryParts = [
+    aborted
+      ? `Prüfung abgebrochen: ${done} von ${targets.length} Punkten geprüft.`
+      : `Prüfung abgeschlossen: ${done} von ${targets.length} Punkten geprüft.`,
+    `${runTones.ok} in Ordnung`,
+    `${runTones.warn} bitte prüfen`,
+    `${runTones.alert} ohne Antwort`,
+  ];
+  if (writeCount) {
+    summaryParts.push(`${writeCount} Schreibpunkte übersprungen`);
+  }
+  const tone = !aborted && runTones.warn === 0 && runTones.alert === 0 ? "ok" : "warn";
+  setupState.test.running = false;
+  setupState.test.abort = false;
+  setSetupTestControls(false);
+  setSetupTestSummary(`${summaryParts[0]} ${summaryParts.slice(1).join(" · ")}.`, tone);
+  renderSetupPage();
+}
+
+function setupWait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchSetupDiagnostic(channelId) {
+  try {
+    const query = new URLSearchParams({ channel_id: channelId, samples: "2" });
+    const response = await fetch(`/api/diagnostics/read?${query.toString()}`, { cache: "no-store" });
+    const text = await response.text();
+    let payload = null;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+    if (!response.ok) {
+      return { ok: false, status: response.status, message: payload ? payload.message || payload.error || "" : text };
+    }
+    return { ok: true, payload };
+  } catch (error) {
+    return { ok: false, status: 0, message: error.message };
+  }
+}
+
+/* ---------- Vorschau und Aktivierung ---------- */
+
+async function runSetupPreview() {
+  const { draft, problems } = buildSetupMappingDraft(setupState.devices, setupState.rows);
+  if (problems.length) {
+    setupState.preview = { valid: false, message: problems.join(" "), tone: "warn", patch: null };
+    renderSetupPage();
+    return null;
+  }
+  setSetupActivateFeedback("Zuordnung wird geprüft …", "neutral");
+  try {
+    const response = await postJson("/api/config/mapping/preview", draft);
+    const errors = Array.isArray(response.errors) ? response.errors.map(String) : [];
+    const warnings = Array.isArray(response.warnings) ? response.warnings.map(String) : [];
+    if (response.valid === true) {
+      setupState.preview = {
+        valid: true,
+        message: warnings.length
+          ? `Geprüft mit Hinweisen: ${warnings.join(" / ")}`
+          : "Die Zuordnung ist vollständig und in Ordnung. Sie kann mit Admin-Token aktiviert werden.",
+        tone: warnings.length ? "warn" : "ok",
+        patch: response.patch || null,
+      };
+    } else {
+      setupState.preview = {
+        valid: false,
+        message: errors.length ? `Bitte prüfen: ${errors.join(" / ")}` : "Die Zuordnung wurde vom Backend abgelehnt.",
+        tone: "warn",
+        patch: null,
+      };
+    }
+    if (setupHasNonBacnetActiveInputs()) {
+      setupState.preview.message += " Hinweis: Punkte mit anderem Protokoll werden von dieser Aktivierung nicht übernommen und bleiben in der Direktbearbeitung.";
+    }
+    renderSetupPage();
+    return setupState.preview.valid ? draft : null;
+  } catch (error) {
+    setupState.preview = { valid: false, message: error.message, tone: "warn", patch: null };
+    renderSetupPage();
+    return null;
+  }
+}
+
+function setupHasNonBacnetActiveInputs() {
+  return setupState.rows.some((row) => row.origin === "active" && row.protocol !== "bacnet");
+}
+
+async function runSetupActivation() {
+  const tokenInput = document.getElementById("setup-activate-token");
+  const token = tokenInput ? tokenInput.value.trim() : "";
+  if (!token) {
+    setSetupActivateFeedback("Bitte zuerst den Admin-Token eintragen. Ohne Token wird nichts aktiviert.", "warn");
+    if (tokenInput) {
+      tokenInput.focus();
+    }
+    return;
+  }
+  const { draft, problems } = buildSetupMappingDraft(setupState.devices, setupState.rows);
+  if (problems.length) {
+    setSetupActivateFeedback(problems.join(" "), "warn");
+    return;
+  }
+  const button = document.getElementById("setup-activate-button");
+  if (button) {
+    button.disabled = true;
+  }
+  setSetupActivateFeedback("Zuordnung wird aktiviert …", "neutral");
+  try {
+    const response = await postJson("/api/config/mapping/activate", draft, { token });
+    if (response.activated === true) {
+      setupState.activation.done = true;
+      const backup = response.backup_file ? ` Sicherung: ${response.backup_file}.` : "";
+      setupState.preview = { valid: true, message: null, tone: "ok", patch: setupState.preview.patch };
+      setSetupActivateFeedback(
+        `Zuordnung aktiviert. Ein Neustart der Mini-EMS-Runtime ist erforderlich, damit die neuen Datenpunkte gelesen werden.${backup}`,
+        "ok",
+      );
+    } else {
+      const errors = Array.isArray(response.errors) ? response.errors.map(String) : [];
+      setSetupActivateFeedback(errors.length ? `Bitte prüfen: ${errors.join(" / ")}` : "Die Aktivierung wurde abgelehnt.", "warn");
+    }
+  } catch (error) {
+    setSetupActivateFeedback(error.message, "warn");
+  } finally {
+    if (button) {
+      button.disabled = false;
+    }
+    renderSetupPage();
+  }
+}
+
+/* ---------- Rendering ---------- */
+
+function renderSetupPage() {
+  if (!document.getElementById("setup-steps")) {
+    return;
+  }
+  const steps = computeSetupSteps(setupState);
+  const counts = setupCounts(setupState.rows);
+  renderSetupHero(steps, counts);
+  renderSetupSteps(steps);
+  renderSetupStandort();
+  renderSetupDevices();
+  renderSetupGroupFilter();
+  renderSetupTable();
+  renderSetupCounts(counts);
+  renderSetupActionAvailability();
+  renderSetupActivateArea();
+}
+
+function renderSetupTableAndSteps() {
+  const steps = computeSetupSteps(setupState);
+  renderSetupSteps(steps);
+  renderSetupHero(steps, setupCounts(setupState.rows));
+  renderSetupTable();
+}
+
+function renderSetupHero(steps, counts) {
+  const target = document.getElementById("setup-hero");
+  if (!target) {
+    return;
+  }
+  const message = buildSetupHeroMessage(steps, counts, setupState);
+  target.className = `status-hero ${message.level}`;
+  target.innerHTML = `
+    <div class="status-hero-text">
+      <strong>${escapeHtml(message.headline)}</strong>
+      <p>${escapeHtml(message.detail)}</p>
+    </div>
+  `;
+}
+
+function renderSetupSteps(steps) {
+  const target = document.getElementById("setup-steps");
+  if (!target) {
+    return;
+  }
+  const stateWords = { done: "erledigt", open: "offen", error: "bitte klären", locked: "gesperrt" };
+  const stateClasses = { done: "done", open: "", error: "alert", locked: "warn" };
+  target.innerHTML = steps.map((step, index) => `
+    <li>
+      <button type="button" class="setup-step ${stateClasses[step.state] || ""}" data-setup-step="${escapeHtml(step.id)}">
+        <span class="micro-label">Schritt ${index + 1} · ${escapeHtml(stateWords[step.state] || "offen")}</span>
+        <strong>${escapeHtml(step.label)}</strong>
+        <small>${escapeHtml(step.detail)}</small>
+      </button>
+    </li>
+  `).join("");
+  target.querySelectorAll("button[data-setup-step]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const panel = document.getElementById(`setup-panel-${button.dataset.setupStep}`);
+      if (panel) {
+        panel.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+  });
+}
+
+function renderSetupStandort() {
+  const target = document.getElementById("setup-standort-summary");
+  if (!target) {
+    return;
+  }
+  if (!setupState.loaded) {
+    target.innerHTML = `<div class="empty-state compact">${escapeHtml(setupState.loadFailed
+      ? "Die aktive Konfiguration ist nicht erreichbar. Bitte die Verbindung zur Anlage prüfen."
+      : "Die aktive Konfiguration wird geladen.")}</div>`;
+    return;
+  }
+  const config = setupState.siteConfig || {};
+  const runtime = config.runtime || {};
+  const network = config.network || {};
+  const api = config.api || {};
+  const modeLabels = { simulated: "Simulation ohne echte Schreibfreigabe", real: "Produktive Anlagenkommunikation" };
+  target.innerHTML = [
+    reportTile("Betriebsumgebung", setupEnvironmentLabel(runtime.environment)),
+    reportTile("Anlagenkommunikation", modeLabels[String(runtime.bacnet_mode || "").toLowerCase()] || "-"),
+    reportTile("Zielgerät Anlage", network.controller_ip ? `${network.controller_ip}:${network.controller_port ?? ""}` : "-"),
+    reportTile("Dashboard/API", api.host ? `${api.host}:${api.port ?? ""}` : "-"),
+  ].join("");
+}
+
+function renderSetupDevices() {
+  const target = document.getElementById("setup-device-list");
+  if (!target) {
+    return;
+  }
+  if (!setupState.devices.length) {
+    target.innerHTML = '<div class="empty-state compact">Noch keine Geräte bekannt. Die Geräte erscheinen mit der aktiven Konfiguration oder einem Punktlisten-Import.</div>';
+    return;
+  }
+  const originLabels = { active: "aktive Konfiguration", import: "aus Punktliste/Discovery" };
+  target.innerHTML = setupState.devices.map((device) => {
+    const pointCount = setupState.rows.filter((row) => row.deviceId === device.id).length;
+    return `
+      <div class="config-channel-row" data-setup-device="${escapeHtml(device.id)}">
+        <div class="setup-device-head">
+          <strong>${escapeHtml(device.name)}</strong>
+          <small>${escapeHtml(originLabels[device.origin] || "Gerät")} · ${pointCount === 1 ? "1 Datenpunkt" : `${pointCount} Datenpunkte`}</small>
+        </div>
+        <div class="config-point-fields setup-device-fields">
+          <label>
+            Geräteadresse (IP)
+            <input type="text" data-setup-device-field="host" value="${escapeHtml(inputValue(device.host))}" placeholder="z. B. 192.168.244.20" ${setupState.readOnly ? "disabled" : ""}>
+          </label>
+          <label>
+            Port
+            <input type="number" min="1" max="65535" data-setup-device-field="port" value="${escapeHtml(inputValue(device.port))}" ${setupState.readOnly ? "disabled" : ""}>
+          </label>
+        </div>
+      </div>
+    `;
+  }).join("");
+  target.querySelectorAll("[data-setup-device-field]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const deviceId = input.closest("[data-setup-device]")?.dataset.setupDevice;
+      const device = setupState.devices.find((entry) => entry.id === deviceId);
+      if (!device) {
+        return;
+      }
+      if (input.dataset.setupDeviceField === "host") {
+        device.host = input.value.trim();
+      } else {
+        device.port = setupToInt(input.value, 47808);
+      }
+      setupState.preview = { valid: null, message: null, tone: "neutral", patch: null };
+      renderSetupTableAndSteps();
+      renderSetupActivateArea();
+    });
+  });
+}
+
+function renderSetupGroupFilter() {
+  const select = document.getElementById("setup-group-filter");
+  if (!select) {
+    return;
+  }
+  const groups = [...new Set(setupState.rows.map((row) => setupRowGroup(row)))].sort((a, b) => a.localeCompare(b, "de"));
+  const current = setupState.filters.group;
+  select.innerHTML = ['<option value="alle">Alle Gruppen</option>', ...groups.map((group) => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`)].join("");
+  select.value = groups.includes(current) ? current : "alle";
+  setupState.filters.group = select.value;
+}
+
+function setupFilteredRows() {
+  const { status, group, sort } = setupState.filters;
+  const statusOrder = { failed: 0, review: 1, assigned: 2, write: 3, tested: 4 };
+  const rows = setupState.rows.filter((row) => {
+    const rowStatus = setupRowStatus(row);
+    if (status !== "alle" && rowStatus !== status) {
+      return false;
+    }
+    if (group !== "alle" && setupRowGroup(row) !== group) {
+      return false;
+    }
+    return true;
+  });
+  const label = (row) => (row.channelId ? setupChannelLabel(row.channelId) : row.name);
+  rows.sort((a, b) => {
+    if (sort === "status") {
+      const order = (statusOrder[setupRowStatus(a)] ?? 9) - (statusOrder[setupRowStatus(b)] ?? 9);
+      return order || label(a).localeCompare(label(b), "de");
+    }
+    if (sort === "name") {
+      return label(a).localeCompare(label(b), "de");
+    }
+    const groupOrder = setupRowGroup(a).localeCompare(setupRowGroup(b), "de");
+    return groupOrder || label(a).localeCompare(label(b), "de");
+  });
+  return rows;
+}
+
+function setupDeviceName(deviceId) {
+  const device = setupState.devices.find((entry) => entry.id === deviceId);
+  return device ? device.name : "Gerät";
+}
+
+function setupChannelOptionsHtml(row) {
+  const assignedElsewhere = new Map();
+  setupState.rows.forEach((other) => {
+    if (other.id !== row.id && other.channelId) {
+      assignedElsewhere.set(other.channelId, true);
+    }
+  });
+  const byGroup = groupBy(DEFAULT_CHANNELS, (channel) => channel.group || "EMS");
+  const groupsHtml = [...byGroup.entries()].map(([group, channels]) => `
+    <optgroup label="${escapeHtml(group)}">
+      ${channels.map((channel) => {
+        const taken = assignedElsewhere.has(channel.id) ? " · bereits zugeordnet" : "";
+        return `<option value="${escapeHtml(channel.id)}" ${channel.id === row.channelId ? "selected" : ""}>${escapeHtml(channel.label + taken)}</option>`;
+      }).join("")}
+    </optgroup>
+  `).join("");
+  return `<option value="">Nicht zugeordnet</option>${groupsHtml}`;
+}
+
+function renderSetupTable() {
+  const body = document.getElementById("setup-mapping-body");
+  if (!body) {
+    return;
+  }
+  const rows = setupFilteredRows();
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="6"><div class="empty-state compact">${escapeHtml(setupState.rows.length
+      ? "Kein Datenpunkt passt zu diesem Filter. Filter oben zurücksetzen."
+      : "Noch keine Datenpunkte. Punktliste hochladen oder die Anlage durchsuchen.")}</div></td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.map((row) => {
+    const status = setupRowStatus(row);
+    const badgeClass = SETUP_STATUS_BADGE[status];
+    const mainLabel = row.channelId ? setupChannelLabel(row.channelId) : row.name;
+    const subLabel = row.channelId && row.name !== mainLabel ? row.name : setupRowGroup(row);
+    const address = `${setupObjectTypeLabel(row.objectType)} ${inputValue(row.instance) === "" ? "-" : row.instance}`;
+    const sourceParts = [setupDeviceName(row.deviceId), address];
+    if (row.test && row.test.valueLabel) {
+      sourceParts.push(row.test.valueLabel);
+    } else if (row.listValue !== null) {
+      sourceParts.push(`${formatNumber(row.listValue, row.unit, 2)} laut Liste`);
+    }
+    const resultTone = row.test ? row.test.tone : "";
+    const selectDisabled = !row.supported || setupState.readOnly ? "disabled" : "";
+    return `
+      <tr class="mapping-row" data-setup-row="${escapeHtml(row.id)}">
+        <td class="mapping-main">
+          <strong>${escapeHtml(mainLabel)}</strong>
+          <small>${escapeHtml(subLabel)}</small>
+        </td>
+        <td class="mapping-assign">
+          <select data-setup-assign aria-label="Bedeutung für ${escapeHtml(row.name)} wählen" ${selectDisabled}>
+            ${setupChannelOptionsHtml(row)}
+          </select>
+          ${row.supported ? "" : '<small class="mapping-unsupported">Dieser Punkttyp ist noch nicht aktivierbar.</small>'}
+        </td>
+        <td class="mapping-source">${escapeHtml(sourceParts.join(" · "))}</td>
+        <td><span class="badge ${badgeClass}">${escapeHtml(SETUP_STATUS_WORDS[status])}</span></td>
+        <td class="mapping-result ${escapeHtml(resultTone)}">${escapeHtml(row.test ? row.test.text : "–")}</td>
+        <td class="mapping-detail-toggle">
+          <button type="button" class="link-button" data-setup-details aria-expanded="${row.detailsOpen ? "true" : "false"}">Technik</button>
+        </td>
+      </tr>
+      <tr class="mapping-detail-row" data-setup-detail="${escapeHtml(row.id)}" ${row.detailsOpen ? "" : "hidden"}>
+        <td colspan="6">
+          ${setupDetailHtml(row)}
+        </td>
+      </tr>
+    `;
+  }).join("");
+  bindSetupTableEvents(body);
+}
+
+function setupDetailHtml(row) {
+  if (row.protocol !== "bacnet") {
+    return `<p class="config-note">Dieser Punkt wird über ein anderes Protokoll gelesen (${escapeHtml(protocolLabel(row.protocol))}). Änderungen bitte über die Direktbearbeitung unten.</p>`;
+  }
+  const disabled = setupState.readOnly ? "disabled" : "";
+  return `
+    <div class="config-point-fields mapping-detail-grid">
+      <label>
+        Objekttyp
+        <select data-setup-field="objectType" ${row.supported ? disabled : "disabled"}>
+          <option value="ai" ${selectedAttribute(row.objectType === "ai")}>AI Messwert</option>
+          <option value="av" ${selectedAttribute(row.objectType === "av")}>AV Wert</option>
+          <option value="bv" ${selectedAttribute(row.objectType === "bv")}>BV Status</option>
+          ${SETUP_SUPPORTED_TYPES.has(row.objectType) ? "" : `<option value="${escapeHtml(row.objectType)}" selected>${escapeHtml(setupObjectTypeLabel(row.objectType))}</option>`}
+        </select>
+      </label>
+      <label>
+        Adresse / Instanz
+        <input type="number" min="0" data-setup-field="instance" value="${escapeHtml(inputValue(row.instance))}" ${disabled}>
+      </label>
+      <label>
+        Einheit
+        <input type="text" data-setup-field="unit" value="${escapeHtml(inputValue(row.unit))}" placeholder="z. B. kW" ${disabled}>
+      </label>
+      <label>
+        Plausibel von
+        <input type="number" step="0.1" data-setup-field="plausibleMin" value="${escapeHtml(inputValue(row.plausibleMin))}" ${disabled}>
+      </label>
+      <label>
+        Plausibel bis
+        <input type="number" step="0.1" data-setup-field="plausibleMax" value="${escapeHtml(inputValue(row.plausibleMax))}" ${disabled}>
+      </label>
+      <label>
+        Max. Alter (s)
+        <input type="number" min="1" data-setup-field="maxAgeSeconds" value="${escapeHtml(inputValue(row.maxAgeSeconds))}" ${disabled}>
+      </label>
+      <label>
+        Abfrageintervall
+        <input type="number" min="1" data-setup-field="readIntervalCycles" value="${escapeHtml(inputValue(row.readIntervalCycles))}" ${disabled}>
+      </label>
+      <label class="check config-check config-point-health">
+        <input type="checkbox" data-setup-field="includeInHealth" ${checkedAttribute(row.includeInHealth)} ${disabled}>
+        <span>Im Status überwachen</span>
+      </label>
+    </div>
+    <p class="config-note">Quelle: ${escapeHtml(row.sourceLabel || "-")}${row.comment ? ` · ${escapeHtml(row.comment)}` : ""} · Bezeichnung laut Liste: ${escapeHtml(row.name)}</p>
+  `;
+}
+
+function bindSetupTableEvents(body) {
+  body.querySelectorAll("button[data-setup-details]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const row = setupRowById(button.closest("[data-setup-row]")?.dataset.setupRow);
+      if (row) {
+        row.detailsOpen = !row.detailsOpen;
+        renderSetupTable();
+      }
+    });
+  });
+  body.querySelectorAll("select[data-setup-assign]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const row = setupRowById(select.closest("[data-setup-row]")?.dataset.setupRow);
+      if (!row) {
+        return;
+      }
+      row.channelId = select.value;
+      row.test = null;
+      if (row.channelId) {
+        applySetupChannelDefaults(row);
+      }
+      setupState.preview = { valid: null, message: null, tone: "neutral", patch: null };
+      renderSetupPage();
+    });
+  });
+  body.querySelectorAll("[data-setup-field]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const row = setupRowById(input.closest("[data-setup-detail]")?.dataset.setupDetail);
+      if (!row) {
+        return;
+      }
+      const field = input.dataset.setupField;
+      if (field === "includeInHealth") {
+        row.includeInHealth = input.checked === true;
+      } else if (field === "objectType") {
+        row.objectType = bacnetObjectTypeValue(input.value);
+        row.supported = SETUP_SUPPORTED_TYPES.has(row.objectType);
+      } else if (field === "unit") {
+        row.unit = input.value.trim();
+      } else if (field === "instance") {
+        row.instance = setupOptionalNumber(input.value) ?? "";
+      } else if (field === "readIntervalCycles") {
+        row.readIntervalCycles = setupToInt(input.value, 1);
+      } else {
+        row[field] = setupOptionalNumber(input.value);
+      }
+      row.test = null;
+      setupState.preview = { valid: null, message: null, tone: "neutral", patch: null };
+      renderSetupPage();
+    });
+  });
+}
+
+function renderSetupCounts(counts) {
+  const target = document.getElementById("setup-mapping-count");
+  if (!target) {
+    return;
+  }
+  const assignedTotal = counts.assigned + counts.write + counts.tested + counts.failed;
+  target.textContent = `${counts.found} Datenpunkte · ${assignedTotal} zugeordnet · ${counts.review} zu prüfen · ${counts.write} Schreibpunkte · ${counts.tested} geprüft`;
+}
+
+function renderSetupActionAvailability() {
+  const readOnly = setupState.readOnly;
+  const fileButton = document.querySelector(".setup-file-button");
+  if (fileButton) {
+    fileButton.hidden = readOnly;
+  }
+  ["setup-discovery-button", "setup-test-button", "setup-preview-button", "setup-activate-button"].forEach((id) => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.hidden = readOnly;
+    }
+  });
+  const tokenField = document.getElementById("setup-activate-token");
+  if (tokenField) {
+    tokenField.closest(".token-field").hidden = readOnly;
+  }
+  if (!setupState.test.running) {
+    const summary = document.getElementById("setup-test-summary");
+    if (summary && setupState.test.summary) {
+      summary.className = `config-feedback ${setupState.test.summaryTone}`;
+      summary.textContent = setupState.test.summary;
+    }
+  }
+}
+
+function renderSetupActivateArea() {
+  const feedback = document.getElementById("setup-activate-feedback");
+  if (feedback && !setupState.test.running) {
+    if (setupState.preview.message) {
+      feedback.className = `config-feedback ${setupState.preview.tone}`;
+      feedback.textContent = setupState.preview.message;
+    } else if (setupState.readOnly) {
+      feedback.className = "config-feedback warn";
+      feedback.textContent = "Nur-Lese-Zugriff: Aktivierung ist nur lokal bzw. administrativ an der Anlage möglich.";
+    } else if (setupState.loaded && !setupState.saveEnabled) {
+      feedback.className = "config-feedback warn";
+      feedback.textContent = "Gesperrt: Auf der Anlage ist kein Admin-Token eingerichtet. Die Aktivierung ist nur nach Einrichtung des Tokens möglich.";
+    } else if (!setupState.activation.done) {
+      feedback.className = "config-feedback neutral";
+      feedback.textContent = "Noch nicht geprüft. Erst „Zuordnung prüfen“, dann mit Admin-Token aktivieren.";
+    }
+  }
+  const pre = document.getElementById("setup-patch-preview");
+  if (pre) {
+    const { draft } = buildSetupMappingDraft(setupState.devices, setupState.rows);
+    pre.textContent = JSON.stringify({ entwurf: draft, gepruefter_patch: setupState.preview.patch }, null, 2);
+  }
+}
+
+function setSetupImportFeedback(message, tone) {
+  const target = document.getElementById("setup-import-feedback");
+  if (target) {
+    target.className = `config-feedback ${tone}`;
+    target.textContent = message;
+  }
+}
+
+function setSetupTestSummary(message, tone) {
+  setupState.test.summary = message;
+  setupState.test.summaryTone = tone;
+  const target = document.getElementById("setup-test-summary");
+  if (target) {
+    target.className = `config-feedback ${tone}`;
+    target.textContent = message;
+  }
+}
+
+function setSetupTestProgress(message) {
+  const target = document.getElementById("setup-test-progress");
+  if (target) {
+    target.hidden = !message;
+    target.textContent = message || "";
+  }
+}
+
+function setSetupTestControls(running) {
+  const testButton = document.getElementById("setup-test-button");
+  const abortButton = document.getElementById("setup-test-abort");
+  if (testButton) {
+    testButton.disabled = running;
+    testButton.textContent = running ? "Prüfung läuft …" : "Alle Punkte testen";
+  }
+  if (abortButton) {
+    abortButton.hidden = !running;
+  }
+  if (!running) {
+    setSetupTestProgress("");
+  }
+}
+
+function setSetupActivateFeedback(message, tone) {
+  const target = document.getElementById("setup-activate-feedback");
+  if (target) {
+    target.className = `config-feedback ${tone}`;
+    target.textContent = message;
+  }
+}
+
+function bindSetupUi() {
+  const fileInput = document.getElementById("setup-pointlist-file");
+  if (!fileInput) {
+    return;
+  }
+  fileInput.addEventListener("change", () => handleSetupPointlistUpload(fileInput));
+  document.getElementById("setup-discovery-button").addEventListener("click", handleSetupDiscovery);
+  document.getElementById("setup-test-button").addEventListener("click", runSetupTests);
+  document.getElementById("setup-test-abort").addEventListener("click", () => {
+    setupState.test.abort = true;
+  });
+  document.getElementById("setup-preview-button").addEventListener("click", runSetupPreview);
+  document.getElementById("setup-activate-button").addEventListener("click", runSetupActivation);
+  document.querySelectorAll("#setup-status-filter button[data-status-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setupState.filters.status = button.dataset.statusFilter;
+      document.querySelectorAll("#setup-status-filter button[data-status-filter]").forEach((other) => {
+        other.setAttribute("aria-pressed", other === button ? "true" : "false");
+      });
+      renderSetupTable();
+    });
+  });
+  document.getElementById("setup-group-filter").addEventListener("change", (event) => {
+    setupState.filters.group = event.target.value;
+    renderSetupTable();
+  });
+  document.getElementById("setup-sort-select").addEventListener("change", (event) => {
+    setupState.filters.sort = event.target.value;
+    renderSetupTable();
+  });
+  renderSetupPage();
 }
 
 function cloneSiteConfig(config) {
