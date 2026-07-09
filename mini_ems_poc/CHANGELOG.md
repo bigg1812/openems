@@ -15,6 +15,14 @@ Repo-Datei wird vom Build nicht umgeschrieben, sondern bleibt manuelle Pflege
 
 ### Hinzugefügt
 
+- Konfigurationsseite als geführtes "Standort einrichten" (UX14-16): Standort → Geräte → Datenpunkte →
+  Testen → Aktivieren mit Fortschrittskarten, Punktlisten-Upload (CSV/TSV/XLSX) und optionaler
+  BACnet-Discovery-Vorschau als Einstieg in "Datenpunkte", einer fachlichen Mapping-Tabelle (Bedeutung,
+  Quelle, Live-Wert, Status statt technischer Rohpunkte) und "Alle Punkte testen" für einen sequenziellen
+  Live-Check aller Zuordnungen in Inbetriebnahme-Sprache. Aktivierung bleibt Token-geschützt über
+  `POST /api/config/mapping/activate` (Backup, Neustarthinweis). `GET /api/config/site` liefert dafür
+  zusätzlich die aktiven Kernadressen (`points`). Das bisherige Konfigurationsformular bleibt als
+  "Erweiterte Direktbearbeitung" vollständig erhalten.
 - Softwareversion sichtbar: Die Runtime liest beim Start die `VERSION`-Datei des
   Release-Pakets und stellt sie additiv unter `/api/status` als `app_version`
   (`version`, `git_commit`, `build_date`) bereit. Im Git-Betrieb ohne

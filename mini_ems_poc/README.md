@@ -118,6 +118,7 @@ Wahrheit, die folgenden Dokumente vertiefen jeweils einen Teilaspekt.
 | [PILOT_DEMO.md](./PILOT_DEMO.md) | 5-Minuten-Demoablauf für einen bezahlten Pilotkunden (UX13). |
 | [EMS-Mapping.md](./EMS-Mapping.md) | Arbeitskarte, wie OpenEMS-Vorbilder Messgeräte/Protokolle auf EMS-Kanäle abbilden und wie mini_ems_poc BACnet nutzt. |
 | [BACNET_STACK_EVAL.md](./BACNET_STACK_EVAL.md) | Entscheidungsvorlage S7: eigener BACnet-Adapter vs. BACpypes3 vs. BAC0 für Discovery/Import. |
+| [RELEASE_WORKFLOW.md](./RELEASE_WORKFLOW.md) | Zielablauf für eine neue Mini-EMS-Installation auf einem IPC: Release-Paket bauen, Betriebsordner anlegen, Release-Task registrieren und starten. |
 
 ## Ordnerstruktur
 
@@ -129,11 +130,13 @@ mini_ems_poc/
 |-- MINI_EMS_ANLEITUNG.md
 |-- ROADMAP.md
 |-- PRODUCT_UX_ROADMAP.md
+|-- CHANGELOG.md
 |-- config.json
 |-- config.local.json
 |-- mini_ems.py
 |-- dashboard_proxy.py
 |-- run_mini_ems.cmd
+|-- run_mini_ems_release.cmd
 |-- mini_ems_runtime/
 |-- dashboard/
 |-- data/
@@ -141,7 +144,12 @@ mini_ems_poc/
 |-- runtime/
 |-- sim/
 |-- tests/
+|-- packaging/
+|-- proxy/
 `-- windows/
+    |-- install_task.ps1
+    |-- update_release.ps1
+    `-- smoketest_release.ps1
 ```
 
 ## Wenn du nur drei Dinge verstehen willst

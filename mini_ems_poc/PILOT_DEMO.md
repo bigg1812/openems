@@ -141,11 +141,14 @@ Diese Demo darf keine Versprechen machen, die der reale Standort noch nicht einl
   festgelegt, aber es gibt heute noch keine echte Login-Schicht vor dem Dashboard (siehe
   `ROADMAP.md`, H6). In der Demo wird das offen so benannt, falls danach gefragt wird –
   nicht als „schon fertig" dargestellt.
-- **Die Mapping-/Inbetriebnahme-Ansicht („Standort einrichten") ist noch nicht gebaut.**
-  UX14–UX22 sind offene Roadmap-Punkte. Die Demo zeigt Betrieb und Reporting, nicht die
-  Konfigurationsstrecke. Für den Punktlisten-Import gibt es inzwischen eine funktionierende
-  Backend-Schnittstelle (`ROADMAP.md`, S8), aber noch keine Bedienoberfläche – siehe der
-  optionale Abschnitt 6 für Konfiguratoren.
+- **Die Mapping-/Inbetriebnahme-Ansicht („Standort einrichten") ist gebaut, aber nicht Teil der
+  5-Minuten-Demo.** Die Konfigurationsseite führt inzwischen als geführter Ablauf Standort → Geräte →
+  Datenpunkte → Testen → Aktivieren mit fachlicher Mapping-Tabelle und „Alle Punkte testen"
+  (`PRODUCT_UX_ROADMAP.md`, UX14–UX16, erledigt). Das bleibt trotzdem außerhalb der eigentlichen
+  Betreiber-Vorführung: Die Demo zeigt Betrieb und Reporting, nicht die Inbetriebnahme-Strecke, weil
+  sich Standort einrichten an Konfiguratoren richtet, nicht an den Standortbetreiber. UX17
+  (Punktlisten-Import/Discovery als vollständig geführter Prüfprozess) bleibt offen – siehe der
+  optionale Abschnitt 6 für Konfiguratoren, der jetzt sowohl den UI- als auch den API-Weg nennt.
 - **Netzleistung („Grid") kann in der Simulation ohne Wert bleiben.** Die Kennzahlenkarte zeigt
   dann „-", der Tagesbericht „kein Messwert". Der Grid-Lockout-Kanal ist in der mitgelieferten
   Laptop-Simulation bewusst deaktiviert (`controllers.grid_lockout.enabled = false`, siehe
@@ -224,7 +227,7 @@ Piloten, Pfad a"): `api.host` bleibt auf der EMS-LAN-IP, Firewall/Secomea-Freiga
 
 ---
 
-## 6. Ausblick Inbetriebnahme: Punktlisten-Import (optional, nur für Konfiguratoren)
+## 6. Ausblick Inbetriebnahme: Standort einrichten und Punktlisten-Import (optional, nur für Konfiguratoren)
 
 Dieser Baustein ist **kein Teil der 5-Minuten-Kundendemo** und richtet sich nicht an den
 Standortbetreiber, sondern an die Person, die einen neuen Standort technisch einrichtet
@@ -232,20 +235,26 @@ Standortbetreiber, sondern an die Person, die einen neuen Standort technisch ein
 eigentliche Vorführung ausdrücklich danach gefragt wird, z. B. „Wie kommen die Datenpunkte
 eigentlich rein?" – nicht als Teil des Betreiber-Gesprächs.
 
-- **Was heute existiert:** Der Endpunkt `POST /api/config/pointlist/import` liest eine
-  hochgeladene CSV-, TSV- oder XLSX-Datenpunktliste ein und erzeugt daraus Rohpunkt-Kandidaten
-  sowie einen Mapping-Entwurf (`mini_ems_runtime/pointlist_import.py`). Ergänzend liest
-  `POST /api/config/discovery/bacnet/preview` optional erreichbare BACnet-Geräte read-only aus,
-  über einen getrennten `BACpypes3`-Werkzeugpfad (`mini_ems_runtime/bacnet_discovery.py`;
-  Entscheidung siehe `BACNET_STACK_EVAL.md`).
-- **Was es (noch) nicht ist:** Es gibt noch **keine Bedienoberfläche** dafür im Dashboard – das
-  ist `PRODUCT_UX_ROADMAP.md`, UX14–UX17, weiterhin offen. Die Funktion ist heute nur über die
-  HTTP-API bzw. `curl` nutzbar, nicht über einen Klickpfad im UI.
+- **Was heute existiert:** Die Konfigurationsseite führt als „Standort einrichten" geführt durch
+  Standort → Geräte → Datenpunkte → Testen → Aktivieren (`PRODUCT_UX_ROADMAP.md`, UX14–UX16,
+  erledigt). Einstieg in „Datenpunkte" ist ein Punktlisten-Upload (CSV/TSV/XLSX) im UI, der intern
+  `POST /api/config/pointlist/import` aufruft und daraus Rohpunkt-Kandidaten sowie einen
+  Mapping-Entwurf erzeugt (`mini_ems_runtime/pointlist_import.py`); eine BACnet-Discovery-Vorschau
+  ist als sekundärer Weg im UI verfügbar und nutzt `POST /api/config/discovery/bacnet/preview` über
+  einen getrennten, read-only `BACpypes3`-Werkzeugpfad (`mini_ems_runtime/bacnet_discovery.py`;
+  Entscheidung siehe `BACNET_STACK_EVAL.md`). Die zentrale Mapping-Tabelle zeigt fachliche Bedeutung,
+  Quelle und Live-Wert statt technischer Rohpunkte; „Alle Punkte testen" prüft alle Zuordnungen
+  nacheinander in Inbetriebnahme-Sprache.
+- **Was es (noch) nicht ist:** Der vollständig geführte Prüfprozess für Import und Discovery
+  (Quelle wählen, Spalten erkennen, Kandidaten gruppieren, Schreibpunkte separat freigeben) ist
+  weiterhin offen – das ist `PRODUCT_UX_ROADMAP.md`, UX17. Ohne Admin-Token bleibt „Aktivieren" im
+  UI sichtbar, aber als gesperrt erklärt.
 - **Was daraus wird:** Import und Discovery erzeugen ausschließlich Kandidaten für einen
   Mapping-Entwurf, nie aktive Mini-EMS-Kanäle. Aktivierung bleibt an den bestehenden,
   validierten Pfad `POST /api/config/mapping/preview` bzw. `activate` gebunden (Backup, Audit,
-  Freigabe – siehe `ROADMAP.md`, S5/S6).
-- **Kurzbeispiel (technischer Anhang, kein Vorführtext):**
+  Freigabe – siehe `ROADMAP.md`, S5/S6, weiterhin offen).
+- **Kurzbeispiel für den API-Weg (technischer Anhang, kein Vorführtext):** Der Import ist auch
+  direkt über die HTTP-API nutzbar, ohne die UI, z. B. für Skripte oder Tests.
 
   ```bash
   curl -s -X POST http://127.0.0.1:8090/api/config/pointlist/import \

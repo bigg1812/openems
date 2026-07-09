@@ -91,7 +91,9 @@ mini_ems_poc/
 |-- config.local.json
 |-- mini_ems.py
 |-- MINI_EMS_ANLEITUNG.md
+|-- CHANGELOG.md
 |-- run_mini_ems.cmd
+|-- run_mini_ems_release.cmd
 |-- dashboard/
 |   |-- dashboard.css
 |   |-- dashboard.js
@@ -140,8 +142,17 @@ mini_ems_poc/
 |   |-- sample_prices.json
 |   `-- sample_values.json
 |-- tests/
+|-- packaging/
+|   |-- README.md
+|   |-- build_release.ps1
+|   `-- build_release.sh
+|-- proxy/
+|   |-- README.md
+|   `-- Caddyfile
 `-- windows/
-    `-- install_task.ps1
+    |-- install_task.ps1
+    |-- update_release.ps1
+    `-- smoketest_release.ps1
 ```
 
 ## Laptop-Entwicklung mit Simulation

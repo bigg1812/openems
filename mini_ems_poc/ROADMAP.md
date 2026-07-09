@@ -4,7 +4,7 @@
 
 Aktiver Fokus liegt auf dem lokalen Python-Prototyp `mini_ems_poc/` (Branch `develop`, working tree clean).
 Die juengsten Commits haben den ProtocolAdapter-Kontrakt, eine Plausibilitaets-Single-Source in `PointConfig` und
-einen Freshness/Quality-Gate (`max_age_seconds`) eingebaut. Die 48 Python-Tests sind unter Python 3.12 alle gruen
+einen Freshness/Quality-Gate (`max_age_seconds`) eingebaut. Die 117 Python-Tests sind unter Python 3.12 alle gruen
 (`OK`), schlagen aber unter dem Standard-`python3` (3.9) dieses Rechners wegen PEP-604-Syntax (`X | None`) fehl.
 Es gibt praktisch keine TODO/FIXME-Marker im Python-Code; offene Punkte stehen in `MINI_EMS_ANLEITUNG.md`
 ("Offene Punkte") und ergeben sich aus dem Code-Ist-Zustand.
@@ -827,34 +827,43 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
 
 ## Empfohlener nächster Schritt
 
-**Aktive Linie: Mapping-Kern S5/S6, UI-seitig UX12/14-16.** S1-S4 haben den Edge-Integrationskern und ein
-erstes Modbus-Referenzmodell etabliert. S7 ist jetzt entschieden (eigener BACnet-Adapter bleibt produktiv;
-`BACpypes3` direkt als getrennter, read-only Discovery-Werkzeugpfad statt `BAC0`) und S8 ist als erster
-sicherer Import-/Discovery-Schnitt gebaut: `pointlist_import.py` (CSV/TSV/XLSX-Punktlisten-Import),
-`bacnet_discovery.py` (read-only BACpypes3-Preview) sowie `POST /api/config/pointlist/import` und
-`POST /api/config/discovery/bacnet/preview`. Der nächste Schritt ist, aus diesem Fundament tatsächlich den
-Konfigurationskern zu bauen: S5 (Mapping-Entwurfsmodell aus `devices`/`raw_points`/`mappings` als zentrale
-Grundlage) und S6 (Aktivierung mit Backup, Audit und Neustartbedarf), damit die entstehenden Rohpunkt-
-Kandidaten fachlich zugeordnet, getestet und kontrolliert übernommen werden können. UI-seitig entspricht das
-`PRODUCT_UX_ROADMAP.md` UX14 (Standort einrichten), UX15 (fachliche Mapping-Tabelle), UX16 ("Alle Punkte
-testen") und UX12 (rollenbasierte Freigabeseite, an S6 gekoppelt).
+**Aktive Linie jetzt: S13-S15, professioneller Write-Back und Anlagen-Safety (Branch
+`codex/s13-s15-writeback-safety`).** Der UI-seitige Standort-einrichten-Block ist so weit fertig, dass er
+nicht mehr die aktive Linie ist: S1-S4 haben den Edge-Integrationskern und ein erstes
+Modbus-Referenzmodell etabliert, S7 ist entschieden (eigener BACnet-Adapter bleibt produktiv;
+`BACpypes3` direkt als getrennter, read-only Discovery-Werkzeugpfad statt `BAC0`), S8 ist als erster
+sicherer Import-/Discovery-Schnitt gebaut (`pointlist_import.py`, `bacnet_discovery.py`,
+`POST /api/config/pointlist/import`, `POST /api/config/discovery/bacnet/preview`), und darauf aufbauend
+sind `PRODUCT_UX_ROADMAP.md` UX14 (Standort einrichten), UX15 (fachliche Mapping-Tabelle) und UX16
+("Alle Punkte testen") **erledigt** — die Konfigurationsseite führt geführt durch Standort → Geräte →
+Datenpunkte → Testen → Aktivieren und nutzt dafür bereits `POST /api/config/mapping/preview` und
+Token-geschütztes `POST /api/config/mapping/activate`. S5 (Mapping-Entwurfsmodell formal als zentrale,
+dokumentierte Grundlage) und S6 (Aktivierung mit Backup/Audit als eigener geprüfter DoD) bleiben als
+Checkbox offen und sind die noch fehlende Formalisierung hinter dem, was UX14-16 bereits nutzt; UX12
+(rollenbasierte Freigabeseite) bleibt an diese S6-Formalisierung gekoppelt und damit ebenfalls offen. Die
+aktive Linie ist jetzt stattdessen S13-S15 (BACnet-Priority-Array-Strategie pro Schreibpunkt,
+Relinquish/Null-Schreibpfad, Edge-DDC-Heartbeat mit DDC-seitigem Fallback) — der heutige Schreibpfad
+braucht diesen Sicherheitsvertrag, bevor Write-Back weiter ausgebaut wird.
 
-**Standort-Schritte als Block: H2/H3/H4/H5/To-do 3.** Auf der Pilot-IPC am 2026-07-07 deutlich vorangebracht
-und am 2026-07-08 für H4/H5 IPC-seitig umgeschaltet.
+**Standort-Schritte als Block: H4/H5-Zweitrechner-Nachweis + To-do 3, danach H6.** Auf der Pilot-IPC am
+2026-07-07 deutlich vorangebracht und am 2026-07-08 für H4/H5 IPC-seitig umgeschaltet.
 **H2: erledigt** – Release-Paket (`mini_ems.exe`) läuft über Task `MiniEmsPoCRelease`, per `SHA256SUMS` verifiziert,
-Alt-Autostarts entschärft; Rest ist Betriebs-Hygiene (dirty-Build, kein Versions-Endpunkt). **H3: erledigt** –
+Alt-Autostarts entschärft; Version ist zusätzlich zur Laufzeit sichtbar (Stand 2026-07-09). **H3: erledigt** –
 `icacls`-Härtung auf `C:\ProgramData\MiniEMS` angewandt (keine Users-/Everyone-ACE, Vererbung gekappt), Anlage
 unter den Rechten stabil; Rest ist ein formaler Klick-Test unter einem Nicht-Admin-Konto. **H4: IPC-seitig
 umgeschaltet** – API bindet nur noch auf `127.0.0.1:8090`, Caddy läuft als Task `MiniEmsDashboardCaddy` auf
 `https://192.168.244.10`, 8090 ist aus dem LAN nicht mehr erreichbar und die H4-Firewallregeln sind aktiv.
 **H5:** `api.read_only` ist auf der Pilot-IPC aktiv; Diagnose-Read und POST-Konfigurationspfade liefern HTTP 403.
-Offen bleibt der reale Nachweis von einem zweiten Rechner am Standort über Kundennetz/VPN/Secomea. **To-do 3:**
-Minimalkonzept (Secomea/VPN bzw. Export mit Login) liegt in
-`HOSTING_SICHERHEIT.md`, Teil 2, vor; der zweite-Rechner-Nachweis fehlt noch. Danach folgen H6/H8/H9
-(Login/Rollen, Audit, geschützte Konfigurations-UI).
+Offen bleibt bei H4 und H5 derselbe reale Nachweis von einem zweiten Rechner am Standort über
+Kundennetz/VPN/Secomea. **To-do 3:** Minimalkonzept (Secomea/VPN bzw. Export mit Login) liegt in
+`HOSTING_SICHERHEIT.md`, Teil 2, vor; der zweite-Rechner-Nachweis fehlt noch (identischer Standort-Schritt
+wie bei H4/H5). **H6 (Login/Rollen): Auswahlentscheidung offen.** Es ist noch nicht festgelegt, ob der
+erste Zugriffsschutz über den vorbereiteten `basic_auth`-Block in `proxy/Caddyfile` läuft oder über eine
+eigene Login-Schicht; das folgt nach dem Zweitrechner-Nachweis. Danach folgen H8/H9 (Audit, geschützte
+Konfigurations-UI).
 
 **Geparkt: S9-S12, S16 und die komplette Cloud-Data-Pipeline (C1-C9).** Northbound-Export, M-Bus-Integration,
 Semantik-Export, Remote-Commands, Write-Back-Leases sowie Payload-Vertrag, Broker-Wahl, Event-Log,
-Semantikdienst, TSDB- und Retention-Entscheidungen (C1-C9) bleiben dokumentierte Zukunftsoptionen und werden
-erst nach stabilem Mapping-Kern und abgeschlossenem Standort-Block neu bewertet. S13/S14 sind softwareseitig
-erledigt; S15 hat die Software-Vorstufe, braucht aber noch MSR-/Standortabnahme.
+Semantikdienst, TSDB- und Retention-Entscheidungen (C1-C9) bleiben dokumentierte Zukunftsoptionen. S16 folgt
+inhaltlich erst nach S13-S15. Sie werden nach abgeschlossenem Standort-Block neu bewertet; S13/S14 sind
+softwareseitig erledigt, S15 hat die Software-Vorstufe, braucht aber noch MSR-/Standortabnahme.
