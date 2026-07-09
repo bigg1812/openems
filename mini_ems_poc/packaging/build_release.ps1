@@ -15,11 +15,18 @@ Prerequisites: a Python >= 3.10 interpreter with PyInstaller installed
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = $(if ($env:MINI_EMS_VERSION) { $env:MINI_EMS_VERSION } else { "2026.07.0" }),
+    [string]$Version = $(if ($env:MINI_EMS_VERSION) { $env:MINI_EMS_VERSION } else { "" }),
     [string]$Python = "python"
 )
 
 $ErrorActionPreference = "Stop"
+
+# Version is a required, explicit input (schema JJJJ.MM.n). No silently ageing
+# default: a stale hard-coded version is a reproducibility trap.
+if (-not $Version) {
+    Write-Host "[build] FEHLER: Version fehlt. Aufruf mit -Version JJJJ.MM.n (z. B. 2026.07.1) oder `$env:MINI_EMS_VERSION setzen." -ForegroundColor Red
+    exit 2
+}
 
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $ProjectDir = Split-Path -Parent $ScriptDir
@@ -67,6 +74,33 @@ Write-Host "[build] wrote VERSION ($Version, $GitCommit)"
 # --- Release launcher + notes: package vs. site data ------------------------
 Copy-Item (Join-Path $ProjectDir "run_mini_ems_release.cmd") (Join-Path $ReleaseDir "run_mini_ems_release.cmd") -Force
 Copy-Item (Join-Path $ScriptDir "RELEASE_HINWEISE.md") (Join-Path $ReleaseDir "RELEASE_HINWEISE.md") -Force
+
+# --- CHANGELOG snapshot into the package (repo CHANGELOG is NOT rewritten) ---
+# The [Unreleased] heading becomes the versioned snapshot heading in the copy
+# that ships with the package. The repo CHANGELOG.md stays manual maintenance.
+$RepoChangelog = Join-Path $ProjectDir "CHANGELOG.md"
+$ReleaseDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+if (Test-Path $RepoChangelog) {
+    $changelogLines = Get-Content -Path $RepoChangelog
+    # Non-empty check: at least one bullet between [Unreleased] and the next "## [".
+    $inBlock = $false
+    $hasEntry = $false
+    foreach ($line in $changelogLines) {
+        if ($line -match '^## \[Unreleased\]') { $inBlock = $true; continue }
+        if ($inBlock -and $line -match '^## \[') { $inBlock = $false }
+        if ($inBlock -and $line -match '^[-*] ') { $hasEntry = $true }
+    }
+    if (-not $hasEntry) {
+        Write-Warning "[Unreleased] in CHANGELOG.md ist leer - Paket-Changelog ohne neue Eintraege."
+    }
+    $snapshot = $changelogLines | ForEach-Object {
+        if ($_ -match '^## \[Unreleased\]') { "## [$Version] - $ReleaseDate" } else { $_ }
+    }
+    Set-Content -Path (Join-Path $ReleaseDir "CHANGELOG.md") -Value $snapshot -Encoding utf8
+    Write-Host "[build] wrote CHANGELOG.md snapshot ($Version, $ReleaseDate)"
+} else {
+    Write-Warning "CHANGELOG.md nicht gefunden unter $RepoChangelog"
+}
 
 # --- SHA256SUMS over every release file (excluding the sums file itself) -----
 $SumsFile = Join-Path $ReleaseDir "SHA256SUMS"
