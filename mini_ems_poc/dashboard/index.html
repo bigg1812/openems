@@ -324,14 +324,153 @@
       <section class="page" data-page="konfiguration" aria-label="Admin-Konfiguration">
         <div class="section-head">
           <div>
-            <span class="section-kicker">Administration</span>
-            <h2>Anlagenkonfiguration</h2>
+            <span class="section-kicker">Inbetriebnahme</span>
+            <h2>Standort einrichten</h2>
           </div>
           <div class="export-actions">
             <div class="health-line" id="site-config-source">Prototypvorlage</div>
           </div>
         </div>
 
+        <!-- Hauptbotschaft der Seite (UX14): "Ist dieser Standort bereit,
+             sauber und sicher gelesen und geregelt zu werden?" -->
+        <article class="status-hero neutral" id="setup-hero" aria-live="polite">
+          <div class="status-hero-text">
+            <strong>Der Einrichtungsstand wird ermittelt.</strong>
+            <p>Die aktive Konfiguration wird von der Anlage geladen.</p>
+          </div>
+        </article>
+
+        <!-- Geführter Ablauf (UX14): Standort -> Geräte -> Datenpunkte -> Testen -> Aktivieren -->
+        <ol class="setup-steps" id="setup-steps"></ol>
+
+        <div class="setup-panels">
+          <article class="tool-panel" id="setup-panel-standort">
+            <div class="panel-head">
+              <div>
+                <h3>1. Standort</h3>
+                <p>Betriebsumgebung und Erreichbarkeit der Anlage aus der aktiven Konfiguration.</p>
+              </div>
+            </div>
+            <div class="daily-report setup-standort-tiles" id="setup-standort-summary">
+              <div class="empty-state compact">Die aktive Konfiguration wird geladen.</div>
+            </div>
+            <p class="config-note">Änderungen an Standort und Betriebsparametern stehen unten unter „Erweiterte Direktbearbeitung“ bereit.</p>
+          </article>
+
+          <article class="tool-panel" id="setup-panel-geraete">
+            <div class="panel-head">
+              <div>
+                <h3>2. Geräte</h3>
+                <p>Welche Anlagengeräte angesprochen werden. Adresse prüfen oder ergänzen.</p>
+              </div>
+            </div>
+            <div class="config-channel-list" id="setup-device-list">
+              <div class="empty-state compact">Noch keine Geräte bekannt.</div>
+            </div>
+          </article>
+
+          <article class="tool-panel" id="setup-panel-punkte">
+            <div class="panel-head">
+              <div>
+                <h3>3. Datenpunkte</h3>
+                <p>Punktliste hochladen, Kandidaten prüfen und fachlich zuordnen.</p>
+              </div>
+            </div>
+            <div class="setup-actions">
+              <label class="button primary setup-file-button" for="setup-pointlist-file">
+                Punktliste hochladen (CSV, TSV, XLSX)
+                <input id="setup-pointlist-file" type="file" accept=".csv,.tsv,.txt,.xlsx">
+              </label>
+              <button class="button" id="setup-discovery-button" type="button">Anlage durchsuchen (Vorschau)</button>
+            </div>
+            <div class="config-feedback" id="setup-import-feedback">Noch keine Punktliste importiert. Die Tabelle zeigt die aktive Zuordnung des Standorts.</div>
+
+            <div class="mapping-toolbar">
+              <div class="segmented" id="setup-status-filter" role="group" aria-label="Nach Status filtern">
+                <button type="button" data-status-filter="alle" aria-pressed="true">Alle</button>
+                <button type="button" data-status-filter="assigned" aria-pressed="false">Zugeordnet</button>
+                <button type="button" data-status-filter="review" aria-pressed="false">Prüfen</button>
+                <button type="button" data-status-filter="write" aria-pressed="false">Schreibpunkte</button>
+                <button type="button" data-status-filter="tested" aria-pressed="false">Geprüft</button>
+              </div>
+              <label class="mapping-toolbar-select">
+                Gruppe
+                <select id="setup-group-filter" aria-label="Nach Gruppe filtern"></select>
+              </label>
+              <label class="mapping-toolbar-select">
+                Sortierung
+                <select id="setup-sort-select" aria-label="Tabelle sortieren">
+                  <option value="gruppe">Nach Gruppe</option>
+                  <option value="status">Nach Status</option>
+                  <option value="name">Nach Name</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="table-wrap">
+              <table class="mapping-table">
+                <thead>
+                  <tr>
+                    <th>Datenpunkt</th>
+                    <th>Zuordnung im Mini EMS</th>
+                    <th>Quelle</th>
+                    <th>Status</th>
+                    <th>Prüfergebnis</th>
+                    <th><span class="visually-hidden">Technikbereich</span></th>
+                  </tr>
+                </thead>
+                <tbody id="setup-mapping-body"></tbody>
+              </table>
+            </div>
+            <p class="config-note" id="setup-mapping-count">-</p>
+          </article>
+
+          <article class="tool-panel" id="setup-panel-testen">
+            <div class="panel-head">
+              <div>
+                <h3>4. Testen</h3>
+                <p>Alle zugeordneten Punkte einmal live von der Anlage lesen und verständlich bewerten.</p>
+              </div>
+            </div>
+            <div class="setup-actions">
+              <button class="button primary" id="setup-test-button" type="button">Alle Punkte testen</button>
+              <button class="button" id="setup-test-abort" type="button" hidden>Abbrechen</button>
+              <span class="test-progress" id="setup-test-progress" role="status" aria-live="polite" hidden></span>
+            </div>
+            <div class="config-feedback" id="setup-test-summary">Noch keine Prüfung ausgeführt. Die Ergebnisse erscheinen je Punkt in der Tabelle oben.</div>
+            <p class="config-note">Die Punkte werden nacheinander mit kurzer Pause geprüft, um die Anlage nicht zu belasten. Schreibpunkte werden nicht angesprochen.</p>
+          </article>
+
+          <article class="tool-panel" id="setup-panel-aktivieren">
+            <div class="panel-head">
+              <div>
+                <h3>5. Aktivieren</h3>
+                <p>Zuordnung prüfen und mit Admin-Token als aktive Konfiguration übernehmen.</p>
+              </div>
+            </div>
+            <div class="config-toolbar">
+              <label class="token-field">
+                Admin-Token
+                <input id="setup-activate-token" type="password" autocomplete="off" placeholder="Token für die Aktivierung">
+              </label>
+              <button class="button" id="setup-preview-button" type="button">Zuordnung prüfen</button>
+              <button class="button primary" id="setup-activate-button" type="button">Zuordnung aktivieren</button>
+            </div>
+            <div class="config-feedback" id="setup-activate-feedback">Noch nicht geprüft.</div>
+            <details class="technical-preview" id="setup-patch-details">
+              <summary>Technische Vorschau anzeigen</summary>
+              <pre id="setup-patch-preview"></pre>
+            </details>
+          </article>
+        </div>
+
+        <!-- Erweiterte Direktbearbeitung (UX14): das vollständige Konfigurationsformular
+             bleibt erhalten und erreichbar, aber außerhalb des geführten Wegs. -->
+        <details class="report-advanced setup-advanced" id="setup-advanced">
+          <summary>Erweiterte Direktbearbeitung (gesamte Konfiguration)</summary>
+          <div class="report-advanced-body">
+            <p class="report-advanced-hint">Alle Betriebsparameter direkt bearbeiten. Für die Inbetriebnahme der Datenpunkte reicht der geführte Weg oben.</p>
         <form class="site-config-form" id="site-config-form">
           <div class="config-toolbar">
             <label class="token-field">
@@ -554,6 +693,8 @@
             </article>
           </div>
         </form>
+          </div>
+        </details>
       </section>
 
       <!-- ============ SYSTEM ============ -->

@@ -365,6 +365,8 @@ class ConfigApiTest(unittest.TestCase):
         self.assertIn("safety", payload["config"])
         self.assertIn("watchdog", payload["config"])
         self.assertIn("additional_inputs", payload["config"])
+        # Inbetriebnahme-UI (UX14/UX15): aktive Kernadressen sind sichtbar.
+        self.assertEqual(payload["config"]["points"]["grid_active_power_kw"], 300)
 
     def test_save_is_disabled_without_configured_admin_token(self) -> None:
         server = self._build_server(make_raw_config())

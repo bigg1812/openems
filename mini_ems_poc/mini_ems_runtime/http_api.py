@@ -750,7 +750,10 @@ _SITE_CONFIG_EDITABLE_SECTIONS = (
     "safety",
     "additional_inputs",
 )
-_SITE_CONFIG_VIEW_SECTIONS = _SITE_CONFIG_EDITABLE_SECTIONS
+# Anzeige-Sektionen der Site-Konfiguration: zusaetzlich zu den editierbaren
+# Sektionen auch "points", damit die Inbetriebnahme-UI (UX14/UX15) die aktiven
+# Kernadressen (Netzleistung, Preis, Sperren) ehrlich anzeigen kann.
+_SITE_CONFIG_VIEW_SECTIONS = _SITE_CONFIG_EDITABLE_SECTIONS + ("points",)
 _FULL_CONFIG_REQUIRED_SECTIONS = {
     "network",
     "points",
