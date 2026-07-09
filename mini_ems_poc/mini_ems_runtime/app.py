@@ -27,7 +27,12 @@ def main() -> int:
     config_path = Path(args.config).resolve()
     config = load_config(config_path)
     logger = setup_logging(config)
-    registry = ChannelRegistry.from_points_config(config.points, config.additional_inputs)
+    registry = ChannelRegistry.from_points_config(
+        config.points,
+        config.additional_inputs,
+        config.output_policies,
+        config.ddc_heartbeat,
+    )
     resource_base = resource_base_dir(config.base_dir)
     app_version = read_app_version(resource_base)
     state_store = StateStore(config.state_path, registry.output_channel_ids())

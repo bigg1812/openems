@@ -138,6 +138,74 @@ class ConfigApiTest(unittest.TestCase):
         self.assertFalse(payload["valid"])
         self.assertIn("simulated BACnet mode requires real_writes_enabled=false", payload["message"])
 
+    def test_output_policy_accepts_safe_write_priority_and_relinquish_flag(self) -> None:
+        raw = make_raw_config()
+        raw["outputs"] = {
+            "grid_lockout": {
+                "confirmation_mode": "ack_only",
+                "criticality": "critical",
+                "write_priority": 14,
+                "relinquish_enabled": True,
+            }
+        }
+
+        config = validate_raw_config(raw, base_dir=self.base_dir)
+
+        policy = config.output_policies.grid_lockout
+        self.assertEqual(policy.write_priority, 14)
+        self.assertTrue(policy.relinquish_enabled)
+
+    def test_output_policy_rejects_reserved_write_priority(self) -> None:
+        raw = make_raw_config()
+        raw["outputs"] = {
+            "spotmarket_lockout": {
+                "confirmation_mode": "ack_only",
+                "criticality": "critical",
+                "write_priority": 1,
+            }
+        }
+
+        with self.assertRaises(ValueError) as context:
+            validate_raw_config(raw, base_dir=self.base_dir)
+
+        self.assertIn("reserved protection priorities", str(context.exception))
+
+    def test_ddc_heartbeat_requires_output_policy_when_enabled(self) -> None:
+        raw = make_raw_config()
+        raw["ddc_heartbeat"] = {
+            "enabled": True,
+            "object_type": "av",
+            "instance": 1200,
+            "fallback_timeout_seconds": 180,
+        }
+
+        with self.assertRaises(ValueError) as context:
+            validate_raw_config(raw, base_dir=self.base_dir)
+
+        self.assertIn("outputs.edge_heartbeat is required", str(context.exception))
+
+    def test_ddc_heartbeat_accepts_counter_point_and_policy(self) -> None:
+        raw = make_raw_config()
+        raw["ddc_heartbeat"] = {
+            "enabled": True,
+            "object_type": "av",
+            "instance": 1200,
+            "fallback_timeout_seconds": 180,
+        }
+        raw["outputs"] = {
+            "edge_heartbeat": {
+                "confirmation_mode": "ack_only",
+                "criticality": "critical",
+                "write_priority": 14,
+            }
+        }
+
+        config = validate_raw_config(raw, base_dir=self.base_dir)
+
+        self.assertTrue(config.ddc_heartbeat.enabled)
+        self.assertEqual(config.ddc_heartbeat.instance, 1200)
+        self.assertEqual(config.output_policies.edge_heartbeat.write_priority, 14)
+
     def test_validate_accepts_additional_input_protocol_and_target_fields(self) -> None:
         server = self._build_server(make_raw_config())
 

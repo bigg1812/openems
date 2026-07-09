@@ -86,6 +86,13 @@ class ProtocolAdapter(Protocol):
     ) -> WriteConfirmation:
         ...
 
+    def relinquish_with_confirmation(
+        self,
+        point: PointConfig,
+        confirmation_mode: str,
+    ) -> WriteConfirmation:
+        ...
+
     def close(self) -> None:
         ...
 
@@ -117,6 +124,16 @@ class ProtocolRoutingAdapter:
         return self._adapter_for(point).write_with_confirmation(
             point,
             desired_value,
+            confirmation_mode,
+        )
+
+    def relinquish_with_confirmation(
+        self,
+        point: PointConfig,
+        confirmation_mode: str,
+    ) -> WriteConfirmation:
+        return self._adapter_for(point).relinquish_with_confirmation(
+            point,
             confirmation_mode,
         )
 

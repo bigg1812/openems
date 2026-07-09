@@ -796,6 +796,10 @@ Wichtig:
 
 - ein Preiswechsel waehrend des IPC-Ausfalls wird nicht geschrieben
 - das System ist aktuell automatisch wiederanlaufend, aber nicht autonom weiterlaufend
+- Wenn der optionale DDC-Heartbeat (`ddc_heartbeat.enabled`) spaeter standortseitig aktiviert wird,
+  schreibt Mini EMS pro Zyklus einen Counter auf einen freigegebenen BACnet-AV. Bleibt dieser Counter
+  aus, muss die DDC den lokalen Fallback selbst ausloesen; diese DDC-Logik ist ein MSR-Abnahmetest,
+  kein reiner Laptop-Test.
 
 ## Aktueller Projektstand
 
@@ -817,6 +821,11 @@ Wichtig:
     auf Administratoren und `SYSTEM` begrenzt
 13. Caddy laeuft als HTTPS-Proxy auf `192.168.244.10:443` und leitet intern auf `127.0.0.1:8090` weiter
 14. Die Mini-EMS-API bindet auf dem IPC nur noch lokal (`127.0.0.1:8090`); `api.read_only` ist aktiv
+15. BACnet-Schreibprioritaeten sind pro Ausgang validierbar (`outputs.*.write_priority`, Default `14`);
+    reservierte Schutzprioritaeten werden abgelehnt
+16. Ein Relinquish-/NULL-Write-Pfad existiert fuer explizit freigegebene Punkte
+17. Ein optionaler Edge-DDC-Heartbeat-Counter ist softwareseitig vorbereitet; der echte DDC-Fallback muss
+    am Standort/MSR-seitig abgenommen werden
 
 ### Beobachtungshinweise
 

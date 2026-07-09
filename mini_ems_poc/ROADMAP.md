@@ -414,12 +414,12 @@ und diese Daten von Reporting, Analyse, Regeln oder ML-Jobs parallel genutzt wer
 
 ## Strategische To-do-Linie: Professioneller Write-Back und Anlagen-Safety
 
-Der heutige Mini-EMS-Schreibpfad ist bewusst eng: wenige BACnet-Ausgänge, feste Priorität `14`, ACK/Readback,
+Der Mini-EMS-Schreibpfad ist bewusst eng: wenige BACnet-Ausgänge, validierte BACnet-Priorität, ACK/Readback,
 Criticality, Safe Mode und keine echten Writes in der lokalen Simulation. Für prädiktive Regelung, Cloud-Commands
 oder größere Eingriffe reicht das langfristig nicht. Dann muss Write-Back als eigener Sicherheitsvertrag mit der
 MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
 
-- [ ] **S13. BACnet-Priority-Array-Strategie pro Schreibpunkt definieren**
+- [x] **S13. BACnet-Priority-Array-Strategie pro Schreibpunkt definieren**
   - **Was:** Die aktuell feste BACnet-Schreibpriorität `14` durch eine explizite, validierte Schreibpunkt-Strategie
     ersetzen oder zumindest dokumentiert bestätigen. Pro Ausgangspunkt wird festgelegt: genutzte Priorität,
     Bedeutung, zulässiger Wertebereich, bestätigte Schutzprioritäten darüber und Betreiberfreigabe.
@@ -434,8 +434,12 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
   - **Definition of Done:** Jeder beschreibbare BACnet-Punkt hat eine dokumentierte Priorität; reservierte
     Schutzprioritäten werden durch Config-Validierung verhindert; Tests prüfen die erzeugten BACnet-Pakete und
     die Dokumentation beschreibt, welche lokale Logik Mini EMS niemals übersteuert.
+  - **Stand (2026-07-09): Softwareseitig umgesetzt.** `outputs.*.write_priority` wird geladen, Default bleibt
+    kompatibel `14`, reservierte Schutzprioritäten `1`, `2`, `5` und `6` werden validiert abgelehnt, und
+    `BacnetAdapter` erzeugt die Write-Pakete mit der punktbezogenen Priorität. Tests prüfen Config-Validierung
+    und erzeugte BACnet-Pakete.
 
-- [ ] **S14. Relinquish/Null-Schreibpfad für BACnet-Prioritäten entwerfen**
+- [x] **S14. Relinquish/Null-Schreibpfad für BACnet-Prioritäten entwerfen**
   - **Was:** Einen sicheren Weg definieren, wie Mini EMS seine eigene BACnet-Priorität wieder freigibt, also auf
     derselben Prioritätsstufe `NULL` schreibt und damit auf den nächsten aktiven Wert oder `Relinquish_Default`
     zurückfallen lässt.
@@ -449,6 +453,11 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
   - **Definition of Done:** Für konfigurierte Schreibpunkte kann Mini EMS seine eigene Priorität kontrolliert
     freigeben; Freigabe wird bestätigt, geloggt und getestet; Punkte ohne geprüften Relinquish-Mechanismus bleiben
     ausgeschlossen.
+  - **Stand (2026-07-09): Softwarepfad umgesetzt, operativer Einsatz bleibt explizit.**
+    `relinquish_with_confirmation()` schreibt BACnet `NULL` auf der eigenen `write_priority`; Simulation und
+    Modbus spiegeln die Schutzgrenze. Ohne `relinquish_enabled=true` wird der Freigabepfad abgelehnt. Die
+    automatische Safe-Mode-/Shutdown-Nutzung ist bewusst noch nicht aktiviert und muss pro MSR-Freigabe entschieden
+    werden.
 
 - [ ] **S15. Edge-DDC-Heartbeat mit DDC-seitigem Fallback prüfen**
   - **Was:** Einen dedizierten BACnet-Heartbeat-Punkt und eine dazugehörige DDC-Watchdog-Logik entwerfen: Mini EMS
@@ -464,6 +473,11 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     auch wenn Cloud/Internet ausfällt.
   - **Definition of Done:** DDC-Timeout wird in Simulation bzw. Testanlage nachgewiesen; bei ausbleibendem Heartbeat
     entfernt die lokale Steuerung Mini-EMS-Einfluss oder ignoriert ihn und läuft auf definierten lokalen Fallbacks.
+  - **Stand (2026-07-09): Software-Vorstufe umgesetzt, Standortabnahme offen.** Optionales
+    `ddc_heartbeat.enabled` ergänzt einen `system.edge_heartbeat`-AV-Counter als Ausgangskanal. Mini EMS schreibt
+    diesen Counter am Zyklusanfang vor Preis-/Cloud-Logik; ein unbestätigter Heartbeat stoppt den restlichen
+    Anlagen-Schreibpfad im selben Zyklus. Unit-Tests decken Reihenfolge und Fehlerverhalten ab. Offen bleibt der
+    echte MSR-/DDC-Test: Timeout erkennen und lokalen Fallback an der Anlage nachweisen.
 
 - [ ] **S16. Zeitlich begrenzte Write-Back-Leases für prädiktive Regelung einführen**
   - **Was:** Jeder prädiktive Eingriff bekommt eine Laufzeit, Gültigkeitsbedingung und Rückfallregel. Beispiel:
@@ -839,7 +853,8 @@ Minimalkonzept (Secomea/VPN bzw. Export mit Login) liegt in
 `HOSTING_SICHERHEIT.md`, Teil 2, vor; der zweite-Rechner-Nachweis fehlt noch. Danach folgen H6/H8/H9
 (Login/Rollen, Audit, geschützte Konfigurations-UI).
 
-**Geparkt: S9-S16 und die komplette Cloud-Data-Pipeline (C1-C9).** Northbound-Export, M-Bus-Integration,
-Semantik-Export und Write-Back-Sicherheit (S9-S16) sowie Payload-Vertrag, Broker-Wahl, Event-Log,
+**Geparkt: S9-S12, S16 und die komplette Cloud-Data-Pipeline (C1-C9).** Northbound-Export, M-Bus-Integration,
+Semantik-Export, Remote-Commands, Write-Back-Leases sowie Payload-Vertrag, Broker-Wahl, Event-Log,
 Semantikdienst, TSDB- und Retention-Entscheidungen (C1-C9) bleiben dokumentierte Zukunftsoptionen und werden
-erst nach stabilem Mapping-Kern und abgeschlossenem Standort-Block neu bewertet.
+erst nach stabilem Mapping-Kern und abgeschlossenem Standort-Block neu bewertet. S13/S14 sind softwareseitig
+erledigt; S15 hat die Software-Vorstufe, braucht aber noch MSR-/Standortabnahme.

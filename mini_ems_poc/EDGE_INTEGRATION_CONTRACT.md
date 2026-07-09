@@ -108,18 +108,27 @@ Es gilt eine Allowlist: Nur Kanäle, die in `config.json` konfiguriert sind (Abs
 
 Der Schreibpfad ist die höhere Risikoklasse und maximal eingeschränkt:
 
-- **Nur drei Ausgangskanäle** existieren (`ChannelRegistry.output_channel_ids()`):
+- **Nur freigegebene Ausgangskanäle** existieren (`ChannelRegistry.output_channel_ids()`):
   `tariff.current_price_ct_kwh` (`AV:1000`, `access="readwrite"`), `ems.lockout_grid` (`BV:400`,
-  `access="write"`) und `ems.lockout_spotmarket` (`BV:401`, `access="write"`). Jeder andere
-  Schreibversuch scheitert an `PointConfig.can_write()` mit `BacnetPermissionError`.
+  `access="write"`) und `ems.lockout_spotmarket` (`BV:401`, `access="write"`). Optional kann für
+  S15 `system.edge_heartbeat` als DDC-Heartbeat-Zähler hinzukommen, aber nur wenn
+  `ddc_heartbeat.enabled=true` und `outputs.edge_heartbeat` gesetzt sind. Jeder andere Schreibversuch
+  scheitert an `PointConfig.can_write()` mit `BacnetPermissionError`.
 - **Jeder Write ist bestätigungspflichtig** (`write_with_confirmation()` in `bacnet.py`):
-  BACnet `WriteProperty` auf `presentValue` mit fester Priorität `14` (`WRITE_PRIORITY`).
+  BACnet `WriteProperty` auf `presentValue` mit `write_priority` aus `outputs.*`, Default `14`.
+  Reservierte Schutzprioritäten `1`, `2`, `5` und `6` werden durch Config-Validierung abgelehnt.
   Bestätigung per `SimpleACK`; bei `confirmation_mode="ack_or_readback"` (nur `AV`) ersatzweise per
   Readback mit Toleranz `0.001` (`_float_values_match()`).
 - **Die Schreibpolitik steht in der Config** (`outputs.*` in `config.json`):
   `current_price` = `ack_or_readback`/`noncritical`, `grid_lockout` und `spotmarket_lockout` =
   `ack_only`/`critical`. Ein unbestätigter kritischer Write führt in den `safe_mode`, ein
   unbestätigter nicht-kritischer Write in den Status `degraded`.
+- **Relinquish ist ein eigener Freigabepfad.** Mini EMS kann für explizit freigegebene Punkte
+  (`relinquish_enabled=true`) auf seiner eigenen Priorität `NULL` schreiben. Punkte ohne geprüfte
+  Relinquish-Freigabe bleiben ausgeschlossen.
+- **Der optionale Edge-DDC-Heartbeat ist ein lokaler Anlagenvertrag.** Wenn aktiviert, schreibt Mini EMS
+  am Zyklusanfang einen monotonen Counter auf `system.edge_heartbeat`; ein unbestätigter Heartbeat
+  stoppt den restlichen Schreibpfad im selben Zyklus. Die DDC-Timeout-Logik selbst liegt in der MSR.
 - **Geschrieben wird nur bei Bedarf** (`CycleRunner._apply_outputs()`): bei Sollwertwechsel, fehlender
   Bestätigung oder neuem Preis-Slot (`handoff_key`). Nach jedem Runtime-Start erzwingt
   `safe_mode_reason="startup_validation"` eine Neubestätigung aller Outputs.
@@ -139,7 +148,8 @@ Jedes Lese- und Schreibereignis ist auf drei Ebenen nachvollziehbar:
    `bacnet.read_diagnostic` (jeder Read mit `status`, `quality`, `age_seconds`, `max_age_seconds`),
    `bacnet.read_retry` / `bacnet.write_retry`, `bacnet.unexpected_sender`, `bacnet.discarded_response`,
    `cycle.start`, `cycle.healthy`, `cycle.degraded`, `cycle.safe_mode`, `cycle.input_warning`,
-   `cycle.output_confirmed` / `cycle.output_not_confirmed`, `simulation.bacnet_write`,
+   `cycle.output_confirmed` / `cycle.output_not_confirmed`, `cycle.edge_heartbeat_confirmed`,
+   `cycle.edge_heartbeat_not_confirmed`, `simulation.bacnet_write`, `simulation.bacnet_relinquish`,
    `runtime_db.write_failed`.
 2. **Operator-Snapshot** `runtime/health.json` (`_build_health_payload()` in `cycle.py`): Status,
    `safe_mode_reason`/`degraded_reason`, `write_status` je Ausgang (Sollwert, Bestätigung, Readback,
@@ -160,6 +170,7 @@ welcher Sollwert warum geschrieben wurde und ob die Anlage ihn bestätigt hat.
 |---|---|
 | BACnet-Netzwerk/Controller antwortet nicht | Retries pro Zugriff (`network.retries`, Timeout `network.response_timeout_seconds`), dann `BacnetCommunicationError`. Grid-Read-Fehler oder unbestätigter kritischer Write → sofort `safe_mode` im selben Zyklus; Fehler bei `additional_inputs` → nur `warning` + `quality="bad"`. `consecutive_comm_errors` wird gezählt und in `state.json`/Snapshot ausgewiesen. Hinweis: `safety.comm_error_safe_mode_threshold` wird validiert (`> 0`), aber aktuell nicht als Schaltschwelle ausgewertet — der `safe_mode` greift bereits beim ersten kritischen Fehler. |
 | Cloud-Ausfall (SMARD nicht erreichbar) | `SpotmarketPriceCacheService.refresh()` fällt auf den lokalen Cache (`data/spotmarket/spotmarket_price_cache.json`) zurück, solange dieser den aktuellen Tag und Slot abdeckt; der Zustand wird als `price_source_status.fallback="cache"` markiert. Erst wenn auch der Cache den aktuellen Slot nicht liefert, führt `PriceProviderError` in den `safe_mode`. |
+| Optionaler DDC-Heartbeat scheitert | Wenn `ddc_heartbeat.enabled=true`, wird der Heartbeat-Counter vor der Preis-/Cloud-Logik geschrieben. Wird dieser Write nicht bestätigt, geht der Zyklus sofort in `safe_mode` und sendet keine weiteren Anlagen-Commands. |
 | Nicht-kritischer Write scheitert (Preis auf `AV:1000`) | Status `degraded`, Betrieb läuft weiter, Grund in `degraded_reason`; im nächsten Zyklus wird erneut geschrieben. |
 | `safe_mode` aktiv | Keine weiteren Sollwert-Schreibvorgänge im Zyklus; Grund steht in `safe_mode_reason` (`health.json`, Log, SQLite). Die MSR-Controller regeln autark weiter; zuletzt geschriebene BACnet-Werte bleiben auf der Anlage stehen. |
 | IPC-/Runtime-Ausfall | Mini EMS stoppt; keine neuen Reads/Writes/DB-Einträge. Nach Neustart (Scheduled Task) wird der Zustand aus `runtime/state.json` geladen und der erste Zyklus bestätigt alle Outputs neu (`startup_validation`). Ein Preiswechsel während des Ausfalls wird nicht nachträglich geschrieben. Details: `MINI_EMS_ANLEITUNG.md`, Abschnitt "Verhalten bei IPC-Ausfall". |
@@ -214,9 +225,10 @@ Leseabstand für `additional_inputs`: `read_interval_cycles=5` × `timing.cycle_
 | Kanal bzw. Gruppe | `plausible_min` | `plausible_max` | `max_age_seconds` (IPC / lokal) | Schreibrecht |
 |---|---:|---:|---|---|
 | `grid.active_power_kw` | -1.000.000 | 1.000.000 (Code-Default in `channels.py`) | nicht gesetzt; Absicherung über `safe_mode` bei jedem Nicht-`ok`-Read | nein; wird nur bei `controllers.grid_lockout.enabled=true` überhaupt gelesen |
-| `tariff.current_price_ct_kwh` | – | – | – (Readback dient nur der Write-Bestätigung) | ja: `ack_or_readback`, `noncritical`, BACnet-Priorität 14 |
-| `ems.lockout_grid` | – | – | – | ja: `ack_only`, `critical`, Priorität 14; aktuell nicht geschrieben (`controllers.grid_lockout.enabled=false`) |
-| `ems.lockout_spotmarket` | – | – | – | ja: `ack_only`, `critical`, Priorität 14 |
+| `tariff.current_price_ct_kwh` | – | – | – (Readback dient nur der Write-Bestätigung) | ja: `ack_or_readback`, `noncritical`, `write_priority` Default 14 |
+| `ems.lockout_grid` | – | – | – | ja: `ack_only`, `critical`, `write_priority` Default 14; aktuell nicht geschrieben (`controllers.grid_lockout.enabled=false`) |
+| `ems.lockout_spotmarket` | – | – | – | ja: `ack_only`, `critical`, `write_priority` Default 14 |
+| `system.edge_heartbeat` | – | – | – | optional: nur bei `ddc_heartbeat.enabled=true`; AV-Counter, `ack_only`, `critical`, Standort-/MSR-Freigabe nötig |
 | `site.outdoor_temperature_c` | -50 | 60 | 600 s / 120 s | nein (`include_in_health=true`) |
 | übrige `site.*_temperature_c` (12 Punkte) | -20 | 120 | 600 s / 120 s | nein |
 | `site.*_energy_kwh` (4 Punkte) | 0 | 1.000.000.000 | 600 s / 120 s | nein |

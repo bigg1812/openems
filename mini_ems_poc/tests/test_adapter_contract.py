@@ -163,7 +163,12 @@ class AdapterContractTest(unittest.TestCase):
             with self.subTest(adapter=label):
                 adapter = factory()
                 self.assertIsInstance(adapter, ProtocolAdapter)
-                for method in ("read_float", "write_with_confirmation", "close"):
+                for method in (
+                    "read_float",
+                    "write_with_confirmation",
+                    "relinquish_with_confirmation",
+                    "close",
+                ):
                     self.assertTrue(
                         callable(getattr(adapter, method, None)),
                         "{0} missing {1}".format(label, method),
@@ -214,6 +219,17 @@ class AdapterContractTest(unittest.TestCase):
                         confirmation_mode="ack_or_readback",
                     )
                 self.assertIn("read-only", str(context.exception))
+
+    def test_relinquish_is_denied_unless_point_explicitly_allows_it(self) -> None:
+        point = self.registry.get(CURRENT_PRICE_CHANNEL)
+        for label, factory, _io in self._all_adapters():
+            with self.subTest(adapter=label):
+                adapter = factory()
+                with self.assertRaises(_PERMISSION_ERRORS):
+                    adapter.relinquish_with_confirmation(
+                        point=point,
+                        confirmation_mode="ack_only",
+                    )
 
     # -- normalization: AV -> float, BV -> bool --------------------------
 

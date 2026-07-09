@@ -5,7 +5,7 @@ import time
 from typing import Optional
 
 from .channels import BACNET_AV, BACNET_BV, PointConfig
-from .config import NetworkConfig
+from .config import DEFAULT_BACNET_WRITE_PRIORITY, NetworkConfig
 from .logging_utils import log_event
 from .protocol import AdapterError, WriteConfirmation
 
@@ -13,7 +13,7 @@ from .protocol import AdapterError, WriteConfirmation
 BacnetWriteConfirmation = WriteConfirmation
 
 PROP_PRESENT_VALUE = 85
-WRITE_PRIORITY = 14
+WRITE_PRIORITY = DEFAULT_BACNET_WRITE_PRIORITY
 READ_PROPERTY_SERVICE_CHOICE = 0x0C
 WRITE_PROPERTY_SERVICE_CHOICE = 0x0F
 
@@ -109,7 +109,7 @@ class BacnetAdapter:
         self._write_with_ack(
             point.channel_id,
             value,
-            _build_write_packet_bool(point.instance, value, invoke_id),
+            _build_write_packet_bool(point.instance, value, invoke_id, point.write_priority),
             invoke_id,
             point,
         )
@@ -123,7 +123,7 @@ class BacnetAdapter:
         self._write_with_ack(
             point.channel_id,
             value,
-            _build_write_packet_float(point.instance, value, invoke_id),
+            _build_write_packet_float(point.instance, value, invoke_id, point.write_priority),
             invoke_id,
             point,
         )
@@ -139,9 +139,9 @@ class BacnetAdapter:
 
         invoke_id = self._next_invoke_id()
         if point.object_type == BACNET_BV:
-            payload = _build_write_packet_bool(point.instance, bool(desired_value), invoke_id)
+            payload = _build_write_packet_bool(point.instance, bool(desired_value), invoke_id, point.write_priority)
         elif point.object_type == BACNET_AV:
-            payload = _build_write_packet_float(point.instance, float(desired_value), invoke_id)
+            payload = _build_write_packet_float(point.instance, float(desired_value), invoke_id, point.write_priority)
         else:
             raise BacnetPermissionError(
                 "Unsupported BACnet object type for channel {0}".format(point.channel_id)
@@ -211,6 +211,50 @@ class BacnetAdapter:
                 confirmation_mode=confirmation_mode,
                 confirmation_source=None,
                 desired_value=desired_value,
+                attempts=self.network.retries + 1,
+                error=str(ack_error),
+            )
+
+    def relinquish_with_confirmation(
+        self,
+        point: PointConfig,
+        confirmation_mode: str,
+    ) -> WriteConfirmation:
+        if not point.can_write():
+            raise BacnetPermissionError("Write access denied for channel {0}".format(point.channel_id))
+        if not point.relinquish_enabled:
+            raise BacnetPermissionError("Relinquish is not enabled for channel {0}".format(point.channel_id))
+        if point.object_type not in (BACNET_AV, BACNET_BV):
+            raise BacnetPermissionError(
+                "Unsupported BACnet object type for channel {0}".format(point.channel_id)
+            )
+
+        invoke_id = self._next_invoke_id()
+        payload = _build_write_packet_null(
+            point.object_type,
+            point.instance,
+            invoke_id,
+            point.write_priority,
+        )
+        try:
+            attempts = self._write_with_ack(point.channel_id, None, payload, invoke_id, point)
+            return WriteConfirmation(
+                channel_id=point.channel_id,
+                confirmed=True,
+                ack_received=True,
+                confirmation_mode=confirmation_mode,
+                confirmation_source="ack",
+                desired_value=None,
+                attempts=attempts,
+            )
+        except BacnetError as ack_error:
+            return WriteConfirmation(
+                channel_id=point.channel_id,
+                confirmed=False,
+                ack_received=False,
+                confirmation_mode=confirmation_mode,
+                confirmation_source=None,
+                desired_value=None,
                 attempts=self.network.retries + 1,
                 error=str(ack_error),
             )
@@ -343,27 +387,38 @@ def _build_read_packet(object_type: int, instance: int, invoke_id: int) -> bytes
     return bvlc + npdu + bytes(apdu)
 
 
-def _build_write_packet_float(instance: int, value: float, invoke_id: int) -> bytes:
+def _build_write_packet_float(instance: int, value: float, invoke_id: int, write_priority: int) -> bytes:
     apdu = bytearray([0x00, 0x04, invoke_id, WRITE_PROPERTY_SERVICE_CHOICE])
     apdu.append(0x0C)
     apdu.extend(struct.pack(">I", (BACNET_AV << 22) | instance))
     apdu.extend([0x19, PROP_PRESENT_VALUE])
     apdu.extend([0x3E, 0x44])
     apdu.extend(struct.pack(">f", value))
-    apdu.extend([0x3F, 0x49, WRITE_PRIORITY])
+    apdu.extend([0x3F, 0x49, write_priority])
     npdu = bytes([0x01, 0x04])
     bvlc = bytes([0x81, 0x0A]) + struct.pack(">H", 4 + len(npdu) + len(apdu))
     return bvlc + npdu + bytes(apdu)
 
 
-def _build_write_packet_bool(instance: int, value: bool, invoke_id: int) -> bytes:
+def _build_write_packet_bool(instance: int, value: bool, invoke_id: int, write_priority: int) -> bytes:
     apdu = bytearray([0x00, 0x04, invoke_id, WRITE_PROPERTY_SERVICE_CHOICE])
     apdu.append(0x0C)
     apdu.extend(struct.pack(">I", (BACNET_BV << 22) | instance))
     apdu.extend([0x19, PROP_PRESENT_VALUE])
     apdu.append(0x3E)
     apdu.extend([0x91, 0x01 if value else 0x00])
-    apdu.extend([0x3F, 0x49, WRITE_PRIORITY])
+    apdu.extend([0x3F, 0x49, write_priority])
+    npdu = bytes([0x01, 0x04])
+    bvlc = bytes([0x81, 0x0A]) + struct.pack(">H", 4 + len(npdu) + len(apdu))
+    return bvlc + npdu + bytes(apdu)
+
+
+def _build_write_packet_null(object_type: int, instance: int, invoke_id: int, write_priority: int) -> bytes:
+    apdu = bytearray([0x00, 0x04, invoke_id, WRITE_PROPERTY_SERVICE_CHOICE])
+    apdu.append(0x0C)
+    apdu.extend(struct.pack(">I", (object_type << 22) | instance))
+    apdu.extend([0x19, PROP_PRESENT_VALUE])
+    apdu.extend([0x3E, 0x00, 0x3F, 0x49, write_priority])
     npdu = bytes([0x01, 0x04])
     bvlc = bytes([0x81, 0x0A]) + struct.pack(">H", 4 + len(npdu) + len(apdu))
     return bvlc + npdu + bytes(apdu)

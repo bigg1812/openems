@@ -12,9 +12,11 @@ from unittest.mock import patch
 from mini_ems_poc.mini_ems_runtime.bacnet import (
     BacnetAdapter,
     BacnetCommunicationError,
+    BacnetPermissionError,
 )
 from mini_ems_poc.mini_ems_runtime.channels import (
     CURRENT_PRICE_CHANNEL,
+    EDGE_HEARTBEAT_CHANNEL,
     ChannelRegistry,
     GRID_ACTIVE_POWER_CHANNEL,
     GRID_LOCKOUT_CHANNEL,
@@ -24,10 +26,12 @@ from mini_ems_poc.mini_ems_runtime.config import (
     ApiConfig,
     ControllersConfig,
     DatabaseConfig,
+    DdcHeartbeatConfig,
     GridLockoutConfig,
     LoggingConfig,
     MiniEmsConfig,
     NetworkConfig,
+    OutputPolicyConfig,
     PointsConfig,
     PriceSourceConfig,
     SafetyConfig,
@@ -219,6 +223,42 @@ class BacnetAdapterTest(unittest.TestCase):
 
         with self.assertRaises(BacnetCommunicationError):
             adapter.write_bool(self.registry.get(GRID_LOCKOUT_CHANNEL), True)
+
+    def test_write_packet_uses_point_specific_priority(self) -> None:
+        fake_socket = FakeSocket([make_ack_response(invoke_id=1)])
+        adapter = BacnetAdapter(self.network, self.logger, sock=fake_socket)
+        point = replace(self.registry.get(GRID_LOCKOUT_CHANNEL), write_priority=8)
+
+        adapter.write_bool(point, True)
+
+        packet, _address = fake_socket.sent_packets[0]
+        self.assertTrue(packet.endswith(bytes([0x3F, 0x49, 0x08])))
+
+    def test_relinquish_writes_null_on_configured_priority(self) -> None:
+        fake_socket = FakeSocket([make_ack_response(invoke_id=1)])
+        adapter = BacnetAdapter(self.network, self.logger, sock=fake_socket)
+        point = replace(
+            self.registry.get(GRID_LOCKOUT_CHANNEL),
+            write_priority=14,
+            relinquish_enabled=True,
+        )
+
+        confirmation = adapter.relinquish_with_confirmation(point, "ack_only")
+
+        packet, _address = fake_socket.sent_packets[0]
+        self.assertTrue(confirmation.confirmed)
+        self.assertIsNone(confirmation.desired_value)
+        self.assertIn(bytes([0x3E, 0x00, 0x3F, 0x49, 0x0E]), packet)
+
+    def test_relinquish_requires_explicit_point_flag(self) -> None:
+        fake_socket = FakeSocket([])
+        adapter = BacnetAdapter(self.network, self.logger, sock=fake_socket)
+
+        with self.assertRaises(BacnetPermissionError):
+            adapter.relinquish_with_confirmation(
+                self.registry.get(GRID_LOCKOUT_CHANNEL),
+                "ack_only",
+            )
 
     def test_read_ignores_stale_simple_ack_before_value_response(self) -> None:
         fake_socket = FakeSocket(
@@ -444,7 +484,12 @@ class CycleRunnerTest(unittest.TestCase):
                 stdout=False,
             ),
         )
-        self.registry = ChannelRegistry.from_points_config(self.config.points, self.config.additional_inputs)
+        self.registry = ChannelRegistry.from_points_config(
+            self.config.points,
+            self.config.additional_inputs,
+            self.config.output_policies,
+            self.config.ddc_heartbeat,
+        )
 
     def test_successful_cycle_writes_current_price(self) -> None:
         fake_socket = FakeSocket(
@@ -577,6 +622,69 @@ class CycleRunnerTest(unittest.TestCase):
 
         self.assertEqual(snapshot["status"], "safe_mode")
         self.assertIn("api down", snapshot["safe_mode_reason"])
+
+    def test_edge_heartbeat_is_written_before_price_provider(self) -> None:
+        self.config = replace(
+            self.config,
+            ddc_heartbeat=DdcHeartbeatConfig(
+                enabled=True,
+                instance=1200,
+                fallback_timeout_seconds=180.0,
+            ),
+            output_policies=replace(
+                self.config.output_policies,
+                edge_heartbeat=OutputPolicyConfig(
+                    confirmation_mode="ack_only",
+                    criticality="critical",
+                    write_priority=14,
+                ),
+            ),
+        )
+        fake_socket = FakeSocket([make_ack_response(invoke_id=1)])
+        runner = self._build_runner(
+            fake_socket,
+            price_service=FakePriceService(error=PriceProviderError("SMARD offline")),
+        )
+
+        snapshot = runner.run_cycle()
+
+        self.assertEqual(snapshot["status"], "safe_mode")
+        self.assertIn("price_provider", snapshot["safe_mode_reason"])
+        self.assertEqual(snapshot["desired_outputs"][EDGE_HEARTBEAT_CHANNEL], 1.0)
+        self.assertEqual(
+            snapshot["write_results"][EDGE_HEARTBEAT_CHANNEL]["confirmed_value"],
+            1.0,
+        )
+        self.assertEqual(len(fake_socket.sent_packets), 1)
+        health = json.loads(self.config.health_path.read_text(encoding="utf-8"))
+        self.assertIn("edge_heartbeat", health["write_status"])
+
+    def test_edge_heartbeat_failure_stops_before_control_writes(self) -> None:
+        self.config = replace(
+            self.config,
+            ddc_heartbeat=DdcHeartbeatConfig(
+                enabled=True,
+                instance=1200,
+                fallback_timeout_seconds=180.0,
+            ),
+            output_policies=replace(
+                self.config.output_policies,
+                edge_heartbeat=OutputPolicyConfig(
+                    confirmation_mode="ack_only",
+                    criticality="critical",
+                    write_priority=14,
+                ),
+            ),
+        )
+        fake_socket = FakeSocket([socket.timeout()])
+        runner = self._build_runner(fake_socket, price_service=FakePriceService([]))
+
+        snapshot = runner.run_cycle()
+
+        self.assertEqual(snapshot["status"], "safe_mode")
+        self.assertIn("edge_heartbeat", snapshot["safe_mode_reason"])
+        self.assertEqual(set(snapshot["desired_outputs"]), {EDGE_HEARTBEAT_CHANNEL})
+        self.assertEqual(len(fake_socket.sent_packets), 1)
 
     def test_price_cache_falls_back_to_cached_current_slot_when_smard_is_unavailable(self) -> None:
         today = berlin_now().date()
@@ -1100,7 +1208,12 @@ class CycleRunnerTest(unittest.TestCase):
     def test_value_past_max_age_seconds_is_flagged_stale(self) -> None:
         # A valid read whose timestamp is older than max_age_seconds must become
         # quality=stale and lose its "ok" status (demoted to "warning").
-        registry = ChannelRegistry.from_points_config(self.config.points, self.config.additional_inputs)
+        registry = ChannelRegistry.from_points_config(
+            self.config.points,
+            self.config.additional_inputs,
+            self.config.output_policies,
+            self.config.ddc_heartbeat,
+        )
         fake_socket = FakeSocket(
             [make_read_response_for_point(7.2, invoke_id=1, instance=300)]
         )
@@ -1272,7 +1385,12 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertEqual(health["runtime_status"], "live")
 
     def _build_runner(self, fake_socket: FakeSocket, price_service=None, now=None) -> CycleRunner:
-        registry = ChannelRegistry.from_points_config(self.config.points, self.config.additional_inputs)
+        registry = ChannelRegistry.from_points_config(
+            self.config.points,
+            self.config.additional_inputs,
+            self.config.output_policies,
+            self.config.ddc_heartbeat,
+        )
         adapter = BacnetAdapter(self.config.network, self.logger, sock=fake_socket)
         state_store = StateStore(self.config.state_path, registry.output_channel_ids())
         return CycleRunner(

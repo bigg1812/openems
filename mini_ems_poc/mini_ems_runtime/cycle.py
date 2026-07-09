@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from .channels import (
     CURRENT_PRICE_CHANNEL,
+    EDGE_HEARTBEAT_CHANNEL,
     GRID_ACTIVE_POWER_CHANNEL,
     GRID_LOCKOUT_CHANNEL,
     SPOTMARKET_LOCKOUT_CHANNEL,
@@ -70,6 +71,31 @@ class CycleRunner:
         force_confirmation = self.state.health.safe_mode_reason == "startup_validation"
         input_reads: Dict[str, Dict[str, object]] = {}
         controller_outcomes: Dict[str, object] = {}
+        heartbeat_desired_outputs, heartbeat_write_results, heartbeat_errors = self._apply_edge_heartbeat(
+            cycle_id=cycle_id,
+            timestamp=timestamp,
+        )
+
+        if heartbeat_errors:
+            self.state.health.consecutive_comm_errors += 1
+            snapshot = self._handle_safe_mode(
+                cycle_id=cycle_id,
+                timestamp=timestamp,
+                reason="edge_heartbeat: {0}".format("; ".join(heartbeat_errors)),
+                price_snapshot=None,
+                input_reads=input_reads,
+                controller_outcomes=controller_outcomes,
+                desired_outputs=heartbeat_desired_outputs,
+                write_results=heartbeat_write_results,
+                spotmarket_plan=None,
+                spotmarket_active_now=None,
+                spotmarket_source=None,
+                spotmarket_next_window=None,
+                spotmarket_override=None,
+                degraded_reason=None,
+            )
+            self._persist(snapshot, input_reads=input_reads, price_snapshot=None, spotmarket_plan=None)
+            return snapshot
 
         try:
             price_snapshot = self.price_service.refresh()
@@ -82,8 +108,8 @@ class CycleRunner:
                 price_snapshot=None,
                 input_reads=input_reads,
                 controller_outcomes=controller_outcomes,
-                desired_outputs={},
-                write_results={},
+                desired_outputs=heartbeat_desired_outputs,
+                write_results=heartbeat_write_results,
                 spotmarket_plan=None,
                 spotmarket_active_now=None,
                 spotmarket_source=None,
@@ -116,8 +142,8 @@ class CycleRunner:
                     price_snapshot=price_snapshot,
                     input_reads=input_reads,
                     controller_outcomes=controller_outcomes,
-                    desired_outputs={},
-                    write_results={},
+                    desired_outputs=heartbeat_desired_outputs,
+                    write_results=heartbeat_write_results,
                     spotmarket_plan=None,
                     spotmarket_active_now=None,
                     spotmarket_source=None,
@@ -139,8 +165,8 @@ class CycleRunner:
                     price_snapshot=price_snapshot,
                     input_reads=input_reads,
                     controller_outcomes=controller_outcomes,
-                    desired_outputs={},
-                    write_results={},
+                    desired_outputs=heartbeat_desired_outputs,
+                    write_results=heartbeat_write_results,
                     spotmarket_plan=None,
                     spotmarket_active_now=None,
                     spotmarket_source=None,
@@ -220,14 +246,16 @@ class CycleRunner:
             "tomorrow_window_count": spotmarket_plan["tomorrow"]["window_count"],
         }
 
-        desired_outputs = {}
+        control_desired_outputs = {}
         if self.config.controllers.grid_lockout.enabled:
-            desired_outputs[GRID_LOCKOUT_CHANNEL] = bool(grid_outcome.desired_value)
-        desired_outputs[SPOTMARKET_LOCKOUT_CHANNEL] = bool(spotmarket_active_now)
-        desired_outputs[CURRENT_PRICE_CHANNEL] = float(price_snapshot.current_price_ct_kwh)
+            control_desired_outputs[GRID_LOCKOUT_CHANNEL] = bool(grid_outcome.desired_value)
+        control_desired_outputs[SPOTMARKET_LOCKOUT_CHANNEL] = bool(spotmarket_active_now)
+        control_desired_outputs[CURRENT_PRICE_CHANNEL] = float(price_snapshot.current_price_ct_kwh)
+        desired_outputs = dict(heartbeat_desired_outputs)
+        desired_outputs.update(control_desired_outputs)
 
-        write_results, critical_errors, noncritical_errors = self._apply_outputs(
-            desired_outputs=desired_outputs,
+        control_write_results, critical_errors, noncritical_errors = self._apply_outputs(
+            desired_outputs=control_desired_outputs,
             cycle_id=cycle_id,
             timestamp=timestamp,
             force_confirmation=force_confirmation,
@@ -235,6 +263,8 @@ class CycleRunner:
             current_slot_label=price_snapshot.current_slot_label,
             current_price_ct_kwh=price_snapshot.current_price_ct_kwh,
         )
+        write_results = dict(heartbeat_write_results)
+        write_results.update(control_write_results)
 
         if critical_errors:
             self.state.health.consecutive_comm_errors += 1
@@ -337,6 +367,94 @@ class CycleRunner:
         )
         self._persist(snapshot, input_reads=input_reads, price_snapshot=price_snapshot, spotmarket_plan=spotmarket_plan)
         return snapshot
+
+    def _apply_edge_heartbeat(
+        self,
+        *,
+        cycle_id: str,
+        timestamp: str,
+    ) -> Tuple[Dict[str, object], Dict[str, object], List[str]]:
+        if not self.config.ddc_heartbeat.enabled:
+            return {}, {}, []
+
+        channel_id = EDGE_HEARTBEAT_CHANNEL
+        desired_value = float(self.state.health.cycle_counter)
+        desired_outputs = {channel_id: desired_value}
+        output_state = self.state.outputs[channel_id]
+        policy = self.config.output_policies.for_channel(channel_id)
+        point = self.registry.get(channel_id)
+        confirmation = self.adapter.write_with_confirmation(
+            point=point,
+            desired_value=desired_value,
+            confirmation_mode=policy.confirmation_mode,
+        )
+
+        if not confirmation.confirmed:
+            output_state.is_confirmed = False
+            output_state.last_error = confirmation.error
+            output_state.last_confirmation_mode = confirmation.confirmation_source or confirmation.confirmation_mode
+            output_state.last_readback_value = confirmation.readback_value
+            result = {
+                "changed": True,
+                "confirmed_value": None,
+                "desired_value": desired_value,
+                "error": confirmation.error,
+                "confirmation_mode": confirmation.confirmation_mode,
+                "confirmation_source": confirmation.confirmation_source,
+                "criticality": policy.criticality,
+                "readback_value": confirmation.readback_value,
+                "ack_received": confirmation.ack_received,
+                "attempts": confirmation.attempts,
+            }
+            log_event(
+                self.logger,
+                logging.ERROR if policy.criticality == "critical" else logging.WARNING,
+                "cycle.edge_heartbeat_not_confirmed",
+                cycle_id=cycle_id,
+                channel_id=channel_id,
+                desired_value=desired_value,
+                confirmation_mode=confirmation.confirmation_mode,
+                confirmation_source=confirmation.confirmation_source,
+                ack_received=confirmation.ack_received,
+                error=confirmation.error,
+                criticality=policy.criticality,
+            )
+            return (
+                desired_outputs,
+                {channel_id: result},
+                ["Failed to confirm {0}: {1}".format(channel_id, confirmation.error)],
+            )
+
+        output_state.value = desired_value
+        output_state.is_confirmed = True
+        output_state.last_confirmed_at = timestamp
+        output_state.last_error = None
+        output_state.last_confirmation_mode = confirmation.confirmation_source or confirmation.confirmation_mode
+        output_state.last_readback_value = confirmation.readback_value
+        result = {
+            "changed": True,
+            "confirmed_value": desired_value,
+            "last_confirmed_at": timestamp,
+            "confirmation_mode": confirmation.confirmation_mode,
+            "confirmation_source": confirmation.confirmation_source,
+            "criticality": policy.criticality,
+            "readback_value": confirmation.readback_value,
+            "ack_received": confirmation.ack_received,
+            "attempts": confirmation.attempts,
+        }
+        log_event(
+            self.logger,
+            logging.INFO,
+            "cycle.edge_heartbeat_confirmed",
+            cycle_id=cycle_id,
+            channel_id=channel_id,
+            confirmed_value=desired_value,
+            confirmation_mode=confirmation.confirmation_mode,
+            confirmation_source=confirmation.confirmation_source,
+            ack_received=confirmation.ack_received,
+            fallback_timeout_seconds=self.config.ddc_heartbeat.fallback_timeout_seconds,
+        )
+        return desired_outputs, {channel_id: result}, []
 
     def _apply_outputs(
         self,
@@ -626,6 +744,8 @@ class CycleRunner:
                     channel_id: {
                         "confirmation_mode": self.config.output_policies.for_channel(channel_id).confirmation_mode,
                         "criticality": self.config.output_policies.for_channel(channel_id).criticality,
+                        "write_priority": self.config.output_policies.for_channel(channel_id).write_priority,
+                        "relinquish_enabled": self.config.output_policies.for_channel(channel_id).relinquish_enabled,
                     }
                     for channel_id in self.state.outputs.keys()
                 },
@@ -706,6 +826,15 @@ class CycleRunner:
                 ),
             },
         }
+        if self.config.ddc_heartbeat.enabled:
+            payload["write_status"]["edge_heartbeat"] = self._build_health_channel_status(
+                channel_id=EDGE_HEARTBEAT_CHANNEL,
+                desired_value=desired_outputs.get(EDGE_HEARTBEAT_CHANNEL),
+                outputs=outputs,
+            )
+            payload["edge_heartbeat_fallback_timeout_seconds"] = (
+                self.config.ddc_heartbeat.fallback_timeout_seconds
+            )
         additional_inputs = self._build_health_additional_inputs(input_reads)
         if additional_inputs:
             payload["additional_inputs"] = additional_inputs

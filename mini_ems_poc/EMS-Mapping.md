@@ -339,6 +339,7 @@ Aktuelle Kernpunkte:
 | `tariff.current_price_ct_kwh` | `AV` | `1000` | readwrite | aktueller Spotpreis in ct/kWh |
 | `ems.lockout_grid` | `BV` | `400` | write | Lastsperre wegen Netzleistung |
 | `ems.lockout_spotmarket` | `BV` | `401` | write | Sperre/Freigabe wegen Spotmarktfenster |
+| `system.edge_heartbeat` | `AV` | MSR-freigegeben | write | optionaler Edge-DDC-Heartbeat-Counter |
 
 Aktuelle zusätzliche Eingänge aus `additional_inputs`:
 
@@ -354,8 +355,9 @@ Was der `BacnetAdapter` technisch macht:
 | Funktion | Umsetzung |
 |---|---|
 | Lesen | `ReadProperty` auf `presentValue` |
-| Schreiben AV | `WriteProperty` auf `presentValue`, Float, Priorität `14` |
-| Schreiben BV | `WriteProperty` auf `presentValue`, Boolean, Priorität `14` |
+| Schreiben AV | `WriteProperty` auf `presentValue`, Float, `write_priority` aus `outputs.*` (Default `14`) |
+| Schreiben BV | `WriteProperty` auf `presentValue`, Boolean, `write_priority` aus `outputs.*` (Default `14`) |
+| Relinquish | expliziter `NULL`-Write auf derselben Priorität, nur bei `relinquish_enabled=true` |
 | Zielgerät | pro Punkt `controller_ip/controller_port` oder Default aus `network` |
 | Absicherung | `can_read()`, `can_write()`, ACK-Prüfung, optional Readback |
 | Simulation | `SimulatedBacnetAdapter` liest aus `sim/sample_values.json` und speichert Writes nur intern |
@@ -447,6 +449,7 @@ Für Schreibpunkte zusätzlich:
   "property": "presentValue",
   "access": "write",
   "write_priority": 14,
+  "relinquish_enabled": false,
   "confirmation_mode": "ack_only",
   "criticality": "critical"
 }

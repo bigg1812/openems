@@ -1,7 +1,15 @@
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional
 
-from .config import PROTOCOL_BACNET, AdditionalInputConfig, ModbusPointConfig, PointsConfig
+from .config import (
+    DEFAULT_BACNET_WRITE_PRIORITY,
+    PROTOCOL_BACNET,
+    AdditionalInputConfig,
+    DdcHeartbeatConfig,
+    ModbusPointConfig,
+    OutputPoliciesConfig,
+    PointsConfig,
+)
 
 BACNET_AI = 0
 BACNET_AV = 2
@@ -12,6 +20,7 @@ CURRENT_PRICE_CHANNEL = "tariff.current_price_ct_kwh"
 GRID_LOCKOUT_CHANNEL = "ems.lockout_grid"
 SPOTMARKET_LOCKOUT_CHANNEL = "ems.lockout_spotmarket"
 HEALTH_CHANNEL = "system.health"
+EDGE_HEARTBEAT_CHANNEL = "system.edge_heartbeat"
 
 
 @dataclass(frozen=True)
@@ -33,6 +42,8 @@ class PointConfig:
     # ProtocolRoutingAdapter; "bacnet" keeps the existing behaviour.
     protocol: str = PROTOCOL_BACNET
     modbus: Optional[ModbusPointConfig] = None
+    write_priority: int = DEFAULT_BACNET_WRITE_PRIORITY
+    relinquish_enabled: bool = False
 
     def can_read(self) -> bool:
         return self.access in ("read", "readwrite")
@@ -46,16 +57,38 @@ class ChannelRegistry:
         self,
         points_by_id: Dict[str, PointConfig],
         additional_input_channel_ids: Optional[List[str]] = None,
+        output_channel_ids: Optional[List[str]] = None,
     ):
         self._points_by_id = dict(points_by_id)
         self._additional_input_channel_ids = list(additional_input_channel_ids or [])
+        self._output_channel_ids = list(output_channel_ids or [
+            CURRENT_PRICE_CHANNEL,
+            GRID_LOCKOUT_CHANNEL,
+            SPOTMARKET_LOCKOUT_CHANNEL,
+        ])
 
     @classmethod
     def from_points_config(
         cls,
         points: PointsConfig,
         additional_inputs: Optional[Dict[str, AdditionalInputConfig]] = None,
+        output_policies: Optional[OutputPoliciesConfig] = None,
+        ddc_heartbeat: Optional[DdcHeartbeatConfig] = None,
     ) -> "ChannelRegistry":
+        def output_point_policy(channel_id: str) -> tuple[int, bool]:
+            if output_policies is None:
+                return DEFAULT_BACNET_WRITE_PRIORITY, False
+            policy = output_policies.for_channel(channel_id)
+            return policy.write_priority, policy.relinquish_enabled
+
+        current_price_priority, current_price_relinquish = output_point_policy(CURRENT_PRICE_CHANNEL)
+        grid_lockout_priority, grid_lockout_relinquish = output_point_policy(GRID_LOCKOUT_CHANNEL)
+        spotmarket_priority, spotmarket_relinquish = output_point_policy(SPOTMARKET_LOCKOUT_CHANNEL)
+        output_channel_ids = [
+            CURRENT_PRICE_CHANNEL,
+            GRID_LOCKOUT_CHANNEL,
+            SPOTMARKET_LOCKOUT_CHANNEL,
+        ]
         registry = {
             GRID_ACTIVE_POWER_CHANNEL: PointConfig(
                 channel_id=GRID_ACTIVE_POWER_CHANNEL,
@@ -72,6 +105,8 @@ class ChannelRegistry:
                 instance=points.current_price_av,
                 access="readwrite",
                 description="Current spot price in ct/kWh",
+                write_priority=current_price_priority,
+                relinquish_enabled=current_price_relinquish,
             ),
             GRID_LOCKOUT_CHANNEL: PointConfig(
                 channel_id=GRID_LOCKOUT_CHANNEL,
@@ -79,6 +114,8 @@ class ChannelRegistry:
                 instance=points.grid_lockout_bv,
                 access="write",
                 description="Fail-safe grid lockout output",
+                write_priority=grid_lockout_priority,
+                relinquish_enabled=grid_lockout_relinquish,
             ),
             SPOTMARKET_LOCKOUT_CHANNEL: PointConfig(
                 channel_id=SPOTMARKET_LOCKOUT_CHANNEL,
@@ -86,6 +123,8 @@ class ChannelRegistry:
                 instance=points.spotmarket_lockout_bv,
                 access="write",
                 description="Fail-safe spot market lockout output",
+                write_priority=spotmarket_priority,
+                relinquish_enabled=spotmarket_relinquish,
             ),
         }
         additional_input_channel_ids: List[str] = []
@@ -107,7 +146,25 @@ class ChannelRegistry:
                 modbus=input_config.modbus,
             )
             additional_input_channel_ids.append(channel_id)
-        return cls(registry, additional_input_channel_ids=additional_input_channel_ids)
+        if ddc_heartbeat is not None and ddc_heartbeat.enabled:
+            heartbeat_priority, heartbeat_relinquish = output_point_policy(EDGE_HEARTBEAT_CHANNEL)
+            registry[EDGE_HEARTBEAT_CHANNEL] = PointConfig(
+                channel_id=EDGE_HEARTBEAT_CHANNEL,
+                object_type=ddc_heartbeat.object_type,
+                instance=ddc_heartbeat.instance,
+                access="write",
+                description="Mini EMS edge-to-DDC heartbeat counter",
+                controller_ip=ddc_heartbeat.controller_ip,
+                controller_port=ddc_heartbeat.controller_port,
+                write_priority=heartbeat_priority,
+                relinquish_enabled=heartbeat_relinquish,
+            )
+            output_channel_ids.append(EDGE_HEARTBEAT_CHANNEL)
+        return cls(
+            registry,
+            additional_input_channel_ids=additional_input_channel_ids,
+            output_channel_ids=output_channel_ids,
+        )
 
     def get(self, channel_id: str) -> PointConfig:
         if channel_id not in self._points_by_id:
@@ -121,7 +178,7 @@ class ChannelRegistry:
         return [point.channel_id for point in self._points_by_id.values() if point.can_read()]
 
     def output_channel_ids(self) -> List[str]:
-        return [CURRENT_PRICE_CHANNEL, GRID_LOCKOUT_CHANNEL, SPOTMARKET_LOCKOUT_CHANNEL]
+        return list(self._output_channel_ids)
 
     def internal_channels(self) -> List[str]:
         return [HEALTH_CHANNEL]

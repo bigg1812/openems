@@ -74,6 +74,33 @@ class SimulatedBacnetAdapter:
             readback_value=float(normalized_value) if point.object_type == BACNET_AV else None,
         )
 
+    def relinquish_with_confirmation(
+        self,
+        point: PointConfig,
+        confirmation_mode: str,
+    ) -> WriteConfirmation:
+        if not point.can_write():
+            raise BacnetPermissionError("Write access denied for channel {0}".format(point.channel_id))
+        if not point.relinquish_enabled:
+            raise BacnetPermissionError("Relinquish is not enabled for channel {0}".format(point.channel_id))
+        self._written_values.pop(point.channel_id, None)
+        log_event(
+            self.logger,
+            logging.INFO,
+            "simulation.bacnet_relinquish",
+            channel_id=point.channel_id,
+            real_write=False,
+        )
+        return WriteConfirmation(
+            channel_id=point.channel_id,
+            confirmed=True,
+            ack_received=False,
+            confirmation_mode=confirmation_mode,
+            confirmation_source="simulated_relinquish",
+            desired_value=None,
+            attempts=1,
+        )
+
     def _store_write(self, point: PointConfig, value: object) -> None:
         if not point.can_write():
             raise BacnetPermissionError("Write access denied for channel {0}".format(point.channel_id))
@@ -143,6 +170,15 @@ class SimulatedModbusAdapter(SimulatedBacnetAdapter):
     ) -> WriteConfirmation:
         raise ModbusPermissionError(
             "Modbus adapter is read-only: write denied for channel {0}".format(point.channel_id)
+        )
+
+    def relinquish_with_confirmation(
+        self,
+        point: PointConfig,
+        confirmation_mode: str,
+    ) -> WriteConfirmation:
+        raise ModbusPermissionError(
+            "Modbus adapter is read-only: relinquish denied for channel {0}".format(point.channel_id)
         )
 
 

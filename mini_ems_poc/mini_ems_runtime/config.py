@@ -26,6 +26,8 @@ class PointsConfig:
 # without a protocol field behave exactly as before.
 PROTOCOL_BACNET = "bacnet"
 PROTOCOL_MODBUS_TCP = "modbus_tcp"
+DEFAULT_BACNET_WRITE_PRIORITY = 14
+RESERVED_BACNET_WRITE_PRIORITIES = frozenset({1, 2, 5, 6})
 
 # Registers per Modbus encoding; the register count is derived from the
 # encoding instead of being configured separately, so both can never disagree.
@@ -124,6 +126,16 @@ class SafetyConfig:
 
 
 @dataclass(frozen=True)
+class DdcHeartbeatConfig:
+    enabled: bool = False
+    object_type: int = 2
+    instance: Optional[int] = None
+    controller_ip: Optional[str] = None
+    controller_port: Optional[int] = None
+    fallback_timeout_seconds: Optional[float] = None
+
+
+@dataclass(frozen=True)
 class WatchdogConfig:
     # Liveness gate for the runtime heartbeat. When max_cycle_age_seconds is None
     # the watchdog stays purely observational (unchanged default behaviour),
@@ -135,6 +147,8 @@ class WatchdogConfig:
 class OutputPolicyConfig:
     confirmation_mode: str
     criticality: str
+    write_priority: int = DEFAULT_BACNET_WRITE_PRIORITY
+    relinquish_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -142,6 +156,7 @@ class OutputPoliciesConfig:
     current_price: OutputPolicyConfig
     grid_lockout: OutputPolicyConfig
     spotmarket_lockout: OutputPolicyConfig
+    edge_heartbeat: Optional[OutputPolicyConfig] = None
 
     def for_channel(self, channel_id: str) -> OutputPolicyConfig:
         mapping = {
@@ -149,6 +164,8 @@ class OutputPoliciesConfig:
             "ems.lockout_grid": self.grid_lockout,
             "ems.lockout_spotmarket": self.spotmarket_lockout,
         }
+        if self.edge_heartbeat is not None:
+            mapping["system.edge_heartbeat"] = self.edge_heartbeat
         policy = mapping.get(channel_id)
         if policy is None:
             raise KeyError("Missing output policy for channel: {0}".format(channel_id))
@@ -211,6 +228,7 @@ class MiniEmsConfig:
     safety: SafetyConfig
     logging: LoggingConfig
     watchdog: WatchdogConfig = field(default_factory=WatchdogConfig)
+    ddc_heartbeat: DdcHeartbeatConfig = field(default_factory=DdcHeartbeatConfig)
     additional_inputs: Dict[str, AdditionalInputConfig] = field(default_factory=dict)
     output_policies: OutputPoliciesConfig = field(default_factory=lambda: OutputPoliciesConfig(
         current_price=OutputPolicyConfig(
@@ -302,6 +320,7 @@ def validate_raw_config(raw: Dict[str, Any], *, base_dir: Path) -> MiniEmsConfig
     grid_lockout = _require_dict(controllers, "grid_lockout")
     spotmarket_lockout = _require_dict(controllers, "spotmarket_lockout")
     safety = _require_dict(raw, "safety")
+    ddc_heartbeat_raw = _optional_dict(raw.get("ddc_heartbeat"))
     watchdog = _optional_dict(raw.get("watchdog"))
     outputs = _optional_dict(raw.get("outputs"))
     database = _optional_dict(raw.get("database"))
@@ -369,6 +388,10 @@ def validate_raw_config(raw: Dict[str, Any], *, base_dir: Path) -> MiniEmsConfig
             fail_safe_output=bool(safety["fail_safe_output"]),
             comm_error_safe_mode_threshold=int(safety["comm_error_safe_mode_threshold"]),
         ),
+        ddc_heartbeat=_load_ddc_heartbeat(
+            ddc_heartbeat_raw,
+            default_controller_port=int(network["controller_port"]),
+        ),
         watchdog=WatchdogConfig(
             max_cycle_age_seconds=_optional_float(watchdog.get("max_cycle_age_seconds")),
         ),
@@ -385,6 +408,11 @@ def validate_raw_config(raw: Dict[str, Any], *, base_dir: Path) -> MiniEmsConfig
             ),
             spotmarket_lockout=_load_output_policy(
                 outputs.get("spotmarket_lockout"),
+                default_confirmation_mode="ack_only",
+                default_criticality="critical",
+            ),
+            edge_heartbeat=_load_optional_output_policy(
+                outputs.get("edge_heartbeat"),
                 default_confirmation_mode="ack_only",
                 default_criticality="critical",
             ),
@@ -447,6 +475,34 @@ def _load_output_policy(
     return OutputPolicyConfig(
         confirmation_mode=str(raw.get("confirmation_mode", default_confirmation_mode)).lower(),
         criticality=str(raw.get("criticality", default_criticality)).lower(),
+        write_priority=int(raw.get("write_priority", DEFAULT_BACNET_WRITE_PRIORITY)),
+        relinquish_enabled=bool(raw.get("relinquish_enabled", False)),
+    )
+
+
+def _load_optional_output_policy(
+    raw: object,
+    default_confirmation_mode: str,
+    default_criticality: str,
+) -> Optional[OutputPolicyConfig]:
+    if raw is None:
+        return None
+    return _load_output_policy(raw, default_confirmation_mode, default_criticality)
+
+
+def _load_ddc_heartbeat(raw: object, *, default_controller_port: int) -> DdcHeartbeatConfig:
+    raw = raw if isinstance(raw, dict) else {}
+    enabled = bool(raw.get("enabled", False))
+    instance = _optional_int(raw.get("instance"))
+    if enabled and instance is None:
+        raise ValueError("ddc_heartbeat.instance is required when ddc_heartbeat.enabled=true")
+    return DdcHeartbeatConfig(
+        enabled=enabled,
+        object_type=_parse_object_type(raw.get("object_type", "av")),
+        instance=instance,
+        controller_ip=_optional_text(raw.get("controller_ip")),
+        controller_port=_optional_int(raw.get("controller_port", default_controller_port)),
+        fallback_timeout_seconds=_optional_float(raw.get("fallback_timeout_seconds")),
     )
 
 
@@ -603,6 +659,23 @@ def _validate_config(config: MiniEmsConfig) -> None:
         raise ValueError("min_valid_quarters must be <= 24 for hourly resolution")
     if config.safety.comm_error_safe_mode_threshold <= 0:
         raise ValueError("comm_error_safe_mode_threshold must be > 0")
+    if config.ddc_heartbeat.enabled:
+        if config.ddc_heartbeat.object_type != 2:
+            raise ValueError("ddc_heartbeat object_type must be AV for the counter heartbeat")
+        if config.ddc_heartbeat.instance is None or config.ddc_heartbeat.instance < 0:
+            raise ValueError("ddc_heartbeat.instance must be >= 0")
+        if config.ddc_heartbeat.instance > 4_194_303:
+            raise ValueError("ddc_heartbeat.instance must be <= 4194303")
+        if (
+            config.ddc_heartbeat.controller_port is not None
+            and (config.ddc_heartbeat.controller_port <= 0 or config.ddc_heartbeat.controller_port > 65535)
+        ):
+            raise ValueError("ddc_heartbeat.controller_port must be between 1 and 65535")
+        if (
+            config.ddc_heartbeat.fallback_timeout_seconds is not None
+            and config.ddc_heartbeat.fallback_timeout_seconds <= 0
+        ):
+            raise ValueError("ddc_heartbeat.fallback_timeout_seconds must be > 0")
     if (
         config.watchdog.max_cycle_age_seconds is not None
         and config.watchdog.max_cycle_age_seconds <= 0
@@ -616,20 +689,16 @@ def _validate_config(config: MiniEmsConfig) -> None:
         "ems.lockout_spotmarket",
     ):
         policy = config.output_policies.for_channel(channel_id)
-        if policy.confirmation_mode not in allowed_confirmation_modes:
-            raise ValueError(
-                "confirmation_mode for {0} must be one of {1}".format(
-                    channel_id,
-                    sorted(allowed_confirmation_modes),
-                )
-            )
-        if policy.criticality not in allowed_criticalities:
-            raise ValueError(
-                "criticality for {0} must be one of {1}".format(
-                    channel_id,
-                    sorted(allowed_criticalities),
-                )
-            )
+        _validate_output_policy(channel_id, policy, allowed_confirmation_modes, allowed_criticalities)
+    if config.ddc_heartbeat.enabled:
+        if config.output_policies.edge_heartbeat is None:
+            raise ValueError("outputs.edge_heartbeat is required when ddc_heartbeat.enabled=true")
+        _validate_output_policy(
+            "system.edge_heartbeat",
+            config.output_policies.edge_heartbeat,
+            allowed_confirmation_modes,
+            allowed_criticalities,
+        )
     if config.api.port <= 0 or config.api.port > 65535:
         raise ValueError("api.port must be between 1 and 65535")
     if config.api.history_default_limit <= 0:
@@ -715,3 +784,34 @@ def _validate_additional_input_protocol(channel_id: str, input_config: Additiona
         raise ValueError("modbus register range out of bounds for {0}".format(channel_id))
     if modbus.scale == 0:
         raise ValueError("modbus scale must not be 0 for {0}".format(channel_id))
+
+
+def _validate_output_policy(
+    channel_id: str,
+    policy: OutputPolicyConfig,
+    allowed_confirmation_modes: set[str],
+    allowed_criticalities: set[str],
+) -> None:
+    if policy.confirmation_mode not in allowed_confirmation_modes:
+        raise ValueError(
+            "confirmation_mode for {0} must be one of {1}".format(
+                channel_id,
+                sorted(allowed_confirmation_modes),
+            )
+        )
+    if policy.criticality not in allowed_criticalities:
+        raise ValueError(
+            "criticality for {0} must be one of {1}".format(
+                channel_id,
+                sorted(allowed_criticalities),
+            )
+        )
+    if policy.write_priority < 1 or policy.write_priority > 16:
+        raise ValueError("write_priority for {0} must be between 1 and 16".format(channel_id))
+    if policy.write_priority in RESERVED_BACNET_WRITE_PRIORITIES:
+        raise ValueError(
+            "write_priority for {0} must not use reserved protection priorities {1}".format(
+                channel_id,
+                sorted(RESERVED_BACNET_WRITE_PRIORITIES),
+            )
+        )

@@ -121,6 +121,15 @@ class ModbusTcpAdapter:
             "Modbus adapter is read-only: write denied for channel {0}".format(point.channel_id)
         )
 
+    def relinquish_with_confirmation(
+        self,
+        point: PointConfig,
+        confirmation_mode: str,
+    ) -> WriteConfirmation:
+        raise ModbusPermissionError(
+            "Modbus adapter is read-only: relinquish denied for channel {0}".format(point.channel_id)
+        )
+
     def _modbus_address(self, point: PointConfig) -> ModbusPointConfig:
         if point.protocol != PROTOCOL_MODBUS_TCP or point.modbus is None:
             raise ModbusPermissionError(
