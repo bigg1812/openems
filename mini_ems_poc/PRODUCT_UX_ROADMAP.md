@@ -127,7 +127,10 @@ Leitentscheidungen:
 
 ## Strategische To-do-Linie: Standort einrichten und Mapping
 
-- [ ] **UX14. Konfigurationsbereich als "Standort einrichten" neu denken**
+- [x] **UX14. Konfigurationsbereich als "Standort einrichten" neu denken** — erledigt: die Konfigurationsseite
+  führt als „Standort einrichten“ durch Standort → Geräte → Datenpunkte → Testen → Aktivieren, mit
+  Hauptbotschaft („Ist dieser Standort bereit?“), Fortschritt je Schritt und Zählern (gefunden/zugeordnet/zu
+  prüfen).
   - **Was:** Die Konfigurations-UI soll nicht mit technischen Feldern starten, sondern mit einem geführten
     Inbetriebnahmeprozess:
     ```text
@@ -149,8 +152,17 @@ Leitentscheidungen:
     technische Details, Schreibrechte und Safety-Grenzen müssen erreichbar und verständlich bleiben.
   - **Definition of Done:** Ein neuer Konfigurator versteht ohne Erklärung, welche Schritte bis zur Aktivierung
     fehlen; die Seite zeigt Fortschritt, offene Prüfungen und nächsten sinnvollen Schritt.
+  - **Umsetzung:** Fünf klickbare Schrittkarten (erledigt/offen/bitte klären/gesperrt) über den Panels; Einstieg
+    in „Datenpunkte“ per Punktlisten-Upload (CSV/TSV/XLSX → `POST /api/config/pointlist/import`) als Standardweg
+    und Discovery-Vorschau als sekundärer Weg mit ehrlichem Hinweis, wenn BACpypes3 fehlt. Rollenlogik sichtbar:
+    ohne Admin-Token ist „Aktivieren“ sichtbar, aber als gesperrt erklärt; im read-only-Netzwerkmodus
+    (`api_read_only`) erklärt die Hauptbotschaft die Sperre und die Aktionen sind ausgeblendet statt kaputt.
+    Das bestehende Konfigurationsformular bleibt vollständig als „Erweiterte Direktbearbeitung“ erhalten.
+    `GET /api/config/site` liefert dafür zusätzlich die aktiven Kernadressen (`points`).
 
-- [ ] **UX15. Fachliche Mapping-Tabelle statt technische Punktliste bauen**
+- [x] **UX15. Fachliche Mapping-Tabelle statt technische Punktliste bauen** — erledigt: die zentrale Tabelle
+  zeigt je Zeile zuerst die fachliche Bedeutung, dann Quelle mit letztem Livewert und Status als verständliches
+  Wort; Technikdetails liegen im einklappbaren Technikbereich.
   - **Was:** Die zentrale Ansicht soll fachliche Mini-EMS-Kanäle in den Vordergrund stellen. Beispiel:
     ```text
     Netzleistung              EBCON · AV 300 · 42,3 kW       geprüft
@@ -168,8 +180,16 @@ Leitentscheidungen:
   - **Risiken:** Fachliche Namen dürfen nicht unpräzise werden. Die technische Zuordnung muss jederzeit prüfbar sein.
   - **Definition of Done:** Eine Mapping-Zeile beantwortet auf einen Blick: Was ist der Punkt? Woher kommt er?
     Welcher Wert kommt aktuell an? Ist er geprüft?
+  - **Umsetzung:** Tabelle vorbelegt aus der aktiven Konfiguration (Kernpunkte + Zusatzkanäle), Import ergänzt
+    Kandidaten. Zeilenformat „Netzleistung — Anlagensteuerung · AV 300 · 42,3 kW — geprüft“; Status-Badges
+    zugeordnet/prüfen/Schreibpunkt/geprüft/keine Antwort; Zuordnung über fachliche Auswahl (keine internen IDs).
+    Technikbereich je Zeile (Objekttyp, Instanz, Einheit, Plausibilität, `max_age_seconds`, Abfrageintervall,
+    Statusüberwachung, Quellzeile der Punktliste). Filter nach Status (Segmented) und Gruppe, Sortierung nach
+    Gruppe/Status/Name — alles mit bestehenden Badge-/Tabellen-Mustern aus dem Styleguide.
 
-- [ ] **UX16. "Alle Punkte testen" als zentralen Wow-Moment gestalten**
+- [x] **UX16. "Alle Punkte testen" als zentralen Wow-Moment gestalten** — erledigt: ein Button prüft alle
+  zugeordneten Punkte nacheinander live und übersetzt jedes Ergebnis in Inbetriebnahme-Sprache; das Ergebnis
+  bleibt je Zeile in der Tabelle stehen.
   - **Was:** Der Konfigurator soll alle Zuordnungen mit einem klaren Button prüfen können:
     ```text
     Alle Punkte testen
@@ -187,6 +207,15 @@ Leitentscheidungen:
     Freigabe, Warnung und ggf. simulierten Test.
   - **Definition of Done:** Der Nutzer kann die Mapping-Qualität ohne Rohlogs bewerten; jede Zeile zeigt Wert,
     Plausibilität, Aktualität und Freigabestatus in Alltagssprache.
+  - **Umsetzung:** Clientseitig sequenziell über den bestehenden Einzel-Read `GET /api/diagnostics/read`
+    (kein neuer Endpunkt), mit kurzer Pause zwischen den Punkten (Lastdisziplin, `BACNET_STACK_EVAL.md`),
+    Fortschritt „Prüfe n von m“, Abbruch-Knopf und Ergebniszeile („x in Ordnung · y bitte prüfen · z ohne
+    Antwort · Schreibpunkte übersprungen“). Übersetzungen: „Wert kommt an und liegt im erwarteten Bereich.“ /
+    „Wert kommt an, aber bitte Einheit und erwarteten Bereich prüfen.“ / „Wert kommt an, ist aber veraltet.“ /
+    „Keine Antwort von der Anlage.“ / „Schreibpunkt erkannt. Freigabe erforderlich – wird beim Test nicht
+    angesprochen.“ Schreibpunkte werden nie angesprochen; noch nicht aktive Punkte werden ehrlich als „nach
+    Aktivierung und Neustart prüfbar“ gemeldet. Danach führt „Zuordnung prüfen/aktivieren“ über
+    `mapping/preview` und Token-geschütztes `mapping/activate` (Backup + Neustarthinweis).
 
 - [ ] **UX17. Punktlisten-Import und Discovery als geführten Prüfprozess gestalten**
   - **Was:** Wenn später BACnet-Discovery, BACpypes3, Excel-/CSV-Datenpunktlisten, Modbus-Registerlisten oder
@@ -380,17 +409,12 @@ Leitentscheidungen:
 
 ## Empfohlener nächster Schritt
 
-**Aktive Linie: UX12/14-16 "Standort einrichten" als gemeinsamer Mapping-Block.** Reporting-Zielbild,
-Startseite, visuelle Richtung, Wording, Rollenmodell und Responsive-Prüfung (UX1/2/3/4/5/6/7/8/9/10/11) sowie
-der Demo-Flow (UX13) sind erledigt. Der nächste sichtbare Sprung ist der geführte Inbetriebnahmeprozess: UX14
-(Standort/Geräte/Datenpunkte/Testen/Aktivieren als Ablauf), UX15 (fachliche Mapping-Tabelle statt Punktliste)
-und UX16 ("Alle Punkte testen" als Wow-Moment) bilden zusammen mit UX12 (rollenbasierte Konfigurationsseite als
-Freigabeprozess) die UX-Seite des Mapping-Kerns aus `ROADMAP.md` S5/S6 und sind die aktive Arbeitslinie des
-Nutzers. `ROADMAP.md` S7/S8 sind seit dieser Aktualisierung entschieden bzw. als erster sicherer
-Discovery-/Importschnitt gebaut (Punktlisten-Import, BACpypes3-Discovery-Preview) – UX14/UX17 können sich damit
-auf ein bestehendes Backend stützen statt auf ein reines Konzept. UX12 bleibt dabei intern an S6 (Aktivierung
-mit Backup/Audit) gekoppelt: Solange S6 nicht steht, würde UX12 nur ein UI-Versprechen ohne tragfähigen
-Unterbau abbilden; die Reihenfolge innerhalb des Blocks bleibt UX14/UX15/UX16 vor UX12.
+**Aktive Linie: UX12 als Abschluss des Mapping-Blocks "Standort einrichten".** Reporting-Zielbild,
+Startseite, visuelle Richtung, Wording, Rollenmodell und Responsive-Prüfung (UX1/2/3/4/5/6/7/8/9/10/11), der
+Demo-Flow (UX13) und der geführte Inbetriebnahmeprozess (UX14 Ablauf Standort/Geräte/Datenpunkte/Testen/
+Aktivieren, UX15 fachliche Mapping-Tabelle, UX16 "Alle Punkte testen") sind erledigt. Offen aus dem Block
+bleibt UX12 (rollenbasierte Konfigurationsseite als Freigabeprozess); die Aktivierung mit Backup/Audit (S6)
+und die Token-Sperre sind in der UI bereits sichtbar verankert, UX12 kann darauf aufsetzen.
 
 **Standort-Schritte laufen parallel, außerhalb dieser Roadmap.** H2 (Windows-Build + Test-IPC-Nachweis), H3
 (ACL-Anwendung auf realer IPC), H5 (Nachweis von einem zweiten Rechner) und To-do 3 (Online-Hosting-Nachweis)
