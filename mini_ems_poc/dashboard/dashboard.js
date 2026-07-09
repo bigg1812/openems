@@ -3055,6 +3055,15 @@ function setupChannelOptionsHtml(row) {
   return `<option value="">Nicht zugeordnet</option>${groupsHtml}`;
 }
 
+function setupNormalizedName(value) {
+  // Vergleichsform fuer Label vs. Rohname: Umlaut-/ASCII-Schreibweisen
+  // ("Rücklauf" vs "Ruecklauf") und Gross-/Sonderzeichen-Unterschiede angleichen.
+  return String(value || "")
+    .toLowerCase()
+    .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]/g, "");
+}
+
 function renderSetupTable() {
   const body = document.getElementById("setup-mapping-body");
   if (!body) {
@@ -3071,7 +3080,11 @@ function renderSetupTable() {
     const status = setupRowStatus(row);
     const badgeClass = SETUP_STATUS_BADGE[status];
     const mainLabel = row.channelId ? setupChannelLabel(row.channelId) : row.name;
-    const subLabel = row.channelId && row.name !== mainLabel ? row.name : setupRowGroup(row);
+    // Rohname nur zeigen, wenn er fachlich etwas hinzufuegt: "BHKW Ruecklauf" ist
+    // nur die ASCII-Variante von "BHKW Rücklauf" und wuerde als Dopplung wirken.
+    const subLabel = row.channelId && setupNormalizedName(row.name) !== setupNormalizedName(mainLabel)
+      ? row.name
+      : setupRowGroup(row);
     const address = `${setupObjectTypeLabel(row.objectType)} ${inputValue(row.instance) === "" ? "-" : row.instance}`;
     const sourceParts = [setupDeviceName(row.deviceId), address];
     if (row.test && row.test.valueLabel) {
