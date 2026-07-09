@@ -111,7 +111,8 @@ Wahrheit, die folgenden Dokumente vertiefen jeweils einen Teilaspekt.
 | [PRODUCT_UX_KONZEPT.md](./PRODUCT_UX_KONZEPT.md) | Ausgearbeitetes Konzept zu Reporting-Zielbild, Wording-Set und Rollenmodell (UX1/UX10/UX11). |
 | [EDGE_INTEGRATION_CONTRACT.md](./EDGE_INTEGRATION_CONTRACT.md) | Verbindlicher Integrationsvertrag: gültige Messwerte, Qualität, Lese-/Schreibrechte, Ausfallverhalten. |
 | [HOSTING_SICHERHEIT.md](./HOSTING_SICHERHEIT.md) | Sicherheitsgrenze und Sichtbarkeitsmatrix fürs Kundenhosting plus Minimalkonzept für erstes read-only Online-Hosting. |
-| [UPDATE_WARTUNG.md](./UPDATE_WARTUNG.md) | Update-, Healthcheck- und Rollback-Ablauf für die Kunden-IPC (H7). |
+| [CHANGELOG.md](./CHANGELOG.md) | Änderungen pro Release (Keep-a-Changelog, `JJJJ.MM.n`); Build übernimmt den `[Unreleased]`-Stand ins Paket. |
+| [UPDATE_WARTUNG.md](./UPDATE_WARTUNG.md) | Update-, Healthcheck- und Rollback-Ablauf für die Kunden-IPC (H7), Skript-first plus manueller Fallback. |
 | [packaging/README.md](./packaging/README.md) | Release-Paket bauen und ausliefern (H2, initial PyInstaller, später Nuitka-kompatibel); Betriebspfad bleibt externes `config.json` plus Windows-Task. |
 | [UI_STYLEGUIDE.md](./UI_STYLEGUIDE.md) | Verbindliche Design-Referenz: Farben, Typografie, Abstände, Komponenten-Tokens aus `dashboard.css`. |
 | [PILOT_DEMO.md](./PILOT_DEMO.md) | 5-Minuten-Demoablauf für einen bezahlten Pilotkunden (UX13). |

@@ -40,6 +40,7 @@ mini_ems/
 |   `-- templates/report.html.j2       # Report-Vorlage als DATEN
 |-- sim/                               # optional, nur für Testbetrieb
 |-- VERSION                            # semver + Build-Datum + Git-Commit-Hash
+|-- CHANGELOG.md                       # Schnappschuss des [Unreleased]-Standes als Version
 |-- SHA256SUMS                         # Prüfsummen über alle Paketdateien
 `-- RELEASE_HINWEISE.md                # Paket vs. Standortdaten
 ```
@@ -51,20 +52,54 @@ im gepackten Betrieb neben dem Executable.
 
 ## Build ausführen
 
+Die Version ist ein **Pflicht-Parameter** (Schema `JJJJ.MM.n`). Es gibt bewusst
+keinen still veraltenden Vorgabewert – eine falsch mitgeschleppte Versionskennung
+wäre eine Reproduzierbarkeitsfalle. Ohne Version brechen beide Skripte mit einer
+klaren Meldung ab.
+
 ### macOS/Linux (lokale Verifikation)
 
 ```bash
 python3.12 -m pip install pyinstaller
-packaging/build_release.sh
-# optional: MINI_EMS_VERSION=2026.07.1 PYTHON=python3.12 packaging/build_release.sh
+MINI_EMS_VERSION=2026.07.1 packaging/build_release.sh
+# optional anderer Interpreter: MINI_EMS_VERSION=2026.07.1 PYTHON=python3.12 packaging/build_release.sh
 ```
 
 ### Windows (IPC-Release)
 
 ```powershell
 python -m pip install pyinstaller
-powershell -ExecutionPolicy Bypass -File packaging\build_release.ps1 -Version 2026.07.0
+powershell -ExecutionPolicy Bypass -File packaging\build_release.ps1 -Version 2026.07.1
 ```
+
+## Release erstellen (reproduzierbarer Ablauf)
+
+Dieser Ablauf ist Laptop-Arbeit. Auf der IPC wird erst am Ende getestet
+(altes Paket ersetzen, Task neu starten, prüfen – siehe `UPDATE_WARTUNG.md`).
+
+1. **Version wählen** nach Schema `JJJJ.MM.n` (Jahr.Monat.laufende Nummer im
+   Monat), z. B. `2026.07.1`. Die Nummer ist eine bewusste Entscheidung, kein
+   Automatismus.
+2. **`CHANGELOG.md` pflegen:** Den `[Unreleased]`-Abschnitt im Repo mit den
+   Änderungen dieses Releases füllen (deutsch, kompakt, Keep-a-Changelog-Stil).
+   Der Build prüft nur, dass `[Unreleased]` nicht leer ist, und warnt sonst; er
+   schreibt die Repo-`CHANGELOG.md` **nicht** um.
+3. **Tests grün:** `/Users/gabriel/dev/openems/.venv/bin/python -m unittest
+   discover -s mini_ems_poc/tests` (bzw. auf Windows der Projekt-Interpreter).
+4. **Bauen** mit genau dieser Version (siehe "Build ausführen"). Das Skript
+   erzeugt `VERSION`, kopiert Launcher und `RELEASE_HINWEISE.md`, übernimmt den
+   `[Unreleased]`-Stand als versionierten `CHANGELOG.md`-Schnappschuss ins Paket
+   und legt `SHA256SUMS` über alle Paketdateien an.
+5. **Prüfen:** `VERSION` enthält die gewählte Version; `CHANGELOG.md` im Paket
+   trägt die Version als Überschrift; `SHA256SUMS` ist vorhanden. Optional ein
+   Testlauf des Artefakts (siehe unten).
+6. **Übergabeordner:** Den fertigen Ordner `packaging/dist/mini_ems/` als
+   Release-Verzeichnis übergeben bzw. auf die IPC transportieren. Das Update dort
+   läuft über `windows/update_release.ps1 -PackagePath <Ordner>`.
+7. **`CHANGELOG.md` im Repo nachziehen:** Nach dem Release den `[Unreleased]`-
+   Abschnitt auf einen frischen, leeren Stand setzen und den soeben gebauten
+   Versionsabschnitt (mit Datum) dauerhaft in die Repo-`CHANGELOG.md` aufnehmen.
+   Das ist manuelle Pflege, kein Build-Schritt.
 
 ## Testlauf des gepackten Artefakts
 
