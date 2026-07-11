@@ -143,7 +143,7 @@ Diese Demo darf keine Versprechen machen, die der reale Standort noch nicht einl
   nicht als „schon fertig" dargestellt.
 - **Die Mapping-/Inbetriebnahme-Ansicht („Standort einrichten") ist gebaut, aber nicht Teil der
   5-Minuten-Demo.** Die Konfigurationsseite führt inzwischen als geführter Ablauf Standort → Geräte →
-  Datenpunkte → Testen → Aktivieren mit fachlicher Mapping-Tabelle und „Alle Punkte testen"
+  Datenpunkte → Testen → Abschließen mit fachlicher Mapping-Tabelle und „Alle Punkte testen"
   (`PRODUCT_UX_ROADMAP.md`, UX14–UX16, erledigt). Das bleibt trotzdem außerhalb der eigentlichen
   Betreiber-Vorführung: Die Demo zeigt Betrieb und Reporting, nicht die Inbetriebnahme-Strecke, weil
   sich Standort einrichten an Konfiguratoren richtet, nicht an den Standortbetreiber. UX17
@@ -236,7 +236,7 @@ eigentliche Vorführung ausdrücklich danach gefragt wird, z. B. „Wie kommen d
 eigentlich rein?" – nicht als Teil des Betreiber-Gesprächs.
 
 - **Was heute existiert:** Die Konfigurationsseite führt als „Standort einrichten" geführt durch
-  Standort → Geräte → Datenpunkte → Testen → Aktivieren (`PRODUCT_UX_ROADMAP.md`, UX14–UX16,
+  Standort → Geräte → Datenpunkte → Testen → Abschließen (`PRODUCT_UX_ROADMAP.md`, UX14–UX16,
   erledigt). Einstieg in „Datenpunkte" ist ein Punktlisten-Upload (CSV/TSV/XLSX) im UI, der intern
   `POST /api/config/pointlist/import` aufruft und daraus Rohpunkt-Kandidaten sowie einen
   Mapping-Entwurf erzeugt (`mini_ems_runtime/pointlist_import.py`); eine BACnet-Discovery-Vorschau
@@ -247,12 +247,13 @@ eigentlich rein?" – nicht als Teil des Betreiber-Gesprächs.
   nacheinander in Inbetriebnahme-Sprache.
 - **Was es (noch) nicht ist:** Der vollständig geführte Prüfprozess für Import und Discovery
   (Quelle wählen, Spalten erkennen, Kandidaten gruppieren, Schreibpunkte separat freigeben) ist
-  weiterhin offen – das ist `PRODUCT_UX_ROADMAP.md`, UX17. Ohne Admin-Token bleibt „Aktivieren" im
-  UI sichtbar, aber als gesperrt erklärt.
+  weiterhin offen – das ist `PRODUCT_UX_ROADMAP.md`, UX17. Ohne lokalen Freigabecode bleibt
+  „Einrichtung abschließen" im UI sichtbar, aber als gesperrt erklärt.
 - **Was daraus wird:** Import und Discovery erzeugen ausschließlich Kandidaten für einen
   Mapping-Entwurf, nie aktive Mini-EMS-Kanäle. Aktivierung bleibt an den bestehenden,
   validierten Pfad `POST /api/config/mapping/preview` bzw. `activate` gebunden (Backup, Audit,
-  Freigabe – siehe `ROADMAP.md`, S5/S6, weiterhin offen).
+  Freigabe – siehe `ROADMAP.md`, S5/S6, erledigt). Aktiver Stand, offener Entwurf und ausstehender
+  Neustart werden getrennt angezeigt; der bereinigte H8-Änderungsverlauf steht direkt darunter.
 - **Kurzbeispiel für den API-Weg (technischer Anhang, kein Vorführtext):** Der Import ist auch
   direkt über die HTTP-API nutzbar, ohne die UI, z. B. für Skripte oder Tests.
 

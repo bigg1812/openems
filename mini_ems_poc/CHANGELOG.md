@@ -15,14 +15,19 @@ Repo-Datei wird vom Build nicht umgeschrieben, sondern bleibt manuelle Pflege
 
 ### Hinzugefügt
 
-- Konfigurationsseite als geführtes "Standort einrichten" (UX14-16): Standort → Geräte → Datenpunkte →
-  Testen → Aktivieren mit Fortschrittskarten, Punktlisten-Upload (CSV/TSV/XLSX) und optionaler
+- Konfigurationsseite als geführtes "Standort einrichten" (UX14-16, S5/S6): Standort → Geräte → Datenpunkte →
+  Testen → Abschließen mit Fortschrittskarten, Punktlisten-Upload (CSV/TSV/XLSX) und optionaler
   BACnet-Discovery-Vorschau als Einstieg in "Datenpunkte", einer fachlichen Mapping-Tabelle (Bedeutung,
   Quelle, Live-Wert, Status statt technischer Rohpunkte) und "Alle Punkte testen" für einen sequenziellen
-  Live-Check aller Zuordnungen in Inbetriebnahme-Sprache. Aktivierung bleibt Token-geschützt über
-  `POST /api/config/mapping/activate` (Backup, Neustarthinweis). `GET /api/config/site` liefert dafür
-  zusätzlich die aktiven Kernadressen (`points`). Das bisherige Konfigurationsformular bleibt als
-  "Erweiterte Direktbearbeitung" vollständig erhalten.
+  Live-Check aller Zuordnungen in Inbetriebnahme-Sprache. „Einrichtung abschließen“ prüft erneut und übernimmt
+  nur mit lokalem Freigabecode über `POST /api/config/mapping/activate`; Backup, gespeicherter Entwurf,
+  Audit-Eintrag und Neustarthinweis entstehen automatisch. Aktiver Stand, offener Entwurf und Neustartbedarf
+  bleiben getrennt sichtbar. Das bisherige Konfigurationsformular bleibt als „Erweiterte Direktbearbeitung“
+  vollständig erhalten.
+- Nachvollziehbarer Pilotbetrieb (H8): Das Betriebslog erfasst Runtime-Starts, datensparsame Dashboard-Aufrufe
+  und Anlagenübergaben. `config_audit.jsonl` erfasst Mapping-, Standort- und Preissteuerungsänderungen;
+  `GET /api/config/changes` und die Inbetriebnahme-UI zeigen daraus einen bereinigten Verlauf ohne Token,
+  interne Dateipfade oder personenbezogene Daten.
 - Softwareversion sichtbar: Die Runtime liest beim Start die `VERSION`-Datei des
   Release-Pakets und stellt sie additiv unter `/api/status` als `app_version`
   (`version`, `git_commit`, `build_date`) bereit. Im Git-Betrieb ohne

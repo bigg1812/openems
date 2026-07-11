@@ -1301,12 +1301,20 @@ select:focus {
   margin-bottom: var(--sp-3);
 }
 
+.setup-panels > .tool-panel {
+  scroll-margin-top: 88px;
+}
+
 .setup-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
   margin-bottom: var(--sp-3);
+}
+
+.setup-actions [hidden] {
+  display: none;
 }
 
 /* Datei-Auswahl als Button: das eigentliche Input bleibt unsichtbar, aber fokussierbar. */
@@ -1413,6 +1421,87 @@ select:focus {
 .test-progress {
   color: var(--muted);
   font-size: 13px;
+}
+
+.setup-completion-status {
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-3);
+  border-left: 3px solid var(--neutral);
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.setup-completion-status strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.setup-completion-status.ok {
+  border-left-color: var(--ok);
+}
+
+.setup-completion-status.warn {
+  border-left-color: var(--warn);
+}
+
+.setup-change-history {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+
+.setup-change-history h4 {
+  margin: 0 0 var(--sp-2);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.setup-change-history ol {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setup-change-history li.empty-state.compact {
+  min-height: 0;
+  padding: var(--sp-3);
+}
+
+.setup-change-history li:not(.empty-state) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-1) var(--sp-3);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.setup-change-history li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.setup-change-history strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.setup-change-history time {
+  color: var(--subtle);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.setup-change-history span {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .visually-hidden {
@@ -2204,6 +2293,10 @@ textarea:focus {
     flex: 1 1 180px;
   }
 
+  .setup-panels > .tool-panel {
+    scroll-margin-top: 150px;
+  }
+
   .mapping-detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2305,6 +2398,10 @@ textarea:focus {
   /* Standort einrichten kompakt: Schritte und Werkzeugleisten einspaltig. */
   .setup-steps li {
     flex-basis: 100%;
+  }
+
+  .setup-panels > .tool-panel {
+    scroll-margin-top: 260px;
   }
 
   .setup-actions .button,

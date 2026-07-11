@@ -1,6 +1,8 @@
 import copy
+import hashlib
 import hmac
 import json
+import logging
 import math
 import os
 import threading
@@ -15,7 +17,7 @@ from urllib.request import Request, urlopen
 
 from .bacnet_discovery import preview_bacnet_discovery_payload
 from .config import ApiConfig, load_config, validate_raw_config
-from .logging_utils import log_event
+from .logging_utils import log_event, utcnow_iso
 from .mapping_config import build_mapping_config_patch
 from .pointlist_import import import_pointlist_payload
 from .read_diagnostics import ChannelReadDiagnosticsService
@@ -50,6 +52,7 @@ class MiniEmsApiServer:
         self.logger = logger
         self.read_diagnostics = read_diagnostics
         self.config_path = Path(config_path) if config_path is not None else None
+        self._runtime_config_fingerprint = self._config_fingerprint()
         self.spotmarket_plan_writer = spotmarket_plan_writer
         self.price_source_resolution = str(price_source_resolution).lower()
         # Additive Softwareversion fuer /api/status und die Systemstatus-Seite.
@@ -99,6 +102,7 @@ class MiniEmsApiServer:
                 query = parse_qs(parsed.query)
                 try:
                     if parsed.path in ("/", "/dashboard", "/index.html"):
+                        api_server._record_ui_access(parsed.path)
                         self._send_file(api_server.dashboard_dir / "index.html", "text/html; charset=utf-8")
                         return
                     if parsed.path == "/dashboard.css":
@@ -118,6 +122,10 @@ class MiniEmsApiServer:
                         return
                     if parsed.path == "/api/config/site":
                         self._send_json(api_server.get_site_config())
+                        return
+                    if parsed.path == "/api/config/changes":
+                        limit = int(_single_value(query, "limit", "10"))
+                        self._send_json(api_server.get_config_changes_payload(limit=limit))
                         return
                     if parsed.path == "/api/spotmarket/windows":
                         self._send_json(api_server._load_json(api_server.spotmarket_plan_path, {}))
@@ -473,11 +481,21 @@ class MiniEmsApiServer:
     def get_site_config(self) -> Dict[str, object]:
         raw = self._read_config_file()
         config = validate_raw_config(raw, base_dir=self._config_base_dir())
+        restart_required = self._config_restart_required()
         return {
             "config": _safe_site_config_view(raw, config),
             "editable_sections": list(_SITE_CONFIG_EDITABLE_SECTIONS),
             "save_enabled": bool(self.api_config.config_admin_token),
             "restart_required_on_save": True,
+            "restart_required": restart_required,
+            "mapping_status": self._mapping_status(restart_required),
+        }
+
+    def get_config_changes_payload(self, limit: int = 10) -> Dict[str, object]:
+        safe_limit = min(max(int(limit), 1), 50)
+        entries = self._read_config_audit_entries()
+        return {
+            "changes": [self._public_config_change(entry) for entry in reversed(entries[-safe_limit:])],
         }
 
     def validate_site_config_payload(self, payload: Dict[str, object]) -> Dict[str, object]:
@@ -518,6 +536,7 @@ class MiniEmsApiServer:
     ) -> Dict[str, object]:
         self._require_admin_token(admin_token, "Config save")
 
+        previous = self._read_config_file()
         try:
             raw = self._candidate_config_from_payload(payload)
             validate_raw_config(raw, base_dir=self._config_base_dir())
@@ -528,11 +547,32 @@ class MiniEmsApiServer:
         backup_path = self._backup_config_file(config_path)
         _write_json_preserve_order(config_path, raw)
         load_config(config_path)
+        changed_sections = _changed_top_level_sections(previous, raw)
+        audit_path = self._append_config_audit(
+            {
+                "timestamp": utcnow_iso(),
+                "revision": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"),
+                "action": "site_config.save",
+                "actor": "local_admin",
+                "config_file": config_path.name,
+                "backup_file": backup_path.name,
+                "restart_required": True,
+                "changed_sections": changed_sections,
+            }
+        )
+        log_event(
+            self.logger,
+            logging.INFO,
+            "config.site_saved",
+            changed_sections=changed_sections,
+            restart_required=True,
+        )
         return {
             "saved": True,
             "valid": True,
             "restart_required": True,
             "backup_file": backup_path.name,
+            "audit_file": audit_path.name,
         }
 
     def activate_mapping_config_payload(
@@ -554,22 +594,35 @@ class MiniEmsApiServer:
         config_path = self._require_config_path()
         raw = _deep_merge_dicts(self._read_config_file(), preview["patch"])
         validate_raw_config(raw, base_dir=self._config_base_dir())
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-        backup_path = self._backup_config_file(config_path, timestamp)
-        draft_path = self._write_mapping_draft(payload, timestamp)
+        revision = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        backup_path = self._backup_config_file(config_path, revision)
+        draft_path = self._write_mapping_draft(payload, revision)
         draft_file = draft_path.relative_to(config_path.parent).as_posix()
         _write_json_preserve_order(config_path, raw)
         load_config(config_path)
         audit_path = self._append_config_audit(
             {
-                "timestamp": timestamp,
+                "timestamp": utcnow_iso(),
+                "revision": revision,
                 "action": "mapping.activate",
+                "actor": "local_admin",
                 "config_file": config_path.name,
                 "backup_file": backup_path.name,
                 "draft_file": draft_file,
                 "restart_required": True,
                 "patch_sections": sorted(str(key) for key in preview["patch"].keys()),
+                "device_count": len(payload.get("devices", [])),
+                "mapping_count": len(payload.get("mappings", [])),
             }
+        )
+        log_event(
+            self.logger,
+            logging.INFO,
+            "config.mapping_activated",
+            revision=revision,
+            device_count=len(payload.get("devices", [])),
+            mapping_count=len(payload.get("mappings", [])),
+            restart_required=True,
         )
         return {
             "activated": True,
@@ -578,13 +631,29 @@ class MiniEmsApiServer:
             "backup_file": backup_path.name,
             "draft_file": draft_file,
             "audit_file": audit_path.name,
+            "revision": revision,
             "warnings": list(preview.get("warnings", [])),
         }
 
     def update_spotmarket_lockout_settings(self, payload: Dict[str, object]) -> Dict[str, object]:
         min_consecutive_quarters = self._parse_min_consecutive_quarters(payload)
         if self.config_path is not None:
+            restart_was_required = self._config_restart_required()
             self._persist_min_consecutive_quarters(min_consecutive_quarters)
+            if not restart_was_required:
+                # Diese Einstellung wird unten direkt in die laufende Runtime
+                # übernommen und benötigt für sich allein keinen Neustart.
+                self._runtime_config_fingerprint = self._config_fingerprint()
+            self._append_config_audit(
+                {
+                    "timestamp": utcnow_iso(),
+                    "revision": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"),
+                    "action": "spotmarket.settings.update",
+                    "actor": "operator",
+                    "restart_required": False,
+                    "min_consecutive_quarters": min_consecutive_quarters,
+                }
+            )
         if self.spotmarket_plan_writer is not None:
             self.spotmarket_plan_writer.set_min_consecutive_quarters(min_consecutive_quarters)
         log_event(
@@ -706,9 +775,96 @@ class MiniEmsApiServer:
     def _require_admin_token(self, admin_token: Optional[str], action: str) -> None:
         expected_token = self.api_config.config_admin_token
         if not expected_token:
-            raise PermissionError("{0} is disabled: api.config_admin_token is not configured".format(action))
+            raise PermissionError("Freigabe ist deaktiviert: Auf der Anlage ist kein Freigabecode eingerichtet.")
         if admin_token is None or not hmac.compare_digest(str(admin_token), str(expected_token)):
-            raise PermissionError("Invalid admin token")
+            raise PermissionError("Der Freigabecode ist nicht gültig.")
+
+    def _config_fingerprint(self) -> Optional[str]:
+        if self.config_path is None or not self.config_path.exists():
+            return None
+        return hashlib.sha256(self.config_path.read_bytes()).hexdigest()
+
+    def _config_restart_required(self) -> bool:
+        current = self._config_fingerprint()
+        return current is not None and current != self._runtime_config_fingerprint
+
+    def _mapping_status(self, restart_required: bool) -> Dict[str, object]:
+        for entry in reversed(self._read_config_audit_entries()):
+            if entry.get("action") != "mapping.activate":
+                continue
+            return {
+                "active": True,
+                "revision": str(entry.get("revision") or ""),
+                "activated_at": _normalize_audit_timestamp(entry.get("timestamp")),
+                "device_count": _safe_nonnegative_int(entry.get("device_count")),
+                "mapping_count": _safe_nonnegative_int(entry.get("mapping_count")),
+                "restart_required": restart_required,
+            }
+        return {
+            "active": False,
+            "revision": None,
+            "activated_at": None,
+            "device_count": 0,
+            "mapping_count": 0,
+            "restart_required": restart_required,
+        }
+
+    def _read_config_audit_entries(self) -> list[Dict[str, object]]:
+        if self.config_path is None:
+            return []
+        audit_path = self.config_path.parent / "config_audit.jsonl"
+        if not audit_path.exists():
+            return []
+        entries: list[Dict[str, object]] = []
+        for line in audit_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(entry, dict):
+                entries.append(entry)
+        return entries
+
+    def _public_config_change(self, entry: Dict[str, object]) -> Dict[str, object]:
+        action = str(entry.get("action") or "")
+        if action == "mapping.activate":
+            count = _safe_nonnegative_int(entry.get("mapping_count"))
+            title = "Datenpunkte aktiviert"
+            detail = (
+                "{0} {1} übernommen; Sicherung automatisch erstellt.".format(
+                    count,
+                    "Zuordnung" if count == 1 else "Zuordnungen",
+                )
+                if count
+                else "Zuordnung übernommen; Sicherung automatisch erstellt."
+            )
+        elif action == "site_config.save":
+            title = "Betriebseinstellungen gespeichert"
+            detail = "Geprüfte Einstellungen übernommen; Sicherung automatisch erstellt."
+        elif action == "spotmarket.settings.update":
+            title = "Preissteuerung angepasst"
+            quarters = _safe_nonnegative_int(entry.get("min_consecutive_quarters"))
+            detail = "Mindestdauer auf {0} Viertelstunden gesetzt.".format(quarters)
+        else:
+            title = "Änderung protokolliert"
+            detail = "Eine administrative Änderung wurde erfasst."
+        return {
+            "timestamp": _normalize_audit_timestamp(entry.get("timestamp")),
+            "title": title,
+            "detail": detail,
+            "restart_required": bool(entry.get("restart_required", False)),
+        }
+
+    def _record_ui_access(self, path: str) -> None:
+        log_event(
+            self.logger,
+            logging.INFO,
+            "ui.accessed",
+            path=path,
+            access_mode="read_only" if self.api_config.read_only else "administrative",
+        )
 
     def _backup_config_file(self, config_path: Path, timestamp: Optional[str] = None) -> Path:
         if timestamp is None:
@@ -818,6 +974,31 @@ def _deep_merge_dicts(base: Dict[str, object], patch: Dict[str, object]) -> Dict
         else:
             result[key] = copy.deepcopy(value)
     return result
+
+
+def _changed_top_level_sections(before: Dict[str, object], after: Dict[str, object]) -> list[str]:
+    keys = set(before) | set(after)
+    return sorted(str(key) for key in keys if before.get(key) != after.get(key))
+
+
+def _normalize_audit_timestamp(value: object) -> Optional[str]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if "-" in text and ":" in text:
+        return text
+    try:
+        parsed = datetime.strptime(text, "%Y%m%dT%H%M%S%fZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return text
+    return parsed.isoformat().replace("+00:00", "Z")
+
+
+def _safe_nonnegative_int(value: object) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _write_json_preserve_order(path: Path, payload: Dict[str, object]) -> None:

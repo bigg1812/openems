@@ -341,7 +341,7 @@
           </div>
         </article>
 
-        <!-- Geführter Ablauf (UX14): Standort -> Geräte -> Datenpunkte -> Testen -> Aktivieren -->
+        <!-- Geführter Ablauf (UX14): Standort -> Geräte -> Datenpunkte -> Testen -> Abschließen -->
         <ol class="setup-steps" id="setup-steps"></ol>
 
         <div class="setup-panels">
@@ -445,19 +445,28 @@
           <article class="tool-panel" id="setup-panel-aktivieren">
             <div class="panel-head">
               <div>
-                <h3>5. Aktivieren</h3>
-                <p>Zuordnung prüfen und mit Admin-Token als aktive Konfiguration übernehmen.</p>
+                <h3>5. Abschließen</h3>
+                <p>Mini EMS prüft die Zuordnung, sichert den bisherigen Stand und protokolliert die Freigabe automatisch.</p>
               </div>
             </div>
-            <div class="config-toolbar">
-              <label class="token-field">
-                Admin-Token
-                <input id="setup-activate-token" type="password" autocomplete="off" placeholder="Token für die Aktivierung">
-              </label>
-              <button class="button" id="setup-preview-button" type="button">Zuordnung prüfen</button>
-              <button class="button primary" id="setup-activate-button" type="button">Zuordnung aktivieren</button>
+            <div class="setup-completion-status" id="setup-completion-status" aria-live="polite">
+              Der aktuelle Stand wird geladen.
             </div>
+            <form class="config-toolbar" id="setup-activate-form">
+              <label class="token-field">
+                Freigabecode
+                <input id="setup-activate-token" type="password" autocomplete="off" placeholder="Freigabecode eingeben">
+              </label>
+              <button class="button" id="setup-preview-button" type="button">Nur prüfen</button>
+              <button class="button primary" id="setup-activate-button" type="button">Einrichtung abschließen</button>
+            </form>
             <div class="config-feedback" id="setup-activate-feedback">Noch nicht geprüft.</div>
+            <div class="setup-change-history">
+              <h4>Letzte Änderungen</h4>
+              <ol id="setup-change-list">
+                <li class="empty-state compact">Noch keine Änderung protokolliert.</li>
+              </ol>
+            </div>
             <details class="technical-preview" id="setup-patch-details">
               <summary>Technische Vorschau anzeigen</summary>
               <pre id="setup-patch-preview"></pre>
@@ -474,8 +483,8 @@
         <form class="site-config-form" id="site-config-form">
           <div class="config-toolbar">
             <label class="token-field">
-              Admin-Token
-              <input id="site-config-token" type="password" autocomplete="off" placeholder="Token für Speichern">
+              Freigabecode
+              <input id="site-config-token" type="password" autocomplete="off" placeholder="Freigabecode eingeben">
             </label>
             <button class="button" id="site-config-validate" type="button">Konfiguration prüfen</button>
             <button class="button primary" id="site-config-save" type="button">Speichern</button>

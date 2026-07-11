@@ -2,9 +2,9 @@
 
 ## Kontext / Ist-Zustand
 
-Aktiver Fokus liegt auf dem lokalen Python-Prototyp `mini_ems_poc/` (Branch `develop`, working tree clean).
-Die juengsten Commits haben den ProtocolAdapter-Kontrakt, eine Plausibilitaets-Single-Source in `PointConfig` und
-einen Freshness/Quality-Gate (`max_age_seconds`) eingebaut. Die 117 Python-Tests sind unter Python 3.12 alle gruen
+Aktiver Fokus liegt auf dem lokalen Python-Prototyp `mini_ems_poc/`; neue Funktionen werden auf Feature-Branches
+entwickelt und nach Prüfung in `develop` zusammengeführt. Der aktuelle Stand enthält den ProtocolAdapter-Kontrakt,
+eine Plausibilitaets-Single-Source in `PointConfig` und einen Freshness/Quality-Gate (`max_age_seconds`). Die 122 Python-Tests sind unter Python 3.12 alle gruen
 (`OK`), schlagen aber unter dem Standard-`python3` (3.9) dieses Rechners wegen PEP-604-Syntax (`X | None`) fehl.
 Es gibt praktisch keine TODO/FIXME-Marker im Python-Code; offene Punkte stehen in `MINI_EMS_ANLEITUNG.md`
 ("Offene Punkte") und ergeben sich aus dem Code-Ist-Zustand.
@@ -141,7 +141,7 @@ Leitentscheidungen:
   - **Definition of Done:** Ein kanonischer Kanal wie `meter.grid.active_power_kw` kann wahlweise aus BACnet oder Modbus
     stammen, ohne dass die Regelungslogik das Protokoll kennen muss.
 
-- [ ] **S5. Mapping-Entwurfsmodell als Konfigurationskern ausbauen**
+- [x] **S5. Mapping-Entwurfsmodell als Konfigurationskern ausbauen**
   - **Was:** Das vorhandene Preview-Modell (`devices`, `raw_points`, `mappings`) zur zentralen Grundlage der
     Konfigurations-UI machen. Ein Mapping-Entwurf beschreibt Geräte/Datenquellen, gefundene oder manuell
     angelegte Rohpunkte und deren Zuordnung zu kanonischen Mini-EMS-Kanälen. Die Runtime arbeitet weiter mit
@@ -158,8 +158,12 @@ Leitentscheidungen:
   - **Definition of Done:** Ein Mapping-Entwurf kann Geräte, Rohpunkte und fachliche Zuordnungen aufnehmen;
     `POST /api/config/mapping/preview` liefert einen validierten Runtime-Config-Patch; Fehler/Warnungen sind
     UI-tauglich; bestehende Runtime-Tests bleiben grün.
+  - **Erledigt (2026-07-11):** `mapping_config.py` validiert Geräte, Rohpunkte und fachliche Zuordnungen als
+    gemeinsamen Entwurf und erzeugt daraus ausschließlich einen geprüften Runtime-Config-Patch. Die
+    Inbetriebnahme-UI baut genau dieses Modell aus aktiver Konfiguration, Punktlisten-Import oder Discovery auf;
+    Validierungsfehler erscheinen in verständlichem Deutsch und interne IDs bleiben in der technischen Vorschau.
 
-- [ ] **S6. Mapping-Aktivierung mit Backup und Audit ergänzen**
+- [x] **S6. Mapping-Aktivierung mit Backup und Audit ergänzen**
   - **Was:** Nach der Preview einen kontrollierten Aktivierungspfad bauen: Mapping-Entwurf speichern, erzeugten
     Config-Patch prüfen, aktive Config sichern, Änderung mit Admin-Recht übernehmen und Neustartbedarf sichtbar
     markieren. Der Entwurf selbst bleibt als nachvollziehbares Inbetriebnahme-Artefakt erhalten.
@@ -167,16 +171,21 @@ Leitentscheidungen:
     sondern welche Zuordnung aktiv ist, wer sie freigegeben hat und ob ein Neustart erforderlich ist.
   - **Betroffen:** Config-API, Backup-/Audit-Ablage, künftige Auth-/Token-Schicht, UI-Freigabeseite, Betriebsdoku.
   - **Aufwand:** M/L
-  - **Risiken:** Aktivieren darf nie über einen read-only Viewer-Pfad möglich sein. Secrets, Admin-Token und
+  - **Risiken:** Aktivieren darf nie über einen read-only Viewer-Pfad möglich sein. Secrets, Freigabecode und
     Anlagen-Schreibfreigaben dürfen nicht im Mapping-Entwurf landen.
   - **Definition of Done:** Ungültige Entwürfe können nicht aktiviert werden; jede Aktivierung erzeugt Backup und
     Audit-Eintrag; UI zeigt aktiven Stand, Entwurf, Validierungsstatus und Neustartbedarf getrennt.
+  - **Erledigt (2026-07-11):** Schritt 5 heißt in der UI bewusst „Abschließen“: Ein Klick prüft den Entwurf erneut,
+    verlangt den lokalen Freigabecode und aktiviert erst danach. Der bisherige Stand wird automatisch gesichert,
+    der Mapping-Entwurf unter `mapping_drafts/` erhalten und die Freigabe in `config_audit.jsonl` protokolliert.
+    Aktiver Stand, offener Entwurf und ausstehender Neustart bleiben auch nach einem Browser-Neuladen unterscheidbar;
+    nach einem Runtime-Neustart verschwindet der Neustarthinweis automatisch.
 
 ## Strategische To-do-Linie: Professioneller Protokoll- und Cloud-Ausbau
 
-Diese Linie sammelt sinnvolle Ausbauspuren, die für einen späteren professionellen Rollout wichtig werden können.
-Sie sind bewusst **nicht** als nächster Umsetzungsschritt gesetzt. Erst S5/S6 und der sichere Betriebs-/Hostingpfad
-müssen stabil genug sein, damit zusätzliche Protokoll- und Cloud-Komplexität nicht wieder zum Baukasten wird.
+Diese Linie sammelt sinnvolle Ausbauspuren für den professionellen Rollout. S5/S6 und der lokale sichere
+Betriebspfad bilden inzwischen die stabile Grundlage; als nächster kleiner Ausbau ist deshalb S9 read-only gesetzt.
+Die übrigen Protokoll- und Cloud-Themen bleiben geparkt, damit das Produkt kein unübersichtlicher Baukasten wird.
 
 - [x] **S7. BACnet-Profi-Stack evaluieren: BACpypes3 und BAC0**
   - **Was:** Prüfen, ob der eigene kleine BACnet-Adapter für größere Standorte durch `BACpypes3` oder den Wrapper
@@ -235,7 +244,7 @@ müssen stabil genug sein, damit zusätzliche Protokoll- und Cloud-Komplexität 
   - **Aufwand:** M/L
   - **Risiken:** Keine direkte Freigabe der Anlagen-API ins Internet. TLS/mTLS, Zertifikatsrotation, Retry/Backoff,
     Offline-Pufferung, Duplikatvermeidung und Datenminimierung müssen geplant werden. Der Export darf keine
-    Geheimnisse, Admin-Tokens oder unnötigen personenbezogenen Daten enthalten.
+    Geheimnisse, Freigabecodes oder unnötigen personenbezogenen Daten enthalten.
   - **Definition of Done:** Ein read-only Exportmodell beschreibt Payload, Topic/API, Authentifizierung, Offline-
     Verhalten und Replay-Regeln; lokale Steuerung läuft bei Cloud-Ausfall unverändert weiter.
 
@@ -711,7 +720,7 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     Skript-first umgestellt, die manuellen Schritte bleiben als Fallback-Referenz. Der Lauf beider Skripte auf
     der realen IPC steht noch aus (bisher nur Review; kein PowerShell auf dem Build-Laptop verfügbar).
 
-- [ ] **H8. Audit, Nachvollziehbarkeit und Betreiberfreigabe**
+- [x] **H8. Audit, Nachvollziehbarkeit und Betreiberfreigabe**
   - **Was:** UI-Zugriffe, Runtime-Starts, Konfigurationsänderungen und spätere Schreibaktionen nachvollziehbar loggen.
     Kundenseitig klären, wer Zugriff bekommt.
   - **Nutzen:** Professioneller Betrieb statt versteckter Ordner auf Windows.
@@ -719,6 +728,12 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
   - **Aufwand:** M
   - **Risiken:** Audit-Logs dürfen keine Geheimnisse oder unnötigen personenbezogenen Daten enthalten.
   - **Definition of Done:** Betriebslog und Zugriffskonzept sind für einen Pilotkunden erklärbar.
+  - **Erledigt (2026-07-11):** Das bestehende strukturierte Betriebslog dokumentiert Runtime-Starts,
+    Dashboard-Aufrufe ohne IP-/Personenbezug sowie bestätigte und fehlgeschlagene Anlagenübergaben.
+    `config_audit.jsonl` erfasst Mapping-Aktivierungen, direkte Standortänderungen und Bedienänderungen der
+    Preissteuerung. `GET /api/config/changes` liefert daraus nur einen bereinigten Verlauf ohne Token, Dateipfade
+    oder personenbezogene Daten; die UI zeigt die letzten Änderungen direkt beim Abschluss. Das Zugriffskonzept
+    Viewer/Operator/Admin steht in `HOSTING_SICHERHEIT.md`; echte Benutzeridentitäten und Rollen bleiben H6.
 
 - [ ] **H9. Konfigurations-UI als geschützten Entwurfs- und Speicherpfad bauen**
   - **Was:** Die UI ersetzt `config.json` nicht blind und schreibt nicht direkt aus einem Formular in die aktive
@@ -827,24 +842,14 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
 
 ## Empfohlener nächster Schritt
 
-**Technischer Stand nach S13-S15: professioneller Write-Back und Anlagen-Safety.** Der UI-seitige
-Standort-einrichten-Block ist so weit fertig, dass er
-nicht mehr die aktive Linie ist: S1-S4 haben den Edge-Integrationskern und ein erstes
-Modbus-Referenzmodell etabliert, S7 ist entschieden (eigener BACnet-Adapter bleibt produktiv;
-`BACpypes3` direkt als getrennter, read-only Discovery-Werkzeugpfad statt `BAC0`), S8 ist als erster
-sicherer Import-/Discovery-Schnitt gebaut (`pointlist_import.py`, `bacnet_discovery.py`,
-`POST /api/config/pointlist/import`, `POST /api/config/discovery/bacnet/preview`), und darauf aufbauend
-sind `PRODUCT_UX_ROADMAP.md` UX14 (Standort einrichten), UX15 (fachliche Mapping-Tabelle) und UX16
-("Alle Punkte testen") **erledigt** — die Konfigurationsseite führt geführt durch Standort → Geräte →
-Datenpunkte → Testen → Aktivieren und nutzt dafür bereits `POST /api/config/mapping/preview` und
-Token-geschütztes `POST /api/config/mapping/activate`. S5 (Mapping-Entwurfsmodell formal als zentrale,
-dokumentierte Grundlage) und S6 (Aktivierung mit Backup/Audit als eigener geprüfter DoD) bleiben als
-Checkbox offen und sind die noch fehlende Formalisierung hinter dem, was UX14-16 bereits nutzt; UX12
-(rollenbasierte Freigabeseite) bleibt an diese S6-Formalisierung gekoppelt und damit ebenfalls offen. Die
-technisch abgeschlossene Linie ist stattdessen S13-S15 (BACnet-Priority-Array-Strategie pro Schreibpunkt,
-Relinquish/Null-Schreibpfad, Edge-DDC-Heartbeat mit DDC-seitigem Fallback). S13/S14 sind softwareseitig
-fertig; S15 hat die Software-Vorstufe und braucht noch MSR-/Standortabnahme, bevor Write-Back weiter
-ausgebaut wird.
+**Mapping- und Freigabekern abgeschlossen; nächste Laptop-Linie ist S9 Edge-to-Cloud read-only.** S1-S4 haben
+den Edge-Integrationskern und ein erstes Modbus-Referenzmodell etabliert, S7/S8 den sicheren Import-/Discovery-
+Pfad. UX14-16 und S5/S6 bilden nun einen einzigen Ablauf: Standort → Geräte → Datenpunkte → Testen →
+Abschließen, mit erneutem Preview, lokalem Freigabecode, automatischem Backup, erhaltenem Entwurf,
+Audit-Verlauf und eindeutigem Neustartstatus. H8 macht denselben Vorgang für den Betreiber nachvollziehbar.
+Damit ist die fachliche Zuordnung stabil genug, um als Nächstes S9 als transportneutralen read-only
+Outbox-/Cloud-Export aufzubauen. Der IPC bleibt dabei Edge-Gateway; der erste Cloud-Schritt enthält keine
+Remote-Befehle und keinen direkten Anlagenzugriff.
 
 **Standort-Schritte als Block: H4/H5-Zweitrechner-Nachweis + To-do 3, danach H6.** Auf der Pilot-IPC am
 2026-07-07 deutlich vorangebracht und am 2026-07-08 für H4/H5 IPC-seitig umgeschaltet.
@@ -860,11 +865,11 @@ Kundennetz/VPN/Secomea. **To-do 3:** Minimalkonzept (Secomea/VPN bzw. Export mit
 `HOSTING_SICHERHEIT.md`, Teil 2, vor; der zweite-Rechner-Nachweis fehlt noch (identischer Standort-Schritt
 wie bei H4/H5). **H6 (Login/Rollen): Auswahlentscheidung offen.** Es ist noch nicht festgelegt, ob der
 erste Zugriffsschutz über den vorbereiteten `basic_auth`-Block in `proxy/Caddyfile` läuft oder über eine
-eigene Login-Schicht; das folgt nach dem Zweitrechner-Nachweis. Danach folgen H8/H9 (Audit, geschützte
-Konfigurations-UI).
+eigene Login-Schicht; das folgt nach dem Zweitrechner-Nachweis. H8 ist abgeschlossen; H9 bleibt für die
+spätere rollenbasierte Erweiterung der gesamten Konfigurationsoberfläche offen.
 
-**Geparkt: S9-S12, S16 und die komplette Cloud-Data-Pipeline (C1-C9).** Northbound-Export, M-Bus-Integration,
-Semantik-Export, Remote-Commands, Write-Back-Leases sowie Payload-Vertrag, Broker-Wahl, Event-Log,
-Semantikdienst, TSDB- und Retention-Entscheidungen (C1-C9) bleiben dokumentierte Zukunftsoptionen. S16 folgt
-inhaltlich erst nach S13-S15. Sie werden nach abgeschlossenem Standort-Block neu bewertet; S13/S14 sind
-softwareseitig erledigt, S15 hat die Software-Vorstufe, braucht aber noch MSR-/Standortabnahme.
+**Danach: S9 klein beginnen; S10-S12, S16 und die große Cloud-Data-Pipeline bleiben geparkt.** S9 startet nur
+mit stabiler Payload, lokaler Outbox und einem simulierten read-only Empfänger. Broker-, TSDB-, Mandanten-,
+Semantik- und Retention-Entscheidungen aus C1-C9 folgen erst anhand dieses kleinen Ende-zu-Ende-Pfads.
+Remote-Commands und Write-Back-Leases bleiben ausdrücklich später; S15 braucht zuvor die reale
+MSR-/Standortabnahme des DDC-Fallbacks.

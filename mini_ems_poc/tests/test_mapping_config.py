@@ -79,7 +79,8 @@ class MappingConfigTest(unittest.TestCase):
         result = build_mapping_config_patch(draft)
 
         self.assertFalse(result["valid"])
-        self.assertIn("grid.active_power_kw must use BACnet AV", " / ".join(result["errors"]))
+        self.assertIn("Netzleistung", " / ".join(result["errors"]))
+        self.assertIn("BACnet-AV-Datenpunkt", " / ".join(result["errors"]))
 
     def test_rejects_unsupported_protocol_before_runtime_config_generation(self) -> None:
         draft = sample_mapping_draft()
@@ -88,7 +89,7 @@ class MappingConfigTest(unittest.TestCase):
         result = build_mapping_config_patch(draft)
 
         self.assertFalse(result["valid"])
-        self.assertIn("unsupported protocol", " / ".join(result["errors"]))
+        self.assertIn("noch nicht unterstütztes Protokoll", " / ".join(result["errors"]))
 
     def test_warns_when_core_channel_transform_cannot_be_applied_yet(self) -> None:
         draft = sample_mapping_draft()
@@ -97,7 +98,8 @@ class MappingConfigTest(unittest.TestCase):
         result = build_mapping_config_patch(draft)
 
         self.assertTrue(result["valid"])
-        self.assertIn("transform is not applied", " / ".join(result["warnings"]))
+        self.assertIn("Umrechnung", " / ".join(result["warnings"]))
+        self.assertIn("noch nicht angewendet", " / ".join(result["warnings"]))
 
     def test_rejects_duplicate_channel_mapping(self) -> None:
         draft = sample_mapping_draft()
@@ -106,7 +108,7 @@ class MappingConfigTest(unittest.TestCase):
         result = build_mapping_config_patch(draft)
 
         self.assertFalse(result["valid"])
-        self.assertIn("duplicate channel mapping", " / ".join(result["errors"]))
+        self.assertIn("mehrfach zugeordnet", " / ".join(result["errors"]))
 
 
 if __name__ == "__main__":

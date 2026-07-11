@@ -53,6 +53,7 @@ API_ENDPOINTS = [
     ("GET", "/api/status", False),
     ("GET", "/api/config/spotmarket-lockout", False),
     ("GET", "/api/config/site", False),
+    ("GET", "/api/config/changes", False),
     ("GET", "/api/spotmarket/windows", False),
     ("GET", "/api/history", False),
     ("GET", "/api/cycles", False),
@@ -232,6 +233,17 @@ class ReadOnlyEnabledTest(ReadOnlyApiTestBase):
             with self.subTest(path=path):
                 status, _ = self._request("GET", path)
                 self.assertEqual(status, 200)
+
+    def test_dashboard_access_is_logged_without_personal_client_data(self) -> None:
+        with self.assertLogs(self.logger, level=logging.INFO) as captured:
+            status, _ = self._request("GET", "/dashboard")
+
+        self.assertEqual(status, 200)
+        event = json.loads(captured.output[-1].split(":", 2)[-1])
+        self.assertEqual(event["event"], "ui.accessed")
+        self.assertEqual(event["access_mode"], "read_only")
+        self.assertNotIn("client_ip", event)
+        self.assertNotIn("user", event)
 
 
 class ReadOnlyBlocksWriteEndpointsEvenWithAdminTokenTest(ReadOnlyApiTestBase):

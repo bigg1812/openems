@@ -107,6 +107,10 @@ class ConfigApiTest(unittest.TestCase):
 
     def _build_server(self, raw):
         self.config_path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+        return self._build_server_from_existing_config()
+
+    def _build_server_from_existing_config(self):
+        raw = json.loads(self.config_path.read_text(encoding="utf-8"))
         config = validate_raw_config(raw, base_dir=self.base_dir)
         return MiniEmsApiServer(
             api_config=config.api,
@@ -371,7 +375,7 @@ class ConfigApiTest(unittest.TestCase):
     def test_mapping_activate_rejects_missing_admin_token(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
 
-        with self.assertRaisesRegex(PermissionError, "Invalid admin token"):
+        with self.assertRaisesRegex(PermissionError, "Freigabecode ist nicht gültig"):
             server.activate_mapping_config_payload(sample_mapping_draft(), admin_token=None)
 
     def test_mapping_activate_persists_patch_and_keeps_draft_audit_and_backup(self) -> None:
@@ -401,10 +405,30 @@ class ConfigApiTest(unittest.TestCase):
         )
         self.assertEqual(json.loads(drafts[0].read_text(encoding="utf-8")), sample_mapping_draft())
         self.assertEqual(audit["action"], "mapping.activate")
+        self.assertEqual(audit["actor"], "local_admin")
         self.assertEqual(audit["backup_file"], backups[0].name)
         self.assertEqual(audit["draft_file"], "mapping_drafts/{0}".format(drafts[0].name))
         self.assertEqual(audit["patch_sections"], ["additional_inputs", "network", "points"])
+        self.assertEqual(audit["device_count"], 1)
+        self.assertEqual(audit["mapping_count"], 2)
+        self.assertEqual(payload["revision"], audit["revision"])
         validate_raw_config(persisted, base_dir=self.base_dir)
+
+        site = server.get_site_config()
+        self.assertTrue(site["restart_required"])
+        self.assertTrue(site["mapping_status"]["active"])
+        self.assertEqual(site["mapping_status"]["mapping_count"], 2)
+
+    def test_restart_requirement_clears_when_runtime_restarts_with_current_config(self) -> None:
+        server = self._build_server(make_raw_config(config_admin_token="secret-token"))
+        server.activate_mapping_config_payload(sample_mapping_draft(), admin_token="secret-token")
+
+        restarted_server = self._build_server_from_existing_config()
+        site = restarted_server.get_site_config()
+
+        self.assertFalse(site["restart_required"])
+        self.assertTrue(site["mapping_status"]["active"])
+        self.assertFalse(site["mapping_status"]["restart_required"])
 
     def test_mapping_activate_does_not_persist_invalid_draft(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
@@ -416,7 +440,7 @@ class ConfigApiTest(unittest.TestCase):
 
         self.assertFalse(payload["activated"])
         self.assertFalse(payload["valid"])
-        self.assertIn("grid.active_power_kw must use BACnet AV", " / ".join(payload["errors"]))
+        self.assertIn("BACnet-AV-Datenpunkt", " / ".join(payload["errors"]))
         self.assertEqual(persisted["network"]["controller_ip"], "192.168.1.100")
         self.assertEqual(list(self.base_dir.glob("config.json.*.bak")), [])
         self.assertFalse((self.base_dir / "mapping_drafts").exists())
@@ -439,13 +463,13 @@ class ConfigApiTest(unittest.TestCase):
     def test_save_is_disabled_without_configured_admin_token(self) -> None:
         server = self._build_server(make_raw_config())
 
-        with self.assertRaisesRegex(PermissionError, "config_admin_token is not configured"):
+        with self.assertRaisesRegex(PermissionError, "kein Freigabecode eingerichtet"):
             server.save_site_config_payload({"patch": {"timing": {"cycle_seconds": 60}}}, admin_token=None)
 
     def test_save_rejects_wrong_admin_token(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
 
-        with self.assertRaisesRegex(PermissionError, "Invalid admin token"):
+        with self.assertRaisesRegex(PermissionError, "Freigabecode ist nicht gültig"):
             server.save_site_config_payload(
                 {"patch": {"timing": {"cycle_seconds": 60}}},
                 admin_token="wrong-token",
@@ -461,16 +485,62 @@ class ConfigApiTest(unittest.TestCase):
         persisted = json.loads(self.config_path.read_text(encoding="utf-8"))
         backups = sorted(self.base_dir.glob("config.json.*.bak"))
         backup = json.loads(backups[0].read_text(encoding="utf-8"))
+        audit = json.loads((self.base_dir / "config_audit.jsonl").read_text(encoding="utf-8").splitlines()[0])
 
         self.assertTrue(payload["saved"])
         self.assertTrue(payload["valid"])
         self.assertTrue(payload["restart_required"])
         self.assertEqual(payload["backup_file"], backups[0].name)
+        self.assertEqual(payload["audit_file"], "config_audit.jsonl")
         self.assertEqual(persisted["timing"]["cycle_seconds"], 60)
         self.assertEqual(persisted["api"]["config_admin_token"], "secret-token")
         self.assertEqual(persisted["logging"]["state_file"], "runtime/local/state.json")
         self.assertEqual(backup["timing"]["cycle_seconds"], 30)
+        self.assertEqual(audit["action"], "site_config.save")
+        self.assertEqual(audit["changed_sections"], ["timing"])
         validate_raw_config(persisted, base_dir=self.base_dir)
+
+    def test_change_history_is_latest_first_and_hides_internal_file_names(self) -> None:
+        server = self._build_server(make_raw_config(config_admin_token="secret-token"))
+        server.activate_mapping_config_payload(sample_mapping_draft(), admin_token="secret-token")
+        server.save_site_config_payload(
+            {"patch": {"timing": {"cycle_seconds": 60}}},
+            admin_token="secret-token",
+        )
+
+        payload = server.get_config_changes_payload(limit=10)
+
+        self.assertEqual(len(payload["changes"]), 2)
+        self.assertEqual(payload["changes"][0]["title"], "Betriebseinstellungen gespeichert")
+        self.assertEqual(payload["changes"][1]["title"], "Datenpunkte aktiviert")
+        self.assertIn("2 Zuordnungen", payload["changes"][1]["detail"])
+        self.assertEqual(
+            set(payload["changes"][0]),
+            {"timestamp", "title", "detail", "restart_required"},
+        )
+        self.assertNotIn("backup_file", payload["changes"][0])
+        self.assertNotIn("draft_file", payload["changes"][1])
+        self.assertNotIn("action", payload["changes"][0])
+        self.assertNotIn("actor", payload["changes"][1])
+        self.assertNotIn("revision", payload["changes"][1])
+
+    def test_operator_setting_change_is_added_to_change_history(self) -> None:
+        server = self._build_server(make_raw_config())
+
+        server.update_spotmarket_lockout_settings({"min_consecutive_quarters": 6})
+        changes = server.get_config_changes_payload()["changes"]
+
+        self.assertEqual(changes[0]["title"], "Preissteuerung angepasst")
+        self.assertIn("6 Viertelstunden", changes[0]["detail"])
+        self.assertFalse(server.get_site_config()["restart_required"])
+
+    def test_live_operator_setting_does_not_clear_existing_restart_requirement(self) -> None:
+        server = self._build_server(make_raw_config(config_admin_token="secret-token"))
+        server.activate_mapping_config_payload(sample_mapping_draft(), admin_token="secret-token")
+
+        server.update_spotmarket_lockout_settings({"min_consecutive_quarters": 6})
+
+        self.assertTrue(server.get_site_config()["restart_required"])
 
 
 if __name__ == "__main__":

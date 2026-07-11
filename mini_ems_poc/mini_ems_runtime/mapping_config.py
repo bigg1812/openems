@@ -88,7 +88,7 @@ def _parse_mapping_draft(
     List[str],
 ]:
     if not isinstance(payload, dict):
-        return None, ["Mapping draft must be a JSON object"], []
+        return None, ["Der Zuordnungsentwurf ist ungültig."], []
 
     errors: List[str] = []
     warnings: List[str] = []
@@ -102,27 +102,27 @@ def _parse_mapping_draft(
 
 def _parse_devices(raw: object, errors: List[str]) -> Dict[str, MappingDevice]:
     if not isinstance(raw, list) or not raw:
-        errors.append("devices must contain at least one device")
+        errors.append("Bitte mindestens ein Gerät angeben.")
         return {}
 
     devices: Dict[str, MappingDevice] = {}
     for index, entry in enumerate(raw):
         if not isinstance(entry, dict):
-            errors.append("devices[{0}] must be an object".format(index))
+            errors.append("Gerät {0} ist unvollständig.".format(index + 1))
             continue
-        device_id = _required_text(entry, "id", "devices[{0}]".format(index), errors)
+        device_id = _required_text(entry, "id", "Gerät {0}".format(index + 1), errors)
         if not device_id:
             continue
         if device_id in devices:
-            errors.append("duplicate device id: {0}".format(device_id))
+            errors.append("Das Gerät „{0}“ ist doppelt vorhanden.".format(device_id))
             continue
         protocol = _text(entry.get("protocol"), "bacnet").lower()
         if protocol != "bacnet":
-            errors.append("device {0} uses unsupported protocol: {1}".format(device_id, protocol))
-        host = _required_text(entry, "host", "device {0}".format(device_id), errors)
+            errors.append("Das Gerät „{0}“ nutzt ein noch nicht unterstütztes Protokoll: {1}.".format(device_id, protocol))
+        host = _required_text(entry, "host", "Gerät „{0}“".format(device_id), errors)
         port = _integer(entry.get("port"), 47808)
         if port <= 0 or port > 65535:
-            errors.append("device {0} port must be between 1 and 65535".format(device_id))
+            errors.append("Beim Gerät „{0}“ muss der Port zwischen 1 und 65535 liegen.".format(device_id))
         devices[device_id] = MappingDevice(
             id=device_id,
             name=_text(entry.get("name"), device_id),
@@ -139,30 +139,30 @@ def _parse_raw_points(
     errors: List[str],
 ) -> Dict[str, RawPoint]:
     if not isinstance(raw, list) or not raw:
-        errors.append("raw_points must contain at least one point")
+        errors.append("Bitte mindestens einen Datenpunkt angeben.")
         return {}
 
     raw_points: Dict[str, RawPoint] = {}
     for index, entry in enumerate(raw):
         if not isinstance(entry, dict):
-            errors.append("raw_points[{0}] must be an object".format(index))
+            errors.append("Datenpunkt {0} ist unvollständig.".format(index + 1))
             continue
-        point_id = _required_text(entry, "id", "raw_points[{0}]".format(index), errors)
+        point_id = _required_text(entry, "id", "Datenpunkt {0}".format(index + 1), errors)
         if not point_id:
             continue
         if point_id in raw_points:
-            errors.append("duplicate raw point id: {0}".format(point_id))
+            errors.append("Der Datenpunkt „{0}“ ist doppelt vorhanden.".format(point_id))
             continue
-        device_id = _required_text(entry, "device_id", "raw point {0}".format(point_id), errors)
+        device_id = _required_text(entry, "device_id", "Datenpunkt „{0}“".format(point_id), errors)
         if device_id and device_id not in devices:
-            errors.append("raw point {0} references unknown device: {1}".format(point_id, device_id))
+            errors.append("Der Datenpunkt „{0}“ verweist auf ein unbekanntes Gerät: {1}.".format(point_id, device_id))
         object_type = _bacnet_object_type(entry.get("object_type"))
         if object_type is None:
-            errors.append("raw point {0} has unsupported BACnet object_type".format(point_id))
+            errors.append("Beim Datenpunkt „{0}“ wird der BACnet-Objekttyp noch nicht unterstützt.".format(point_id))
             object_type = "ai"
         instance = _integer(entry.get("instance"), -1)
         if instance < 0:
-            errors.append("raw point {0} instance must be >= 0".format(point_id))
+            errors.append("Beim Datenpunkt „{0}“ fehlt eine gültige BACnet-Instanz.".format(point_id))
         raw_points[point_id] = RawPoint(
             id=point_id,
             device_id=device_id,
@@ -181,7 +181,7 @@ def _parse_mappings(
     warnings: List[str],
 ) -> List[ChannelMapping]:
     if not isinstance(raw, list) or not raw:
-        errors.append("mappings must contain at least one channel mapping")
+        errors.append("Bitte mindestens einen Datenpunkt fachlich zuordnen.")
         return []
 
     mappings: List[ChannelMapping] = []
@@ -189,38 +189,39 @@ def _parse_mappings(
     source_ids: set[str] = set()
     for index, entry in enumerate(raw):
         if not isinstance(entry, dict):
-            errors.append("mappings[{0}] must be an object".format(index))
+            errors.append("Zuordnung {0} ist unvollständig.".format(index + 1))
             continue
-        channel_id = _required_text(entry, "channel_id", "mappings[{0}]".format(index), errors)
+        channel_id = _required_text(entry, "channel_id", "Zuordnung {0}".format(index + 1), errors)
         if not channel_id:
             continue
+        label = _text(entry.get("label"), channel_id)
         if channel_id in channel_ids:
-            errors.append("duplicate channel mapping: {0}".format(channel_id))
+            errors.append("Die Bedeutung „{0}“ ist mehrfach zugeordnet. Bitte nur einen Datenpunkt auswählen.".format(label))
             continue
         channel_ids.add(channel_id)
-        source_point_id = _required_text(entry, "source_point_id", "mapping {0}".format(channel_id), errors)
+        source_point_id = _required_text(entry, "source_point_id", "Zuordnung „{0}“".format(label), errors)
         if source_point_id and source_point_id not in raw_points:
-            errors.append("mapping {0} references unknown source point: {1}".format(channel_id, source_point_id))
+            errors.append("Für „{0}“ wurde ein unbekannter Datenpunkt gewählt: {1}.".format(label, source_point_id))
         if source_point_id in source_ids:
-            warnings.append("source point {0} is mapped more than once".format(source_point_id))
+            warnings.append("Der Datenpunkt „{0}“ wird mehrfach verwendet.".format(source_point_id))
         source_ids.add(source_point_id)
         access = _text(entry.get("access"), "read").lower()
         if access not in ("read", "write", "readwrite"):
-            errors.append("mapping {0} access must be read, write or readwrite".format(channel_id))
+            errors.append("Bei „{0}“ ist die Zugriffsart ungültig.".format(label))
         plausible_min = _optional_float(entry.get("plausible_min"))
         plausible_max = _optional_float(entry.get("plausible_max"))
         if plausible_min is not None and plausible_max is not None and plausible_min > plausible_max:
-            errors.append("mapping {0} plausible_min must be <= plausible_max".format(channel_id))
+            errors.append("Bei „{0}“ ist der kleinste plausible Wert größer als der größte.".format(label))
         max_age_seconds = _optional_float(entry.get("max_age_seconds"))
         if max_age_seconds is not None and max_age_seconds <= 0:
-            errors.append("mapping {0} max_age_seconds must be > 0".format(channel_id))
+            errors.append("Bei „{0}“ muss das maximale Alter größer als 0 Sekunden sein.".format(label))
         read_interval_cycles = _integer(entry.get("read_interval_cycles"), 1)
         if read_interval_cycles <= 0:
-            errors.append("mapping {0} read_interval_cycles must be > 0".format(channel_id))
+            errors.append("Bei „{0}“ muss das Abfrageintervall größer als 0 sein.".format(label))
         mappings.append(ChannelMapping(
             channel_id=channel_id,
             source_point_id=source_point_id,
-            label=_text(entry.get("label"), channel_id),
+            label=label,
             access=access,
             scale=_float(entry.get("scale"), 1.0),
             offset=_float(entry.get("offset"), 0.0),
@@ -254,7 +255,7 @@ def _build_patch(
             expected_type = CORE_CHANNEL_OBJECT_TYPES[mapping.channel_id]
             if raw_point.object_type != expected_type:
                 errors.append(
-                    "mapping {0} must use BACnet {1}".format(mapping.channel_id, expected_type.upper())
+                    "„{0}“ benötigt einen BACnet-{1}-Datenpunkt.".format(mapping.label, expected_type.upper())
                 )
                 continue
             next_core_key = (device.host, device.port)
@@ -262,15 +263,15 @@ def _build_patch(
                 core_device_key = next_core_key
                 core_device = device
             elif core_device_key != next_core_key:
-                errors.append("core Mini EMS channels must currently use one BACnet target device")
+                errors.append("Die vier Mini-EMS-Kernpunkte müssen aktuell auf demselben BACnet-Gerät liegen.")
                 continue
             points[CORE_CHANNEL_POINT_KEYS[mapping.channel_id]] = raw_point.instance
             if mapping.scale != 1.0 or mapping.offset != 0.0 or mapping.invert:
-                warnings.append("mapping {0} transform is not applied by the current runtime config".format(mapping.channel_id))
+                warnings.append("Die Umrechnung für „{0}“ wird von der aktuellen Runtime noch nicht angewendet.".format(mapping.label))
             continue
 
         if mapping.access != "read":
-            errors.append("additional channel {0} can only be read in the current runtime".format(mapping.channel_id))
+            errors.append("Der zusätzliche Datenpunkt „{0}“ kann aktuell nur gelesen werden.".format(mapping.label))
             continue
         additional_inputs.append(_additional_input_entry(mapping, raw_point, device))
 
@@ -284,7 +285,7 @@ def _build_patch(
     if additional_inputs:
         patch["additional_inputs"] = additional_inputs
     if not points and not additional_inputs and not errors:
-        errors.append("mapping draft did not produce any runtime config fields")
+        errors.append("Aus der Zuordnung konnten keine nutzbaren Datenpunkte erzeugt werden.")
     return errors, warnings, patch
 
 
@@ -325,7 +326,14 @@ def _result(valid: bool, errors: List[str], warnings: List[str], patch: Dict[str
 def _required_text(raw: Dict[str, object], key: str, context: str, errors: List[str]) -> str:
     value = _text(raw.get(key), "")
     if not value:
-        errors.append("{0} requires {1}".format(context, key))
+        labels = {
+            "id": "eine Kennung",
+            "host": "eine Geräteadresse",
+            "device_id": "ein Gerät",
+            "channel_id": "eine fachliche Bedeutung",
+            "source_point_id": "einen Datenpunkt",
+        }
+        errors.append("{0} benötigt {1}.".format(context, labels.get(key, key)))
     return value
 
 

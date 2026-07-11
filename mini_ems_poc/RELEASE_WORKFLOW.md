@@ -92,10 +92,11 @@ als UTF-8 ohne BOM gespeichert ist. Ein BOM fuehrt beim aktuellen Release zu:
 json.decoder.JSONDecodeError: Unexpected UTF-8 BOM
 ```
 
-## 5. Admin-Token fuer die UI setzen
+## 5. Freigabecode für die UI setzen
 
-Damit die Konfigurationsseite speichern darf, braucht `api.config_admin_token` einen Wert.
-Der Token gehoert in:
+Damit „Einrichtung abschließen“ und die erweiterte Konfigurationsseite speichern dürfen, braucht
+`api.config_admin_token` einen langen zufälligen Wert. In der UI heißt dieser Wert bewusst
+**Freigabecode**. Er gehört in:
 
 ```text
 C:\ProgramData\MiniEMS\config.json

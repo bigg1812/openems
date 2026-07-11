@@ -128,7 +128,7 @@ Leitentscheidungen:
 ## Strategische To-do-Linie: Standort einrichten und Mapping
 
 - [x] **UX14. Konfigurationsbereich als "Standort einrichten" neu denken** — erledigt: die Konfigurationsseite
-  führt als „Standort einrichten“ durch Standort → Geräte → Datenpunkte → Testen → Aktivieren, mit
+  führt als „Standort einrichten“ durch Standort → Geräte → Datenpunkte → Testen → Abschließen, mit
   Hauptbotschaft („Ist dieser Standort bereit?“), Fortschritt je Schritt und Zählern (gefunden/zugeordnet/zu
   prüfen).
   - **Was:** Die Konfigurations-UI soll nicht mit technischen Feldern starten, sondern mit einem geführten
@@ -138,7 +138,7 @@ Leitentscheidungen:
     -> Geräte
     -> Datenpunkte
     -> Testen
-    -> Aktivieren
+    -> Abschließen
     ```
     Der Nutzer soll sofort sehen: Wie viele Schritte sind erledigt? Wie viele Datenpunkte sind gefunden,
     zugeordnet oder noch zu prüfen? Die Hauptfrage lautet nicht "Ist die JSON vollständig?", sondern
@@ -155,7 +155,7 @@ Leitentscheidungen:
   - **Umsetzung:** Fünf klickbare Schrittkarten (erledigt/offen/bitte klären/gesperrt) über den Panels; Einstieg
     in „Datenpunkte“ per Punktlisten-Upload (CSV/TSV/XLSX → `POST /api/config/pointlist/import`) als Standardweg
     und Discovery-Vorschau als sekundärer Weg mit ehrlichem Hinweis, wenn BACpypes3 fehlt. Rollenlogik sichtbar:
-    ohne Admin-Token ist „Aktivieren“ sichtbar, aber als gesperrt erklärt; im read-only-Netzwerkmodus
+    ohne konfigurierten Freigabecode ist „Abschließen“ sichtbar, aber als gesperrt erklärt; im read-only-Netzwerkmodus
     (`api_read_only`) erklärt die Hauptbotschaft die Sperre und die Aktionen sind ausgeblendet statt kaputt.
     Das bestehende Konfigurationsformular bleibt vollständig als „Erweiterte Direktbearbeitung“ erhalten.
     `GET /api/config/site` liefert dafür zusätzlich die aktiven Kernadressen (`points`).
@@ -409,18 +409,15 @@ Leitentscheidungen:
 
 ## Empfohlener nächster Schritt
 
-**UX-seitig ist der Mapping-Block "Standort einrichten" bis auf UX12 fertig; die aktive Entwicklungslinie
-liegt aktuell auf der technischen Seite (`ROADMAP.md`, S13-S15).** Reporting-Zielbild, Startseite, visuelle
+**Der Mapping-Block „Standort einrichten“ ist fachlich und technisch abgeschlossen; UX12 wartet nur noch auf
+die echte Rollenentscheidung aus H6.** Reporting-Zielbild, Startseite, visuelle
 Richtung, Wording, Rollenmodell und Responsive-Prüfung (UX1/2/3/4/5/6/7/8/9/10/11), der Demo-Flow (UX13)
-und der geführte Inbetriebnahmeprozess (UX14 Ablauf Standort/Geräte/Datenpunkte/Testen/Aktivieren, UX15
-fachliche Mapping-Tabelle, UX16 "Alle Punkte testen") sind erledigt. Offen aus dem Block bleibt UX12
-(rollenbasierte Konfigurationsseite als Freigabeprozess); UX12 bleibt an die Formalisierung von S6
-(Mapping-Aktivierung mit Backup und Audit, `ROADMAP.md`, Checkbox weiterhin offen) gekoppelt, auch wenn
-Token-Sperre und Aktivierung mit Backup/Neustarthinweis in der UI bereits genutzt werden. Solange S6 nicht
-aktiv bearbeitet wird, ist UX12 damit ebenfalls kein aktueller Umsetzungsschritt. Die zuletzt abgeschlossene
-technische Linie ist stattdessen `ROADMAP.md` S13-S15 (professioneller Write-Back und Anlagen-Safety);
-S13/S14 sind softwareseitig fertig, S15 bleibt als MSR-/Standortabnahme offen und löst aktuell keinen
-eigenen UX-Punkt aus.
+und der geführte Inbetriebnahmeprozess (UX14 Ablauf Standort/Geräte/Datenpunkte/Testen/Abschließen, UX15
+fachliche Mapping-Tabelle, UX16 „Alle Punkte testen“) sind erledigt. S5/S6 bilden den sicheren
+Betriebsweg: ein primärer Abschlussknopf prüft, sichert, aktiviert und protokolliert; aktiver Stand, offener
+Entwurf und Neustartbedarf bleiben klar getrennt. UX12 wird deshalb nicht mehr durch S6, sondern nur noch durch
+H6 blockiert: Erst mit festgelegten Rollen kann aus dem lokalen Freigabecode ein echter Freigabeprozess für
+Viewer, Operator und Admin werden.
 
 **Standort-Schritte laufen parallel, außerhalb dieser Roadmap.** H2 (Release-Paket) und H3 (ACL-Härtung)
 sind auf der Pilot-IPC erledigt. Offen bleibt bei H4 (API intern binden/Proxy) und H5 (Read-only
@@ -429,7 +426,6 @@ ebenso bei To-do 3 (Online-Hosting-Nachweis). H6 (Login/Rollen) ist als Auswahle
 Diese Punkte aus `ROADMAP.md` sind reine Standort-/Betriebsnachweise bzw. Betriebsentscheidungen ohne
 offenen UX-Bedarf und werden dort geführt.
 
-**Geparkt: UX17-UX22.** Punktlisten-Import/Discovery als geführter Prüfprozess (UX17), Cloud-/Northbound-Export
-(UX18), schreibende Eingriffe und Fallback (UX19), Semantik-/Datenqualitätsabdeckung (UX20), Datenauflösung und
-Verdichtung (UX21) sowie erklärbares Auto-Mapping (UX22) bleiben an spätere technische Ausbaustufen aus
-`ROADMAP.md` (S9-S16, C1-C9) gekoppelt und sind kein aktueller Umsetzungsschritt.
+**Nächste Produktlinie:** S9 startet technisch mit einem kleinen read-only Edge-to-Cloud-Pfad. UX18 wird erst
+dann konkret, wenn echte exportierte Standortdaten vorliegen. UX17 und UX19-UX22 bleiben bis zu ihren
+technischen Grundlagen aus `ROADMAP.md` (S10-S16, C1-C9) geparkt.

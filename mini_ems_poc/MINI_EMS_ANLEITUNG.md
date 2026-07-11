@@ -201,17 +201,27 @@ Der Sicherheitsmechanismus ist bewusst hart:
 
 ### Perspektive: Konfiguration über UI
 
-Aktuell bleiben `config.json` für den IPC-Betrieb und `config.local.json` für die Laptop-Simulation die
-verbindlichen Konfigurationsdateien. Eine spätere Konfigurationsseite soll diese Dateien nicht blind ersetzen,
-sondern validierte Konfigurationsentwürfe erzeugen:
+`config.json` für den IPC-Betrieb und `config.local.json` für die Laptop-Simulation bleiben die verbindlichen
+Runtime-Dateien. Die Seite **Standort einrichten** setzt davor einen einfachen, kontrollierten Ablauf:
+
+```text
+Standort -> Geräte -> Datenpunkte -> Testen -> Abschließen
+```
+
+Die UI erzeugt einen Mapping-Entwurf, prüft ihn gegen dieselben Regeln wie die Runtime und übernimmt ihn erst
+nach Eingabe des lokalen Freigabecodes. Die technische JSON-Struktur bleibt unter „Erweiterte Direktbearbeitung“
+eingeklappt und ist für die normale Inbetriebnahme nicht erforderlich.
 
 - Viewer sehen nur freigegebene Konfigurationszusammenfassungen und Statushinweise.
 - Operator können betriebliche Änderungen als Entwurf vorbereiten, aber keine aktive Standortkonfiguration speichern.
-- Konfigurator/Admin übernehmen geprüfte Entwürfe mit Admin-Recht bzw. Token.
+- Konfigurator/Admin übernehmen geprüfte Entwürfe mit dem lokalen Freigabecode
+  (`api.config_admin_token`; der technische Name bleibt nur in der Standortkonfiguration sichtbar).
 
-Vor jeder Übernahme wird die aktive Konfiguration gesichert. Ungültige Entwürfe dürfen die aktive Konfiguration
-nicht überschreiben. Änderungen an Feldern, die beim Start geladen werden, werden erst nach einem geplanten
-Mini-EMS-Neustart aktiv und müssen in UI und Betriebsablauf als "Neustart erforderlich" erkennbar bleiben.
+Vor jeder Übernahme wird die aktive Konfiguration automatisch gesichert und der Entwurf unter `mapping_drafts/`
+aufbewahrt. Ungültige Entwürfe dürfen die aktive Konfiguration nicht überschreiben. Der sichtbare
+Änderungsverlauf kommt aus `config_audit.jsonl` und enthält keine Tokens oder technischen Dateipfade. Änderungen
+an Feldern, die beim Start geladen werden, werden erst nach einem geplanten Mini-EMS-Neustart aktiv; die UI zeigt
+den Neustartbedarf bis zum tatsächlichen Runtime-Neustart an.
 
 Vor echtem IPC-Betrieb braucht jede neue oder geänderte Konfiguration mindestens diese Abnahme:
 
@@ -246,9 +256,9 @@ Empfohlener Ablauf:
 
 3. **Datenpunktliste importieren**
 
-   Aktuell ist das ein technischer API-Schritt; die geführte Upload-Oberfläche folgt in der Mapping-UI. Die Datei
-   wird als Inhalt an `POST /api/config/pointlist/import` gesendet. Ergebnis sind Rohpunkt-Kandidaten und ein
-   Mapping-Entwurf, keine aktive Konfiguration.
+   Auf **Konfiguration → Standort einrichten → Datenpunkte** die Datei über „Punktliste hochladen“ auswählen.
+   Intern sendet die UI den Inhalt an `POST /api/config/pointlist/import`. Ergebnis sind Rohpunkt-Kandidaten und
+   ein Mapping-Entwurf, noch keine aktive Konfiguration.
 
    Minimales CSV-Beispiel:
 
@@ -271,16 +281,16 @@ Empfohlener Ablauf:
    - Sind Schreibpunkte nur als Kandidaten markiert und nicht automatisch aktiv?
    - Gibt es Warnungen zu unbekannten Objekttypen, doppelten Punkten oder fehlenden Spalten?
 
-5. **Mapping-Entwurf validieren**
+5. **Zuordnung prüfen und Punkte testen**
 
-   Der Entwurf wird mit `POST /api/config/mapping/preview` geprüft. Dieser Schritt erzeugt nur einen
-   Runtime-Config-Patch und überschreibt nichts.
+   Fachliche Bedeutungen in der Tabelle zuordnen und „Alle Punkte testen“ ausführen. „Nur prüfen“ validiert den
+   Entwurf über `POST /api/config/mapping/preview`; dieser Schritt überschreibt nichts.
 
-6. **Nur nach Review aktivieren**
+6. **Einrichtung abschließen**
 
-   Aktivieren erfolgt erst über `POST /api/config/mapping/activate` mit Admin-Token. Dabei entstehen Backup,
-   Entwurfsdatei und Audit-Eintrag. Danach ist ein geplanter Mini-EMS-Neustart nötig, weil viele
-   Konfigurationsfelder beim Start geladen werden.
+   Lokalen Freigabecode eingeben und „Einrichtung abschließen“ wählen. Die UI prüft automatisch noch einmal und
+   ruft erst danach `POST /api/config/mapping/activate` auf. Backup, Entwurfsdatei und Audit-Eintrag entstehen
+   automatisch. Danach zeigt die UI den nötigen Mini-EMS-Neustart an.
 
 7. **Erster Standorttest nur read-only**
 
@@ -591,6 +601,22 @@ Lokal (`config.local.json`): `logs/local/mini_ems.local.log`
 
 Diese Datei ist die technische Referenzdatei. Sie ist bei Zeit-, Schalt- und Kommunikationsfragen wichtiger als GUI oder Excel, weil dort die echten App-Zeitstempel und Fehlerdetails stehen.
 
+Für H8 enthält das strukturierte Betriebslog insbesondere:
+
+- `app.started` für jeden Runtime-Start,
+- `ui.accessed` für einen Dashboard-Aufruf, bewusst ohne Client-IP oder Benutzername,
+- `config.mapping_activated` und `config.site_saved` für administrative Übernahmen,
+- `cycle.output_confirmed` bzw. `cycle.output_not_confirmed` für Anlagenübergaben.
+
+Konfigurationsänderungen werden zusätzlich dauerhaft neben der Standortkonfiguration geführt:
+
+- `config_audit.jsonl`: Mapping-Aktivierungen, direkte Standortänderungen und Änderungen der Preissteuerung,
+- `mapping_drafts/mapping.<revision>.json`: der bei einer Mapping-Aktivierung freigegebene Entwurf,
+- `config.json.<revision>.bak`: die automatisch angelegte Sicherung vor der Übernahme.
+
+Die UI liest über `GET /api/config/changes` nur eine bereinigte Zusammenfassung aus dem Audit. Tokens,
+Dateipfade und personenbezogene Daten werden dabei nicht ausgegeben.
+
 ## Spotmarkt-Dateien
 
 ### `data/spotmarket/spotmarket_price_cache.json` (IPC) / `data/local/spotmarket_price_cache.json` (lokal)
@@ -697,6 +723,8 @@ Wichtige Endpunkte:
   - 1-Stunden-Rollup
 - `/api/cycles?limit=20`
   - letzte Zyklen
+- `/api/config/changes?limit=10`
+  - bereinigter Änderungsverlauf ohne Tokens, Dateipfade oder personenbezogene Daten
 - `/api/report/daily?date=2026-04-09`
   - Tagesreport als JSON
 - `/api/report/daily.csv?date=2026-04-09`
@@ -706,7 +734,7 @@ Wichtige Endpunkte:
 - `POST /api/config/mapping/preview`
   - validiert einen Mapping-Entwurf und erzeugt daraus nur einen Runtime-Config-Patch
 - `POST /api/config/mapping/activate`
-  - übernimmt einen validierten Mapping-Entwurf nur mit Admin-Token; erstellt Backup, Entwurfsdatei und Audit-Eintrag
+  - übernimmt einen validierten Mapping-Entwurf nur mit lokalem Freigabecode; erstellt Backup, Entwurfsdatei und Audit-Eintrag
 - `POST /api/config/pointlist/import`
   - importiert eine CSV-/TSV-/XLSX-Datenpunktliste aus `filename` plus `content_base64` oder `content`; Ergebnis sind
     Rohpunkt-Kandidaten und ein Mapping-Entwurf, keine aktive Konfiguration
@@ -837,6 +865,10 @@ Wichtig:
 16. Ein Relinquish-/NULL-Write-Pfad existiert fuer explizit freigegebene Punkte
 17. Ein optionaler Edge-DDC-Heartbeat-Counter ist softwareseitig vorbereitet; der echte DDC-Fallback muss
     am Standort/MSR-seitig abgenommen werden
+18. Die geführte Standort-Einrichtung arbeitet über Mapping-Entwurf und Preview; „Einrichtung abschließen“
+    prüft erneut, sichert den alten Stand, erhält den Entwurf und protokolliert die Freigabe
+19. Aktiver Stand, offene Änderungen und Neustartbedarf bleiben in der UI getrennt sichtbar; der bereinigte
+    Änderungsverlauf zeigt die letzten administrativen Übernahmen
 
 ### Beobachtungshinweise
 
@@ -867,7 +899,8 @@ Weiter in dieser Reihenfolge:
 2. Am IPC nur noch den zweiten-Rechner-/Secomea-Nachweis fuer H4/H5 fahren:
    `https://192.168.244.10` muss funktionieren, `http://192.168.244.10:8090` darf nicht mehr direkt erreichbar sein,
    aktive/schreibende Endpunkte muessen `HTTP 403` liefern
-3. Danach den Mapping-Kern weiterbauen: Mapping-Entwurf, Preview, Aktivierung mit Backup/Audit und
-   gefuehrte Standort-einrichten-UI
-4. `BV:400` im echten Betrieb fachlich absichern, bevor neue schreibende Eingriffe ausgebaut werden
-5. Reports auf Basis der SQLite-Historie nutzen und UI/Betriebsoberflaeche weiter ausbauen
+3. Als nächste Laptop-Linie S9 klein beginnen: normalisierte read-only Payload, lokale Outbox und simulierter
+   Cloud-Empfänger; keine Remote-Befehle und kein direkter Anlagenzugriff
+4. `BV:400` und den S15-DDC-Fallback im echten Betrieb fachlich absichern, bevor neue schreibende Eingriffe
+   ausgebaut werden
+5. Reports auf Basis der SQLite-Historie nutzen und die spätere Cloud-Oberfläche auf den stabilen Edge-Daten aufbauen

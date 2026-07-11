@@ -40,8 +40,8 @@ ein Skript nicht nutzbar ist.
   Ablauf: `SHA256SUMS` des Pakets prüfen → Task stoppen und Prozess-Ende
   verifizieren → bisherigen App-Ordner nach `<AppDir>_vorher_<version>`
   umbenennen (Rollback-Kandidat) → neues Paket nach `AppDir` kopieren → Task
-  starten → Smoketest. Standortdaten in `SiteDir` (`config.json`, `data\`,
-  `logs\`, `runtime\`) werden **nie** angefasst. Für einen Trockenlauf `-WhatIf`
+  starten → Smoketest. Standortdaten in `SiteDir` (`config.json`, `data\`, `logs\`, `runtime\`,
+  `config_audit.jsonl`, `mapping_drafts\`, `config.json.*.bak`) werden **nie** angefasst. Für einen Trockenlauf `-WhatIf`
   anhängen.
 
 - **Rollback** bei fehlgeschlagenem Smoketest:
@@ -90,6 +90,8 @@ Build-Laptop ist kein PowerShell verfügbar). Beim ersten IPC-Einsatz zuerst mit
    - `data/runtime/mini_ems.sqlite` (Betriebsdaten-Historie)
    - `logs/mini_ems.log`, `logs/mini_ems_stdout.log` (Logs)
    - `runtime/state.json`, `runtime/health.json` (Laufzeit-/Health-Zustand)
+   - `config_audit.jsonl`, `mapping_drafts/`, `config.json.*.bak` (H8-Verlauf, freigegebene Mapping-Entwürfe
+     und automatische Konfigurationssicherungen)
    - `data/spotmarket/spotmarket_manual_override.json` (aktive manuelle Override-Einstellung, falls
      genutzt)
    Ein Update ersetzt **nur** die Anwendungsdateien (Code, Dashboard-Assets, Startskripte, mitgelieferte
@@ -103,7 +105,7 @@ Build-Laptop ist kein PowerShell verfügbar). Beim ersten IPC-Einsatz zuerst mit
      ist aber kein laufend zu editierender Standortdatenbestandteil.
    - **Standortdaten** (bleiben unangetastet, werden vor dem Update gesichert): `config.json`,
      `data/runtime/`, `data/spotmarket/spotmarket_manual_override.json` (falls aktiv gesetzt),
-     `logs/`, `runtime/`.
+     `logs/`, `runtime/`, `config_audit.jsonl`, `mapping_drafts/`, `config.json.*.bak`.
 4. **Kein zweiter Blindversuch.** Schlägt ein Update fehl oder besteht der Healthcheck nicht, folgt
    Rollback (Abschnitt 3) statt eines zweiten Installationsversuchs ohne Ursachenklärung.
 5. **Keine Sicherheitsversprechen über das hinaus, was auf kundeneigener Hardware haltbar ist.** Wie in
@@ -174,6 +176,9 @@ Durchführung remote via Secomea/VPN auf die IPC, wie in `HOSTING_SICHERHEIT.md`
    Copy-Item "runtime\state.json" "$backupDir\"
    Copy-Item "runtime\health.json" "$backupDir\"
    Copy-Item "logs\mini_ems.log" "$backupDir\" -ErrorAction SilentlyContinue
+   Copy-Item "config_audit.jsonl" "$backupDir\" -ErrorAction SilentlyContinue
+   Copy-Item "mapping_drafts" "$backupDir\mapping_drafts" -Recurse -ErrorAction SilentlyContinue
+   Copy-Item "config.json.*.bak" "$backupDir\" -ErrorAction SilentlyContinue
    ```
    (Pfad `C:\ProgramData\MiniEMS\...` ist die vorgesehene Zielstruktur aus H3 – Konzept liegt jetzt vor in
    `HOSTING_SICHERHEIT.md` Teil 3, Anwendung auf der realen IPC steht noch aus. Solange das Ziel-Layout
@@ -183,7 +188,8 @@ Durchführung remote via Secomea/VPN auf die IPC, wie in `HOSTING_SICHERHEIT.md`
    One-Dir-Format ist das der Ordner mit `mini_ems.exe`, `dashboard/`, `mini_ems_runtime/templates/`,
    `VERSION` und `SHA256SUMS`. Konkret: den bisherigen Installationsordner umbenennen (z. B. auf
    `MiniEMS_vorher`) **oder** das vorherige Release-Archiv aufbewahren, aus dem er installiert wurde. Die
-   unter Punkt 6 gesicherten Standortdaten (`config.json`, `data/runtime/`, `runtime/`, `logs/`) sind hier
+   unter Punkt 6 gesicherten Standortdaten (`config.json`, `data/runtime/`, `runtime/`, `logs/`,
+   `config_audit.jsonl`, `mapping_drafts/`, `config.json.*.bak`) sind hier
    nicht erneut zu kopieren; sie gehören nicht zum Release-Ordner.
 8. Backup-Vollständigkeit stichprobenartig prüfen: Größe von `config.json` und der SQLite-Datei im
    Backup mit dem Original vergleichen (`Get-Item <pfad> | Select Length`).
@@ -197,7 +203,8 @@ Durchführung remote via Secomea/VPN auf die IPC, wie in `HOSTING_SICHERHEIT.md`
    aktivierter `_internal`-Struktur bzw. die flach danebenliegenden Laufzeitdateien, `dashboard/`,
    `mini_ems_runtime/templates/`, optional `sim/`, `VERSION`, `SHA256SUMS` und `RELEASE_HINWEISE.md`.
    Die Zielaussage bleibt: Code/Assets/Vorlagen werden ersetzt; `config.json`, `data/runtime/`, `runtime/`,
-   `logs/` liegen außerhalb des Release-Ordners und bleiben unverändert. Der Start erfolgt über den
+   `logs/`, `config_audit.jsonl`, `mapping_drafts/` und `config.json.*.bak` liegen außerhalb des Release-Ordners
+   und bleiben unverändert. Der Start erfolgt über den
    geplanten Windows-Task (`windows/install_task.ps1 -Mode release`) mit externem `--config <pfad>\config.json`.
 10. Nach dem Ersetzen erneut Prüfsumme kontrollieren: Die mitgelieferte `SHA256SUMS` gegen die tatsächlichen
     Dateien im installierten Ordner prüfen (nicht nur vor dem Kopieren, auch am Zielort, um
@@ -251,8 +258,8 @@ Durchführung remote via Secomea/VPN auf die IPC, wie in `HOSTING_SICHERHEIT.md`
     Erwartung: keine neuen `ERROR`/`Traceback`-Einträge nach dem Start-Zeitstempel aus Schritt 13.
 19. Mindestens einen vollständigen Zyklus lang beobachten (Faustregel: 3–5 Zyklen, siehe
     `timing.cycle_seconds`), bevor das Update als abgeschlossen gilt.
-20. Ergebnis (bestanden/nicht bestanden) und Zeitpunkt im Betriebslog/Zugriffskonzept festhalten
-    (Vorbereitung H8).
+20. Ergebnis (bestanden/nicht bestanden) und Zeitpunkt als Teil des H8-Betriebsnachweises im
+    Betriebslog/Zugriffskonzept festhalten.
 
 Besteht der Healthcheck alle Punkte 15–19 → Update abgeschlossen, Backup-Ordner aus Schritt 6/7 gemäß
 Aufbewahrungsregel (siehe Abschnitt 4) behalten. Besteht er nicht → Rollback (Abschnitt 3).
@@ -290,7 +297,8 @@ Rollback auslösen, wenn nach dem Update **mindestens einer** dieser Healthcheck
    und den beiseitegelegten `MiniEMS_vorher`-Ordner (oder das vorherige Release-Archiv) wieder an die
    Installationsstelle bringen.
 4. Standortdaten aus dem in Abschnitt 2.3 Schritt 6 angelegten Backup zurückspielen: `config.json`,
-   `data/runtime/`, `runtime/state.json`, `runtime/health.json`,
+   `data/runtime/`, `runtime/state.json`, `runtime/health.json`, `config_audit.jsonl`, `mapping_drafts/`,
+   `config.json.*.bak`,
    `data/spotmarket/spotmarket_manual_override.json` (falls gesichert). Nur zurückspielen, falls das
    fehlgeschlagene Update diese Dateien tatsächlich verändert hat – im Normalfall (Grundsatz 2) hat es
    das nicht, dann bleibt dieser Schritt eine Kontrolle statt einer Wiederherstellung.
@@ -301,7 +309,7 @@ Rollback auslösen, wenn nach dem Update **mindestens einer** dieser Healthcheck
 ### 3.3 Was danach
 
 7. **Meldung:** Rollback-Vorfall mit Zeitpunkt, betroffener Zielversion, beobachtetem Healthcheck-Befund
-   und Rollback-Ergebnis im Betriebslog/Zugriffskonzept festhalten (Vorbereitung H8).
+   und Rollback-Ergebnis als Teil des H8-Betriebsnachweises im Betriebslog/Zugriffskonzept festhalten.
 8. **Ursachenanalyse:** Vor jedem erneuten Update-Versuch klären, woran das fehlgeschlagene Update lag
    (Paketfehler, Prüfsumme, Konfigurationslücke, Umgebungsunterschied Test- vs. Kunden-IPC). Das gehört
    in die Vorbereitung des nächsten Versuchs, nicht in eine sofortige zweite Installation.
@@ -394,8 +402,8 @@ Secomea-Fernzugriff ohnehin stattfindet):
 Konsistent zur Sichtbarkeits- und Änderungsmatrix in `HOSTING_SICHERHEIT.md`, Teil 1, Abschnitt 1.2:
 
 - **Wir (Admin-Rolle, interner Betrieb) führen Updates remote über Secomea/VPN durch.** Ersetzen des
-  Release-Pakets, Bearbeiten von `config.json`, direkter Zugriff auf `data/runtime/`, `runtime/` und
-  `logs/` bleibt Admin-Arbeit – genau die Ressourcen, die laut Sichtbarkeitsmatrix nur der Admin lesen
+  Release-Pakets, Bearbeiten von `config.json`, direkter Zugriff auf `data/runtime/`, `runtime/`, `logs/`,
+  `config_audit.jsonl` und `mapping_drafts/` bleibt Admin-Arbeit – genau die Ressourcen, die laut Sichtbarkeitsmatrix nur der Admin lesen
   und ändern darf. Das ist der Standardweg für den Update-Ablauf in Abschnitt 2.
 - **Der Kunde/Betreiber vor Ort führt keine eigenständigen Updates durch.** Operator und Viewer haben
   laut Sichtbarkeitsmatrix keinen Lese- oder Änderungszugriff auf Standortkonfiguration, Runtime-Dateien

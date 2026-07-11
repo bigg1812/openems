@@ -12,7 +12,8 @@ Automatisiert den bisher manuellen Update-Ablauf aus UPDATE_WARTUNG.md:
   6. Smoketest (windows\smoketest_release.ps1) fahren.
   7. Ergebnis ausgeben; bei Fehlschlag klare Anweisung zum Rollback.
 
-Standortdaten (-SiteDir: config.json, data\, logs\, runtime\) werden NIE
+Standortdaten (-SiteDir: config.json, data\, logs\, runtime\,
+config_audit.jsonl, mapping_drafts\, config.json.*.bak) werden NIE
 angefasst - nur der App-Ordner wird ersetzt.
 
 Rollback: erneut mit -Rollback aufrufen. Der juengste <AppDir>_vorher_*-Ordner

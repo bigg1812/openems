@@ -209,7 +209,8 @@ function makeState(overrides) {
     devices: seeded.devices,
     rows: seeded.rows.map((row) => ({ ...row })),
     preview: { valid: null, message: null, tone: "neutral", patch: null },
-    activation: { done: false },
+    activation: { done: true, restartRequired: false, revision: "r1", activatedAt: "2026-07-11T10:00:00Z" },
+    dirty: false,
     ...overrides,
   };
 }
@@ -220,15 +221,31 @@ check("Schritte: Standort erledigt", steps[0].state, "done");
 check("Schritte: Geräte erledigt", steps[1].state, "done");
 check("Schritte: Datenpunkte erledigt (aktive Zuordnung)", steps[2].state, "done");
 check("Schritte: Testen offen", steps[3].state, "open");
-check("Schritte: Aktivieren offen", steps[4].state, "open");
+check("Schritte: Abschluss aktiv", steps[4].state, "done");
+check("Schritte: Abschluss verständlich benannt", steps[4].label, "Abschließen");
 
 const readOnlySteps = context.computeSetupSteps(makeState({ readOnly: true }));
 check("Schritte: read-only sperrt Testen", readOnlySteps[3].state, "locked");
 check("Schritte: read-only sperrt Aktivieren", readOnlySteps[4].state, "locked");
 
-const noTokenSteps = context.computeSetupSteps(makeState({ saveEnabled: false }));
+const noTokenSteps = context.computeSetupSteps(makeState({
+  saveEnabled: false,
+  activation: { done: false, restartRequired: false, revision: null, activatedAt: null },
+}));
 check("Schritte: ohne Token gesperrt erklärt", noTokenSteps[4].state, "locked");
-check("Schritte: Sperrgrund benannt", noTokenSteps[4].detail.includes("Admin-Token"), true);
+check("Schritte: Sperrgrund benannt", noTokenSteps[4].detail.includes("Freigabecode"), true);
+
+const noTokenDirtySteps = context.computeSetupSteps(makeState({ saveEnabled: false, dirty: true }));
+check("Schritte: offener Entwurf bleibt ohne Freigabecode gesperrt", noTokenDirtySteps[4].state, "locked");
+
+const dirtySteps = context.computeSetupSteps(makeState({ dirty: true }));
+check("Schritte: offener Entwurf ist nicht abgeschlossen", dirtySteps[4].state, "open");
+check("Schritte: offener Entwurf verständlich erklärt", dirtySteps[4].detail.includes("noch nicht übernommen"), true);
+
+const restartSteps = context.computeSetupSteps(makeState({
+  activation: { done: true, restartRequired: true, revision: "r2", activatedAt: "2026-07-11T10:00:00Z" },
+}));
+check("Schritte: Neustart bleibt sichtbar", restartSteps[4].detail.includes("Neustart erforderlich"), true);
 
 const failedState = makeState({});
 failedState.rows[0].test = { tone: "alert", text: "Keine Antwort von der Anlage.", valueLabel: "" };
@@ -236,7 +253,9 @@ check("Schritte: Fehlversuch markiert Testen", context.computeSetupSteps(failedS
 
 const heroReadOnly = context.buildSetupHeroMessage(readOnlySteps, context.setupCounts(seeded.rows), makeState({ readOnly: true }));
 check("Hero: read-only Warnung", heroReadOnly.level, "warn");
-const heroNeutral = context.buildSetupHeroMessage(steps, context.setupCounts(seeded.rows), makeState({}));
+const heroActive = context.buildSetupHeroMessage(steps, context.setupCounts(seeded.rows), makeState({}));
+check("Hero: aktiver Stand verständlich", heroActive.headline, "Der Standort ist eingerichtet.");
+const heroNeutral = context.buildSetupHeroMessage(dirtySteps, context.setupCounts(seeded.rows), makeState({ dirty: true }));
 check("Hero: Zählerzeile enthalten", heroNeutral.detail.includes("Datenpunkte gefunden"), true);
 check("Hero: nächster Schritt benannt", heroNeutral.detail.includes("Nächster Schritt"), true);
 

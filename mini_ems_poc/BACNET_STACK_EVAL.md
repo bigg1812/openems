@@ -208,7 +208,7 @@ Betriebs- und Lizenzrisiko.
    Datenpunktliste als Excel-/CSV-Datei. Dieser Upload-Pfad soll dieselben Rohpunkt-Kandidaten erzeugen
    wie ein BACpypes3-Discovery-Lauf: Name, Gerät/Quelle, Objekttyp, Instanz, Einheit, Kommentar,
    Zugriff/Schreibpunkt-Hinweis und optional eine Probe. Auch daraus entstehen keine aktiven Kanäle;
-   Sortieren, Filtern, Zuordnen, Testen und Aktivieren laufen über denselben S5/S6-Mapping-Pfad.
+   Sortieren, Filtern, Zuordnen, Testen und Abschließen laufen über denselben S5/S6-Mapping-Pfad.
 
 ### RPM-/Broadcast-Lastgrenzen als konkrete Regeln
 

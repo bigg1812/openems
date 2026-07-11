@@ -331,6 +331,33 @@ config.json
 -> StateStore + RuntimeDatabase + Dashboard
 ```
 
+## Geführter Mapping- und Freigabeweg
+
+Für die Inbetriebnahme wird `config.json` nicht mehr direkt aus einer Punktliste heraus bearbeitet. Der
+verbindliche Weg ist:
+
+```text
+Punktliste oder read-only Discovery
+-> Mapping-Entwurf (Geräte, Rohpunkte, fachliche Zuordnungen)
+-> POST /api/config/mapping/preview
+-> verständliche Fehler/Hinweise in der UI
+-> Test der lesbaren Punkte
+-> Einrichtung abschließen mit lokalem Freigabecode
+-> Backup + gespeicherter Entwurf + Audit-Eintrag
+-> geplanter Runtime-Neustart
+```
+
+`mapping_config.py` erzeugt aus dem Entwurf nur die erlaubten Runtime-Bereiche (`network`, `points`,
+`additional_inputs`). Die Runtime arbeitet weiterhin mit der validierten Standortkonfiguration und nicht direkt
+mit Browser-Formularfeldern. Dadurch bleibt die Bedienung fachlich einfach, während Backup, Rollback und
+Anlagensicherheit technisch getrennt bleiben.
+
+Der fünfte UI-Schritt zeigt drei Zustände ausdrücklich getrennt:
+
+- **Aktive Zuordnung:** wird aktuell von Mini EMS verwendet.
+- **Entwurf mit offenen Änderungen:** hat noch keine Wirkung auf die Anlage.
+- **Freigegeben, Neustart ausstehend:** ist gespeichert und auditiert, wird aber erst nach dem Neustart geladen.
+
 Aktuelle Kernpunkte:
 
 | Mini-EMS-Kanal | BACnet-Objekt | Instanz | Zugriff | Bedeutung |

@@ -138,7 +138,7 @@ Die einzige Runtime-Änderung für das Packaging ist `mini_ems_runtime/resources
 plus eine Zeile in `mini_ems_runtime/app.py`:
 
 - **Git/Entwicklung** (nicht frozen): Ressourcen liegen neben `config.json`
-  (`config.base_dir`) – Verhalten exakt wie bisher, alle 117 Tests unverändert grün.
+  (`config.base_dir`) – Verhalten exakt wie bisher, alle 122 Tests unverändert grün.
 - **Frozen** (`sys.frozen` gesetzt): Ressourcen liegen neben dem Executable
   (`Path(sys.executable).parent`).
 

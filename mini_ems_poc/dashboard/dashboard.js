@@ -83,7 +83,7 @@ const PAGES = {
 const PAGE_SUBTITLES = {
   analyse: "Messwerte und Datenqualität über frei wählbare Zeiträume prüfen.",
   berichte: "Tagesbericht anzeigen, herunterladen oder einen eigenen Bericht zusammenstellen.",
-  konfiguration: "Standort Schritt für Schritt einrichten: Datenpunkte aufnehmen, zuordnen, testen und aktivieren.",
+  konfiguration: "Standort Schritt für Schritt einrichten: Datenpunkte aufnehmen, zuordnen, testen und sicher abschließen.",
   system: "Systemzustand, Kommunikation und letzte Läufe kontrollieren.",
 };
 
@@ -1511,6 +1511,7 @@ function initSiteConfigPage() {
   setText("site-config-source", "Prototypvorlage");
   setSiteConfigFeedback("Noch nicht geprüft.", "neutral");
   loadSiteConfigFromBackend();
+  loadSetupChangeHistory();
 }
 
 async function loadSiteConfigFromBackend() {
@@ -1848,7 +1849,7 @@ async function saveSiteConfig() {
   }
   const token = document.getElementById("site-config-token").value.trim();
   if (!token) {
-    setSiteConfigFeedback("Bitte zuerst den Admin-Token eintragen. Ohne Token wird nichts gespeichert.", "warn");
+    setSiteConfigFeedback("Bitte zuerst den Freigabecode eintragen. Ohne Freigabe wird nichts gespeichert.", "warn");
     document.getElementById("site-config-token").focus();
     return;
   }
@@ -1859,8 +1860,10 @@ async function saveSiteConfig() {
     const payload = buildSiteConfigPayload();
     const response = await postJson("/api/config/site/save", payload, { token });
     appState.siteConfig.dirty = false;
+    await loadSiteConfigFromBackend();
     setText("site-config-source", "Vom Backend gespeichert");
     setSiteConfigFeedback(siteConfigResponseMessage(response, "save"), siteConfigResponseState(response));
+    await loadSetupChangeHistory();
   } catch (error) {
     setSiteConfigFeedback(error.message, "warn");
   } finally {
@@ -1956,7 +1959,7 @@ function setSiteConfigFeedback(message, state = "neutral") {
 
 /* ============================================================
    Standort einrichten (UX14/UX15/UX16): geführte Inbetriebnahme.
-   Standort -> Geräte -> Datenpunkte -> Testen -> Aktivieren.
+   Standort -> Geräte -> Datenpunkte -> Testen -> Abschließen.
    Die Tabelle zeigt die fachliche Bedeutung zuerst; Technikdetails
    liegen im einklappbaren Technikbereich je Zeile.
    ============================================================ */
@@ -1966,7 +1969,7 @@ const SETUP_STEPS = [
   { id: "geraete", label: "Geräte" },
   { id: "punkte", label: "Datenpunkte" },
   { id: "testen", label: "Testen" },
-  { id: "aktivieren", label: "Aktivieren" },
+  { id: "aktivieren", label: "Abschließen" },
 ];
 
 const SETUP_STATUS_WORDS = {
@@ -2015,7 +2018,9 @@ const setupState = {
   filters: { status: "alle", group: "alle", sort: "gruppe" },
   test: { running: false, abort: false, summary: null, summaryTone: "neutral" },
   preview: { valid: null, message: null, tone: "neutral", patch: null },
-  activation: { done: false },
+  activation: { done: false, restartRequired: false, revision: null, activatedAt: null },
+  dirty: false,
+  changes: [],
 };
 
 /* ---------- Zustandsableitung (rein, ohne DOM) ---------- */
@@ -2040,6 +2045,11 @@ function setupOptionalNumber(value) {
   }
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function markSetupDraftChanged() {
+  setupState.dirty = true;
+  setupState.preview = { valid: null, message: null, tone: "neutral", patch: null };
 }
 
 /* Aktive Konfiguration -> Geräte und Mapping-Zeilen (Vorbelegung der Tabelle). */
@@ -2464,18 +2474,27 @@ function computeSetupSteps(state) {
     steps.push({ id: "testen", label: "Testen", state: "open", detail: "Noch nicht geprüft." });
   }
 
-  if (state.activation.done) {
-    steps.push({ id: "aktivieren", label: "Aktivieren", state: "done", detail: "Aktiviert, Neustart erforderlich." });
-  } else if (state.readOnly) {
-    steps.push({ id: "aktivieren", label: "Aktivieren", state: "locked", detail: "Nur lokal/administrativ möglich." });
+  if (state.readOnly) {
+    steps.push({ id: "aktivieren", label: "Abschließen", state: "locked", detail: "Nur lokal/administrativ möglich." });
+  } else if (state.dirty && state.loaded && !state.saveEnabled) {
+    steps.push({ id: "aktivieren", label: "Abschließen", state: "locked", detail: "Freigabecode fehlt auf der Anlage." });
+  } else if (state.dirty) {
+    steps.push({ id: "aktivieren", label: "Abschließen", state: "open", detail: "Änderungen noch nicht übernommen." });
+  } else if (state.activation.done) {
+    steps.push({
+      id: "aktivieren",
+      label: "Abschließen",
+      state: "done",
+      detail: state.activation.restartRequired ? "Abgeschlossen, Neustart erforderlich." : "Aktive Zuordnung.",
+    });
   } else if (state.loaded && !state.saveEnabled) {
-    steps.push({ id: "aktivieren", label: "Aktivieren", state: "locked", detail: "Kein Admin-Token auf der Anlage eingerichtet." });
+    steps.push({ id: "aktivieren", label: "Abschließen", state: "locked", detail: "Kein Freigabecode auf der Anlage eingerichtet." });
   } else if (state.preview.valid === true) {
-    steps.push({ id: "aktivieren", label: "Aktivieren", state: "open", detail: "Geprüft, bereit zur Aktivierung." });
+    steps.push({ id: "aktivieren", label: "Abschließen", state: "open", detail: "Geprüft, bereit zum Abschließen." });
   } else if (state.preview.valid === false) {
-    steps.push({ id: "aktivieren", label: "Aktivieren", state: "error", detail: "Prüfung meldet Fehler." });
+    steps.push({ id: "aktivieren", label: "Abschließen", state: "error", detail: "Prüfung meldet Fehler." });
   } else {
-    steps.push({ id: "aktivieren", label: "Aktivieren", state: "open", detail: "Zuordnung noch nicht geprüft." });
+    steps.push({ id: "aktivieren", label: "Abschließen", state: "open", detail: "Zuordnung noch nicht geprüft." });
   }
 
   return steps;
@@ -2492,14 +2511,21 @@ function buildSetupHeroMessage(steps, counts, state) {
     return {
       level: "warn",
       headline: "Nur-Lese-Zugriff: Inbetriebnahme hier nicht möglich.",
-      detail: "Ansehen ist möglich. Datenpunkte ändern, testen und aktivieren geht nur über den lokalen bzw. administrativen Zugriff auf der Anlage.",
+      detail: "Ansehen ist möglich. Datenpunkte ändern, testen und abschließen geht nur über den lokalen bzw. administrativen Zugriff auf der Anlage.",
     };
   }
-  if (state.activation.done) {
+  if (state.activation.done && state.activation.restartRequired && !state.dirty) {
     return {
       level: "ok",
-      headline: "Zuordnung aktiviert. Ein Neustart der Steuerung ist erforderlich.",
+      headline: "Einrichtung abgeschlossen. Ein Neustart ist erforderlich.",
       detail: "Nach dem Neustart liest die Anlage die neue Zuordnung. Danach die Punkte erneut testen.",
+    };
+  }
+  if (state.activation.done && !state.dirty) {
+    return {
+      level: "ok",
+      headline: "Der Standort ist eingerichtet.",
+      detail: "Die aktuelle Zuordnung ist aktiv. Änderungen werden erst nach einer erneuten Freigabe übernommen.",
     };
   }
   const doneCount = steps.filter((step) => step.state === "done").length;
@@ -2535,13 +2561,26 @@ function seedSetupFromSiteConfig(payload) {
   setupState.saveEnabled = safe.save_enabled === true;
   setupState.loaded = setupState.siteConfig !== null;
   setupState.loadFailed = !setupState.loaded;
+  let seeded = { devices: [], rows: [] };
+  let pendingImportCount = 0;
   if (setupState.loaded) {
-    const seeded = buildSetupFromSiteConfig(setupState.siteConfig);
+    seeded = buildSetupFromSiteConfig(setupState.siteConfig);
     const importedDevices = setupState.devices.filter((device) => device.origin === "import");
     const importedRows = setupState.rows.filter((row) => row.origin !== "active");
+    pendingImportCount = importedRows.length;
     setupState.devices = [...seeded.devices, ...importedDevices];
     setupState.rows = [...seeded.rows, ...importedRows];
   }
+  const mappingStatus = safe.mapping_status && typeof safe.mapping_status === "object"
+    ? safe.mapping_status
+    : {};
+  setupState.activation = {
+    done: mappingStatus.active === true || seeded.rows.some((row) => Boolean(row.channelId)),
+    restartRequired: safe.restart_required === true,
+    revision: mappingStatus.revision || null,
+    activatedAt: mappingStatus.activated_at || null,
+  };
+  setupState.dirty = pendingImportCount > 0;
   renderSetupPage();
 }
 
@@ -2549,6 +2588,20 @@ function markSetupLoadFailed() {
   if (!setupState.loaded) {
     setupState.loadFailed = true;
     renderSetupPage();
+  }
+}
+
+async function loadSetupChangeHistory() {
+  try {
+    const response = await fetch("/api/config/changes?limit=6", { cache: "no-store" });
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    setupState.changes = Array.isArray(payload.changes) ? payload.changes : [];
+    renderSetupChangeHistory();
+  } catch {
+    /* Der Einrichtungsflow bleibt auch ohne geladenen Verlauf nutzbar. */
   }
 }
 
@@ -2622,7 +2675,9 @@ function applySetupImport(payload, sourceName) {
   }
   setupState.devices = [...setupState.devices, ...merged.devices];
   setupState.rows = [...setupState.rows, ...merged.rows];
-  setupState.preview = { valid: null, message: null, tone: "neutral", patch: null };
+  if (merged.devices.length || merged.rows.length) {
+    markSetupDraftChanged();
+  }
   const assignedCount = merged.rows.filter((row) => row.channelId).length;
   const parts = [`${sourceName}: ${merged.rows.length} Punkte übernommen, ${assignedCount} davon bereits zugeordnet.`];
   if (merged.warnings.length) {
@@ -2778,7 +2833,7 @@ async function runSetupPreview() {
         valid: true,
         message: warnings.length
           ? `Geprüft mit Hinweisen: ${warnings.join(" / ")}`
-          : "Die Zuordnung ist vollständig und in Ordnung. Sie kann mit Admin-Token aktiviert werden.",
+          : "Die Zuordnung ist vollständig und in Ordnung. Sie kann jetzt abgeschlossen werden.",
         tone: warnings.length ? "warn" : "ok",
         patch: response.patch || null,
       };
@@ -2807,35 +2862,47 @@ function setupHasNonBacnetActiveInputs() {
 }
 
 async function runSetupActivation() {
+  if (setupState.activation.done && !setupState.dirty) {
+    setSetupActivateFeedback("Es sind keine offenen Änderungen vorhanden.", "ok");
+    return;
+  }
   const tokenInput = document.getElementById("setup-activate-token");
   const token = tokenInput ? tokenInput.value.trim() : "";
   if (!token) {
-    setSetupActivateFeedback("Bitte zuerst den Admin-Token eintragen. Ohne Token wird nichts aktiviert.", "warn");
+    setSetupActivateFeedback("Bitte zuerst den Freigabecode eintragen. Ohne Freigabe wird nichts übernommen.", "warn");
     if (tokenInput) {
       tokenInput.focus();
     }
     return;
   }
-  const { draft, problems } = buildSetupMappingDraft(setupState.devices, setupState.rows);
-  if (problems.length) {
-    setSetupActivateFeedback(problems.join(" "), "warn");
+  const draft = await runSetupPreview();
+  if (!draft) {
     return;
   }
   const button = document.getElementById("setup-activate-button");
   if (button) {
     button.disabled = true;
   }
-  setSetupActivateFeedback("Zuordnung wird aktiviert …", "neutral");
+  setSetupActivateFeedback("Einrichtung wird abgeschlossen …", "neutral");
   try {
     const response = await postJson("/api/config/mapping/activate", draft, { token });
     if (response.activated === true) {
-      setupState.activation.done = true;
-      const backup = response.backup_file ? ` Sicherung: ${response.backup_file}.` : "";
+      setupState.activation = {
+        done: true,
+        restartRequired: response.restart_required === true,
+        revision: response.revision || null,
+        activatedAt: new Date().toISOString(),
+      };
+      setupState.dirty = false;
       setupState.preview = { valid: true, message: null, tone: "ok", patch: setupState.preview.patch };
       setSetupActivateFeedback(
-        `Zuordnung aktiviert. Ein Neustart der Mini-EMS-Runtime ist erforderlich, damit die neuen Datenpunkte gelesen werden.${backup}`,
+        "Einrichtung abgeschlossen. Der vorherige Stand wurde automatisch gesichert und die Änderung protokolliert. Bitte Mini EMS einmal neu starten.",
         "ok",
       );
+      if (tokenInput) {
+        tokenInput.value = "";
+      }
+      await loadSetupChangeHistory();
     } else {
       const errors = Array.isArray(response.errors) ? response.errors.map(String) : [];
       setSetupActivateFeedback(errors.length ? `Bitte prüfen: ${errors.join(" / ")}` : "Die Aktivierung wurde abgelehnt.", "warn");
@@ -2984,7 +3051,7 @@ function renderSetupDevices() {
       } else {
         device.port = setupToInt(input.value, 47808);
       }
-      setupState.preview = { valid: null, message: null, tone: "neutral", patch: null };
+      markSetupDraftChanged();
       renderSetupTableAndSteps();
       renderSetupActivateArea();
     });
@@ -3193,7 +3260,7 @@ function bindSetupTableEvents(body) {
       if (row.channelId) {
         applySetupChannelDefaults(row);
       }
-      setupState.preview = { valid: null, message: null, tone: "neutral", patch: null };
+      markSetupDraftChanged();
       renderSetupPage();
     });
   });
@@ -3219,7 +3286,7 @@ function bindSetupTableEvents(body) {
         row[field] = setupOptionalNumber(input.value);
       }
       row.test = null;
-      setupState.preview = { valid: null, message: null, tone: "neutral", patch: null };
+      markSetupDraftChanged();
       renderSetupPage();
     });
   });
@@ -3249,6 +3316,13 @@ function renderSetupActionAvailability() {
   const tokenField = document.getElementById("setup-activate-token");
   if (tokenField) {
     tokenField.closest(".token-field").hidden = readOnly;
+    tokenField.disabled = (setupState.activation.done && !setupState.dirty)
+      || (setupState.loaded && !setupState.saveEnabled);
+  }
+  const activateButton = document.getElementById("setup-activate-button");
+  if (activateButton && !setupState.test.running) {
+    activateButton.disabled = (setupState.activation.done && !setupState.dirty)
+      || (setupState.loaded && !setupState.saveEnabled);
   }
   if (!setupState.test.running) {
     const summary = document.getElementById("setup-test-summary");
@@ -3270,10 +3344,16 @@ function renderSetupActivateArea() {
       feedback.textContent = "Nur-Lese-Zugriff: Aktivierung ist nur lokal bzw. administrativ an der Anlage möglich.";
     } else if (setupState.loaded && !setupState.saveEnabled) {
       feedback.className = "config-feedback warn";
-      feedback.textContent = "Gesperrt: Auf der Anlage ist kein Admin-Token eingerichtet. Die Aktivierung ist nur nach Einrichtung des Tokens möglich.";
-    } else if (!setupState.activation.done) {
+      feedback.textContent = "Gesperrt: Auf der Anlage ist kein Freigabecode eingerichtet.";
+    } else if (setupState.activation.done && setupState.activation.restartRequired && !setupState.dirty) {
+      feedback.className = "config-feedback ok";
+      feedback.textContent = "Einrichtung abgeschlossen. Bitte Mini EMS einmal neu starten, damit die neue Zuordnung verwendet wird.";
+    } else if (setupState.activation.done && !setupState.dirty) {
+      feedback.className = "config-feedback ok";
+      feedback.textContent = "Die angezeigte Zuordnung ist aktiv. Es sind keine offenen Änderungen vorhanden.";
+    } else {
       feedback.className = "config-feedback neutral";
-      feedback.textContent = "Noch nicht geprüft. Erst „Zuordnung prüfen“, dann mit Admin-Token aktivieren.";
+      feedback.textContent = "Mit „Einrichtung abschließen“ wird zuerst geprüft und erst danach mit Freigabecode übernommen.";
     }
   }
   const pre = document.getElementById("setup-patch-preview");
@@ -3281,6 +3361,59 @@ function renderSetupActivateArea() {
     const { draft } = buildSetupMappingDraft(setupState.devices, setupState.rows);
     pre.textContent = JSON.stringify({ entwurf: draft, gepruefter_patch: setupState.preview.patch }, null, 2);
   }
+  renderSetupCompletionStatus();
+  renderSetupChangeHistory();
+}
+
+function renderSetupCompletionStatus() {
+  const target = document.getElementById("setup-completion-status");
+  if (!target) {
+    return;
+  }
+  let tone = "neutral";
+  let title = "Noch nicht abgeschlossen";
+  let detail = "Ordnen Sie die Datenpunkte zu und schließen Sie die Einrichtung anschließend mit dem Freigabecode ab.";
+  if (setupState.dirty) {
+    tone = "warn";
+    title = "Entwurf mit offenen Änderungen";
+    detail = setupState.preview.valid === true
+      ? "Der Entwurf ist geprüft, aber noch nicht übernommen."
+      : "Die aktive Zuordnung bleibt unverändert, bis die Einrichtung abgeschlossen wird.";
+  } else if (setupState.activation.done && setupState.activation.restartRequired) {
+    tone = "warn";
+    title = "Freigegeben, Neustart ausstehend";
+    detail = "Sicherung und Änderungsprotokoll sind erstellt. Nach dem Neustart verwendet Mini EMS die neue Zuordnung.";
+  } else if (setupState.activation.done) {
+    tone = "ok";
+    title = "Aktive Zuordnung";
+    detail = setupState.activation.activatedAt
+      ? `Zuletzt freigegeben am ${formatTimestamp(setupState.activation.activatedAt)}.`
+      : "Die aktuell angezeigte Zuordnung wird von Mini EMS verwendet.";
+  }
+  target.className = `setup-completion-status ${tone}`;
+  target.innerHTML = `<strong>${escapeHtml(title)}</strong>${escapeHtml(detail)}`;
+}
+
+function renderSetupChangeHistory() {
+  const target = document.getElementById("setup-change-list");
+  if (!target) {
+    return;
+  }
+  if (!setupState.changes.length) {
+    target.innerHTML = '<li class="empty-state compact">Noch keine Änderung protokolliert.</li>';
+    return;
+  }
+  target.innerHTML = setupState.changes.map((change) => {
+    const timestamp = change && change.timestamp ? String(change.timestamp) : "";
+    const title = change && change.title ? String(change.title) : "Änderung protokolliert";
+    const detail = change && change.detail ? String(change.detail) : "";
+    const restart = change && change.restart_required === true ? " Neustart war erforderlich." : "";
+    return `<li>
+      <strong>${escapeHtml(title)}</strong>
+      <time datetime="${escapeHtml(timestamp)}">${escapeHtml(timestamp ? formatTimestamp(timestamp) : "-")}</time>
+      <span>${escapeHtml(detail + restart)}</span>
+    </li>`;
+  }).join("");
 }
 
 function setSetupImportFeedback(message, tone) {

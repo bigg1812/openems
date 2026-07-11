@@ -91,6 +91,21 @@ Person mit Administrator-Rechten auf der kundeneigenen IPC.
   sind. Wo Schutz an Windows-Dateirechten oder an einem Reverse Proxy hängt, wird das als solches benannt
   (Detailschritte H3, H4, H6 in `ROADMAP.md`).
 
+### 1.4 Nachvollziehbarkeit im Pilotbetrieb (H8)
+
+Der Pilot trennt technisches Betriebslog und dauerhaften Konfigurationsverlauf:
+
+- `logs/mini_ems.log` enthält Runtime-Starts (`app.started`), Dashboard-Aufrufe (`ui.accessed`) und bestätigte
+  bzw. fehlgeschlagene Anlagenübergaben (`cycle.output_confirmed`/`cycle.output_not_confirmed`). Beim
+  Dashboard-Aufruf werden bewusst weder Client-IP noch Benutzername gespeichert.
+- `config_audit.jsonl` neben der aktiven Standortkonfiguration enthält Mapping-Aktivierungen, direkte
+  Standortänderungen und Bedienänderungen der Preissteuerung. Freigabecodes und Secrets werden nie geschrieben.
+- `GET /api/config/changes` liefert nur Titel, Zeitpunkt, verständliche Zusammenfassung und Neustarthinweis.
+  Interne Backup-/Entwurfspfade bleiben lokal und werden nicht an Viewer ausgegeben.
+- Die Sichtbarkeits- und Änderungsmatrix aus 1.2 ist das Zugriffskonzept für den Piloten. Solange H6 noch keine
+  echten Benutzeridentitäten bereitstellt, protokolliert H8 die Art der Aktion, aber behauptet keine persönliche
+  Zuordnung zu einer bestimmten Person.
+
 ---
 
 ## Teil 2 – Erstes sicheres Online-Hosting (Konzept zu To-do 3)
@@ -109,8 +124,8 @@ der H4-Umschaltung. Für den aktuellen Zugriffsweg auf der Pilot-IPC gilt Teil 4
 
 ### 2.1 Endpunkt-Einstufung (Basis für beide Pfade)
 
-*Stand: 2026-07-07 – abgeglichen mit `mini_ems_runtime/http_api.py` inkl. Commit `e5417edd2`
-(Pointlist-Import-Flow) und der Mapping-Aktivierung; Testabdeckung in `tests/test_read_only_api.py`.*
+*Stand: 2026-07-11 – abgeglichen mit `mini_ems_runtime/http_api.py` inklusive Pointlist-Import,
+Mapping-Aktivierung und bereinigtem H8-Änderungsverlauf; Testabdeckung in `tests/test_read_only_api.py`.*
 
 Abgeleitet aus `mini_ems_runtime/http_api.py`. Nur die als **read-only** eingestuften Endpunkte dürfen im
 Online-Pfad erreichbar sein. Die als **sperren** markierten bleiben lokal/administrativ bzw. auf die
@@ -125,7 +140,8 @@ Operator-Rolle beschränkt.
 | `GET /api/status` | Anlagenzustand (`health.json`, `state.json`, Preis-Cache, Plan, letzte Zyklen) | liest nur Dateien/DB |
 | `GET /api/spotmarket/windows` | aktueller Preisfenster-Plan | liest Datei |
 | `GET /api/config/spotmarket-lockout` | aktuelle Einstellung der Preissteuerung (nur Anzeige) | liest Einstellung, schreibt nichts |
-| `GET /api/config/site` | Standortkonfiguration als geschützte Anzeige (Admin-Token wird ausgeblendet) | liest `config.json`, schreibt nichts |
+| `GET /api/config/site` | Standortkonfiguration als geschützte Anzeige (Freigabecode wird ausgeblendet) | liest `config.json`, schreibt nichts |
+| `GET /api/config/changes` | bereinigter administrativer Änderungsverlauf | liest Audit, blendet Tokens und interne Dateipfade aus |
 | `GET /api/history` | Messwert-Historie inkl. Rollups | liest DB |
 | `GET /api/cycles` | letzte Zyklen | liest DB |
 | `GET /api/report/daily`, `/api/report/daily.csv` | Tagesbericht JSON/CSV | liest DB |
@@ -140,12 +156,12 @@ Operator-Rolle beschränkt.
 | `GET /api/diagnostics/read` | löst einen **aktiven Live-Lesezugriff auf die Anlage** aus (BACnet-Read über `read_diagnostics`); im Rollenmodell Operator, nicht Viewer – im read-only Modus (H5) von außen nicht erreichbar |
 | `POST /api/config/spotmarket-lockout` | **schreibt in `config.json`** (`_persist_min_consecutive_quarters`) und ändert das Planungsverhalten; Operator/Admin, kein Online-Viewer |
 | `POST /api/config/site/validate` | Validierung eines Konfigurations-Entwurfs (S5/H9); zwar nur prüfend, aber ein POST-Schreibpfad-Muster und Teil des Konfigurationsflusses; nicht in den Online-Pfad |
-| `POST /api/config/site/save` | **speichert die Standortkonfiguration** (Admin-Token, Backup, Neustartbedarf); rein administrativ, nie über den Netzwerkzugriff |
+| `POST /api/config/site/save` | **speichert die Standortkonfiguration**; prüft den Freigabecode und erstellt Backup, Audit und Neustarthinweis, ohne den Code zu protokollieren; rein administrativ, nie über den Netzwerkzugriff |
 | `POST /api/config/mapping/preview` | Vorschau/Validierung eines Mapping-Entwurfs (S5); POST-Konfigurationspfad, nicht für den read-only Viewer |
 | `POST /api/report/preview` | zwar nur DB-Lesen, aber ein POST-Schreibpfad-Muster; für den read-only Pilot nicht nötig und bewusst außerhalb gehalten |
 | `POST /api/config/pointlist/import` | parst eine hochgeladene BACnet-Punkteliste (CSV/TSV/XLSX) zu Mapping-Kandidaten; schreibt zwar nicht in `config.json`, ist aber Teil des Konfigurations-Editors (S5/S6) und kein Viewer-Endpunkt |
 | `POST /api/config/discovery/bacnet/preview` | löst optional eine **echte BACnet-Discovery** (`who_is`/`read_property`) gegen die Anlage aus, sobald BACpypes3 installiert ist – aktiver Anlagenzugriff wie `GET /api/diagnostics/read`, deshalb gesperrt |
-| `POST /api/config/mapping/activate` | **sicherheitskritischster Endpunkt:** aktiviert einen Mapping-Patch, schreibt `config.json`, legt Backup/Draft/Audit-Log an und lädt die Konfiguration neu; nur mit Admin-Token, nie über den Netzwerkzugriff |
+| `POST /api/config/mapping/activate` | **sicherheitskritischster Endpunkt:** aktiviert einen Mapping-Patch, schreibt `config.json`, legt Backup/Draft/Audit-Log an und lädt die Konfiguration neu; nur mit lokalem Freigabecode, nie über den Netzwerkzugriff |
 
 Hinweis zur Robustheit: Die Sperre ist **positiv/deny-by-default** umgesetzt (nur GET-Methoden werden
 grundsätzlich durchgelassen; `POST`/`PUT`/`DELETE` sind generell gesperrt), nicht als Blocklist einzelner
@@ -297,7 +313,8 @@ Datenauslagerung auf.
    `/api/report/preview`) über diesen Pfad `HTTP 403` liefern und `GET /api/status` `api_read_only: true`
    meldet. Solange keine Rollenschicht (H6) existiert, den VPN-Zugang zusätzlich nur an
    vertrauenswürdige Personen vergeben.
-6. Zugriff und Freigabe im Betriebslog/Zugriffskonzept festhalten (Vorbereitung H8).
+6. Nach dem Test im Betriebslog und im H8-Konfigurationsverlauf prüfen, dass Zugriff und Freigabe nachvollziehbar
+   erfasst wurden; bis H6 wird dabei bewusst nur die Rolle, keine persönliche Identität protokolliert.
 7. **Definition-of-Done-Nachweis (durch den Betreiber/Nutzer vor Ort):** Ein zweiter Rechner am Standort
    zeigt echte IPC-Daten; Schalt-/Konfigurationsaktionen sind über diesen Pfad nicht vorgesehen. Dieser
    Nachweis kann nur am realen Standort erbracht werden und bleibt in `ROADMAP.md` (To-do 3) offen.
@@ -355,6 +372,9 @@ C:\Program Files\MiniEMS\                     <- App-Dateien (nur Administratore
 
 C:\ProgramData\MiniEMS\                        <- Standortdaten (Task-Benutzer schreibt, normale Nutzer lesen/schreiben nicht)
 |-- config.json                                 (Standortkonfiguration, Admin-Arbeit)
+|-- config_audit.jsonl                          (bereinigbare Historie administrativer Änderungen)
+|-- config.json.<revision>.bak                  (automatische Sicherung vor Übernahme)
+|-- mapping_drafts\mapping.<revision>.json      (freigegebene Mapping-Entwürfe)
 |-- data\
 |   |-- runtime\mini_ems.sqlite                 (Betriebsdaten-Historie)
 |   `-- spotmarket\
@@ -379,11 +399,12 @@ C:\ProgramData\MiniEMS\                        <- Standortdaten (Task-Benutzer s
 - `C:\ProgramData\MiniEMS` ist der vorgesehene Windows-Ort für maschinenweite Anwendungsdaten, die kein
   Benutzerprofil sind. Das passt zur Standortdaten-Rolle: Der laufende Task schreibt hier laufend
   (Logs, DB, `runtime/state.json`, `runtime/health.json`, Spotmarkt-Dateien), Admin liest/ändert hier
-  gezielt (`config.json`), normale Benutzer brauchen hierauf keinen Zugriff.
+  gezielt (`config.json`, `config_audit.jsonl`, `mapping_drafts/`), normale Benutzer brauchen hierauf keinen Zugriff.
 - Diese Trennung ist **identisch** zur App-Dateien-/Standortdaten-Liste aus `UPDATE_WARTUNG.md`
   Abschnitt 1.3: Was dort als "App-Dateien (werden bei jedem Update ersetzt)" gilt, liegt im
   Ziel-Layout unter `C:\Program Files\MiniEMS`; was dort als "Standortdaten (bleiben unangetastet)" gilt
-  (`config.json`, `data/runtime/`, `data/spotmarket/spotmarket_manual_override.json`, `logs/`, `runtime/`),
+  (`config.json`, `config_audit.jsonl`, `mapping_drafts/`, `config.json.*.bak`, `data/runtime/`,
+  `data/spotmarket/spotmarket_manual_override.json`, `logs/`, `runtime/`),
   liegt unter `C:\ProgramData\MiniEMS`. Das Ziel-Layout erfindet keine neue Einteilung, es gibt der
   bestehenden Einteilung nur zwei physisch getrennte, unterschiedlich berechtigte Wurzelverzeichnisse.
 - Ausnahme `sim/`: laut `UPDATE_WARTUNG.md` 1.3 ist `sim/` App-seitig (mitgelieferte Beispieldaten,
