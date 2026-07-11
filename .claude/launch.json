@@ -2,10 +2,15 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "mini-ems-dashboard-mock",
-      "runtimeExecutable": "/usr/bin/python3",
-      "runtimeArgs": ["/tmp/mini_ems_mock.py", "8099"],
-      "port": 8099
+      "name": "mini-ems-local",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        "mini_ems_poc/mini_ems.py",
+        "--config",
+        "mini_ems_poc/config.local.json",
+        "--loop"
+      ],
+      "port": 8090
     }
   ]
 }
