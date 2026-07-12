@@ -15,7 +15,7 @@
 #   Client im Kundennetz/VPN
 #     -> HTTPS an diesen Proxy (EMS-LAN-IP, intern vertrauenswuerdiges Zert.)
 #     -> reverse_proxy an die NUR LOKAL gebundene Mini-EMS-API (127.0.0.1:8090)
-# Voraussetzung: api.host = 127.0.0.1 und api.read_only = true in config.json.
+# Voraussetzung: api.host = 127.0.0.1 und api.read_only = true in der aktiven UI-Standortrevision.
 # =====================================================================
 
 {
@@ -76,7 +76,7 @@ https://<ems-ipc.kunde.local> {
 	# }
 
 	# --- Reverse Proxy auf die lokal gebundene Mini-EMS-API -----------
-	# 8090 ist NUR auf 127.0.0.1 gebunden (config.json: api.host=127.0.0.1),
+	# 8090 ist NUR auf 127.0.0.1 gebunden (UI-Standortrevision: api.host=127.0.0.1),
 	# also von aussen nicht direkt erreichbar. Nur dieser Proxy spricht sie an.
 	reverse_proxy 127.0.0.1:8090
 }

@@ -1,5 +1,9 @@
 # EMS-Mapping
 
+> **Aktueller Pfad:** Der Mapping-Entwurf ist die UI-Quelle und wird bei Aktivierung zusammen mit dem geprüften
+> Standortstand als Revision in `site.sqlite` gespeichert. Eine aktive `config.json` wird nicht mehr erzeugt;
+> ältere Ablaufbilder mit diesem Namen beschreiben den vorherigen Pilotpfad.
+
 Zweck dieser Datei: Sie hält fest, wie OpenEMS Messgeräte und Protokolle grundsätzlich auf EMS-Kanäle abbildet, wie unser `mini_ems_poc` aktuell BACnet nutzt, und wie spätere Protokoll-Zubauten sauber erweitert werden sollen.
 
 Der verbindliche Integrationsvertrag (gültiger Messwert, stale/bad, Lese-/Schreibrechte, Audit Trail, Ausfallverhalten) sowie das vollständige Referenz-Mapping der real konfigurierten BACnet-Punkte und das Geräte-Template für den Hauptzähler stehen in [EDGE_INTEGRATION_CONTRACT.md](./EDGE_INTEGRATION_CONTRACT.md).

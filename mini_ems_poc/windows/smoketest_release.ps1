@@ -11,7 +11,7 @@ Geprueft wird:
      runtime_status = live, status = healthy. Es wird bis -TimeoutSeconds
      gewartet, damit mindestens ein Zyklus nach dem Neustart laufen kann.
   2. /api/status ist erreichbar und meldet die erwartete app_version sowie
-     api_read_only wie in config.json konfiguriert.
+     optional den explizit erwarteten api_read_only-Wert.
   3. logs\mini_ems.log enthaelt seit -SinceTime keine neuen ERROR-Zeilen.
 
 Exit-Code 0 = bestanden, 1 = nicht bestanden. Standortdaten werden nur gelesen,
@@ -27,7 +27,7 @@ param(
     [datetime]$SinceTime = (Get-Date),
     [string]$StatusUrl = "http://127.0.0.1:8090/api/status",
 
-    # Erwarteter api_read_only-Wert. Ohne Angabe aus config.json abgeleitet.
+    # Optionaler erwarteter api_read_only-Wert. Ohne Angabe wird nur Erreichbarkeit geprüft.
     [object]$ExpectReadOnly = $null
 )
 
@@ -35,7 +35,6 @@ $ErrorActionPreference = "Stop"
 
 $HealthPath = Join-Path $SiteDir "runtime\health.json"
 $LogPath    = Join-Path $SiteDir "logs\mini_ems.log"
-$ConfigPath = Join-Path $SiteDir "config.json"
 $SinceUtc   = $SinceTime.ToUniversalTime()
 
 $errors = New-Object System.Collections.Generic.List[string]
@@ -99,17 +98,6 @@ if ($healthOk) {
 $expectReadOnlyBool = $null
 if ($null -ne $ExpectReadOnly) {
     $expectReadOnlyBool = [bool]$ExpectReadOnly
-} elseif (Test-Path $ConfigPath) {
-    try {
-        $cfg = Get-Content -Path $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($cfg.api -and ($null -ne $cfg.api.read_only)) {
-            $expectReadOnlyBool = [bool]$cfg.api.read_only
-        } else {
-            $expectReadOnlyBool = $false
-        }
-    } catch {
-        Write-Warning "[smoketest] config.json nicht lesbar - api_read_only wird nicht geprueft."
-    }
 }
 
 try {

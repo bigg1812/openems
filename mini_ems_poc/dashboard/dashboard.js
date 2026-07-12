@@ -76,15 +76,15 @@ const PAGES = {
   dashboard: "Übersicht",
   analyse: "Analyse",
   berichte: "Berichte",
-  konfiguration: "Konfiguration",
-  system: "Systemstatus",
+  konfiguration: "Standort einrichten",
+  system: "Technik und Status",
 };
 
 const PAGE_SUBTITLES = {
   analyse: "Messwerte und Datenqualität über frei wählbare Zeiträume prüfen.",
   berichte: "Tagesbericht anzeigen, herunterladen oder einen eigenen Bericht zusammenstellen.",
   konfiguration: "Standort Schritt für Schritt einrichten: Datenpunkte aufnehmen, zuordnen, testen und sicher abschließen.",
-  system: "Systemzustand, Kommunikation und letzte Läufe kontrollieren.",
+  system: "Technische Diagnose und Softwarezustand für Service und Inbetriebnahme.",
 };
 
 /* Priorisierte Reihenfolge (UX4): erst Wirtschaftlichkeit (Preis, Preissteuerung),
@@ -120,30 +120,10 @@ const DASHBOARD_WIDGETS = [
 ];
 
 const DEFAULT_DASHBOARD = {
-  kpis: ["price", "spotmarket", "grid_power", "grid_lockout"],
+  kpis: ["price", "spotmarket", "grid_power"],
   widgets: { price: true, weather: true, windows: true },
   charts: [],
 };
-
-const CONFIG_CHANNEL_DEFAULTS = [
-  { channel_id: "site.outdoor_temperature_c", object_type: "ai", instance: 1801, description: "Außentemperatur", plausible_min: -50, plausible_max: 60, include_in_health: true, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.buffer_1_top_temperature_c", object_type: "ai", instance: 1101, description: "Puffer 1 oben", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.buffer_1_bottom_temperature_c", object_type: "ai", instance: 1102, description: "Puffer 1 unten", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.buffer_2_top_temperature_c", object_type: "ai", instance: 1103, description: "Puffer 2 oben", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.buffer_2_bottom_temperature_c", object_type: "ai", instance: 1104, description: "Puffer 2 unten", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.heat_generation_flow_temperature_c", object_type: "ai", instance: 1107, description: "Wärmeerzeugung Vorlauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.heat_generation_return_temperature_c", object_type: "ai", instance: 1108, description: "Wärmeerzeugung Rücklauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.boiler_1_flow_temperature_c", object_type: "ai", instance: 2101, description: "Gaskessel Vorlauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.boiler_1_return_temperature_c", object_type: "ai", instance: 1201, description: "Gaskessel Rücklauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.boiler_2_flow_temperature_c", object_type: "ai", instance: 2102, description: "Pelletkessel Vorlauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.boiler_2_return_temperature_c", object_type: "ai", instance: 1202, description: "Pelletkessel Rücklauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.chp_flow_temperature_c", object_type: "ai", instance: 1203, description: "BHKW Vorlauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.chp_return_temperature_c", object_type: "ai", instance: 1204, description: "BHKW Rücklauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.chp_electric_energy_kwh", object_type: "av", instance: 48, description: "BHKW elektrische Energie", plausible_min: 0, plausible_max: 1000000000, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.chp_thermal_energy_kwh", object_type: "av", instance: 49, description: "BHKW thermische Energie", plausible_min: 0, plausible_max: 1000000000, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.pellet_thermal_energy_kwh", object_type: "av", instance: 50, description: "Pelletkessel thermische Energie", plausible_min: 0, plausible_max: 1000000000, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.gas_thermal_energy_kwh", object_type: "av", instance: 51, description: "Gaskessel thermische Energie", plausible_min: 0, plausible_max: 1000000000, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-];
 
 const DEFAULT_SITE_CONFIG = {
   site: {
@@ -185,6 +165,7 @@ const DEFAULT_SITE_CONFIG = {
     host: "127.0.0.1",
     port: 8090,
     history_default_limit: 96,
+    read_only: true,
   },
   price_source: {
     provider: "smard",
@@ -212,10 +193,12 @@ const DEFAULT_SITE_CONFIG = {
     comm_error_safe_mode_threshold: 2,
   },
   outputs: {
-    current_price: { confirmation_mode: "ack_or_readback", criticality: "noncritical" },
-    grid_lockout: { confirmation_mode: "ack_only", criticality: "critical" },
-    spotmarket_lockout: { confirmation_mode: "ack_only", criticality: "critical" },
+    current_price: { confirmation_mode: "ack_or_readback", criticality: "noncritical", write_priority: 14, relinquish_enabled: false },
+    grid_lockout: { confirmation_mode: "ack_only", criticality: "critical", write_priority: 14, relinquish_enabled: false },
+    spotmarket_lockout: { confirmation_mode: "ack_only", criticality: "critical", write_priority: 14, relinquish_enabled: false },
+    edge_heartbeat: { confirmation_mode: "ack_only", criticality: "critical", write_priority: 14, relinquish_enabled: false },
   },
+  ddc_heartbeat: { enabled: false, object_type: "av", instance: null, controller_ip: null, controller_port: 47808, fallback_timeout_seconds: null },
   database: {
     sqlite_file: "data/local/mini_ems.local.sqlite",
   },
@@ -230,7 +213,7 @@ const DEFAULT_SITE_CONFIG = {
     level: "INFO",
     stdout: true,
   },
-  additional_inputs: CONFIG_CHANNEL_DEFAULTS.map((channel) => ({ ...channel })),
+  additional_inputs: [],
 };
 
 const appState = {
@@ -244,6 +227,7 @@ const appState = {
   priceStats: null,
   dashboard: { ...DEFAULT_DASHBOARD },
   siteConfig: { config: null, dirty: false },
+  access: { level: "viewer", adminToken: "", apiReadOnly: true },
   /* Standardweg Berichte (UX3): gewählter Berichtstag für den Tagesbericht. */
   reportDay: { mode: "today", date: "" },
 };
@@ -317,6 +301,20 @@ function bindUi() {
     button.addEventListener("click", () => applyTheme(button.dataset.themeValue));
   });
   document.getElementById("dashboard-config-button").addEventListener("click", openDashboardConfig);
+  document.getElementById("dashboard-more").addEventListener("toggle", (event) => {
+    if (event.currentTarget.open) {
+      redrawDashboardCharts();
+    }
+  });
+  document.getElementById("admin-access-button").addEventListener("click", handleAdminAccessButton);
+  document.getElementById("admin-access-form").addEventListener("submit", verifyAdminAccess);
+  document.getElementById("admin-access-close").addEventListener("click", closeAdminAccessModal);
+  document.getElementById("admin-access-cancel").addEventListener("click", closeAdminAccessModal);
+  document.getElementById("admin-access-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) {
+      closeAdminAccessModal();
+    }
+  });
   document.getElementById("chart-add-button").addEventListener("click", addModalChart);
   document.getElementById("dashboard-config-close").addEventListener("click", closeDashboardConfig);
   document.getElementById("dashboard-config-save").addEventListener("click", saveDashboardConfig);
@@ -344,6 +342,13 @@ function currentPageFromHash() {
 }
 
 function showPage(page) {
+  if ((page === "konfiguration" || page === "system") && appState.access.level !== "admin") {
+    openAdminAccessModal();
+    page = "dashboard";
+    if (location.hash !== "#/dashboard") {
+      history.replaceState(null, "", "#/dashboard");
+    }
+  }
   document.querySelectorAll(".page").forEach((element) => {
     element.classList.toggle("active", element.dataset.page === page);
   });
@@ -359,6 +364,109 @@ function showPage(page) {
   if (page === "konfiguration") {
     updateSiteConfigPreview();
     renderSetupPage();
+  }
+  updateAccessUi();
+}
+
+function handleAdminAccessButton() {
+  if (appState.access.level === "admin") {
+    closeAdminSession();
+    return;
+  }
+  openAdminAccessModal();
+}
+
+function openAdminAccessModal() {
+  const modal = document.getElementById("admin-access-modal");
+  if (!modal) {
+    return;
+  }
+  modal.hidden = false;
+  setAdminAccessFeedback("Noch nicht freigegeben.", "neutral");
+  window.setTimeout(() => document.getElementById("admin-access-token")?.focus(), 0);
+}
+
+function closeAdminAccessModal() {
+  const modal = document.getElementById("admin-access-modal");
+  if (modal) {
+    modal.hidden = true;
+  }
+  const input = document.getElementById("admin-access-token");
+  if (input) {
+    input.value = "";
+  }
+}
+
+function closeAdminSession() {
+  appState.access.adminToken = "";
+  appState.access.level = appState.access.apiReadOnly ? "viewer" : "operator";
+  updateAccessUi();
+  if (["konfiguration", "system"].includes(currentPageFromHash())) {
+    location.hash = "#/dashboard";
+  }
+}
+
+async function verifyAdminAccess(event) {
+  event.preventDefault();
+  const input = document.getElementById("admin-access-token");
+  const token = input?.value.trim() || "";
+  if (!token) {
+    setAdminAccessFeedback("Bitte den Freigabecode eingeben.", "warn");
+    input?.focus();
+    return;
+  }
+  const button = document.getElementById("admin-access-submit");
+  button.disabled = true;
+  setAdminAccessFeedback("Freigabecode wird geprüft …", "neutral");
+  try {
+    const response = await postJson("/api/auth/admin/verify", {}, { token });
+    if (response.authenticated !== true) {
+      throw new Error("Die Verwaltung konnte nicht geöffnet werden.");
+    }
+    appState.access.adminToken = token;
+    appState.access.level = "admin";
+    closeAdminAccessModal();
+    updateAccessUi();
+    location.hash = "#/konfiguration";
+  } catch (error) {
+    setAdminAccessFeedback(error.message, "warn");
+    input?.select();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function setAdminAccessFeedback(message, tone) {
+  const target = document.getElementById("admin-access-feedback");
+  if (target) {
+    target.className = `config-feedback ${tone}`;
+    target.textContent = message;
+  }
+}
+
+function updateAccessUi(payload = appState.statusPayload) {
+  if (payload && typeof payload === "object") {
+    appState.access.apiReadOnly = payload.api_read_only === true;
+    if (appState.access.level !== "admin") {
+      appState.access.level = appState.access.apiReadOnly ? "viewer" : "operator";
+    }
+  }
+  const isAdmin = appState.access.level === "admin";
+  const labels = {
+    viewer: "Nur ansehen",
+    operator: "Betrieb",
+    admin: "Verwaltung",
+  };
+  setText("access-mode-badge", labels[appState.access.level] || "Zugriff");
+  setText("admin-access-label", "Verwaltung");
+  const links = document.getElementById("admin-nav-links");
+  if (links) {
+    links.hidden = !isAdmin;
+  }
+  const button = document.getElementById("admin-access-button");
+  if (button) {
+    button.setAttribute("aria-expanded", isAdmin ? "true" : "false");
+    button.classList.toggle("active", isAdmin);
   }
 }
 
@@ -411,6 +519,7 @@ async function refreshDashboard() {
     appState.reportStudio = reportStudio;
     appState.availableChannels = normalizeChannels(reportStudio?.config?.available_channels);
 
+    updateAccessUi(statusPayload);
     renderStatus(statusPayload);
     renderSignals(statusPayload);
     renderWindows(statusPayload.spotmarket_plan || {});
@@ -1533,7 +1642,7 @@ async function loadSiteConfigFromBackend() {
     const config = normalizeSiteConfig(payload.config || payload);
     appState.siteConfig.config = config;
     populateSiteConfigForm(config);
-    setText("site-config-source", payload.save_enabled ? "Backend-Konfiguration" : "Backend-Konfiguration ohne Speichertoken");
+    setText("site-config-source", payload.save_enabled ? "Änderungen freigegeben" : "Nur Anzeige");
     setSiteConfigFeedback("Konfiguration vom Backend geladen.", "neutral");
   } catch (error) {
     setText("site-config-source", "Prototypvorlage");
@@ -1556,6 +1665,9 @@ function populateSiteConfigForm(config) {
   setInputValue("config-controller-port", normalized.network.controller_port);
   setInputValue("config-local-ip", normalized.network.local_ip);
   setInputValue("config-local-port", normalized.network.local_port);
+  setInputValue("config-response-timeout", normalized.network.response_timeout_seconds);
+  setInputValue("config-network-retries", normalized.network.retries);
+  setInputChecked("config-api-read-only", normalized.api.read_only);
   setInputValue("config-cycle-seconds", normalized.timing.cycle_seconds);
   setInputValue("config-inter-read-delay", normalized.timing.inter_read_delay_seconds);
   setInputValue("config-watchdog-seconds", normalized.watchdog.max_cycle_age_seconds);
@@ -1574,6 +1686,20 @@ function populateSiteConfigForm(config) {
   setInputValue("config-spotmarket-min-valid", normalized.controllers.spotmarket_lockout.min_valid_quarters);
   setInputValue("config-invalid-price-sentinel", normalized.controllers.spotmarket_lockout.invalid_price_sentinel ?? "");
   setInputValue("config-safe-mode-threshold", normalized.safety.comm_error_safe_mode_threshold);
+  setInputChecked("config-fail-safe-output", normalized.safety.fail_safe_output);
+  setInputChecked("config-heartbeat-enabled", normalized.ddc_heartbeat.enabled);
+  setInputValue("config-heartbeat-instance", normalized.ddc_heartbeat.instance ?? "");
+  setInputValue("config-heartbeat-controller-ip", normalized.ddc_heartbeat.controller_ip ?? "");
+  setInputValue("config-heartbeat-controller-port", normalized.ddc_heartbeat.controller_port ?? normalized.network.controller_port);
+  setInputValue("config-heartbeat-timeout", normalized.ddc_heartbeat.fallback_timeout_seconds ?? "");
+  setInputValue("config-priority-current-price", normalized.outputs.current_price.write_priority);
+  setInputValue("config-priority-grid-lockout", normalized.outputs.grid_lockout.write_priority);
+  setInputValue("config-priority-spotmarket-lockout", normalized.outputs.spotmarket_lockout.write_priority);
+  setInputValue("config-priority-heartbeat", normalized.outputs.edge_heartbeat.write_priority);
+  setInputChecked("config-relinquish-current-price", normalized.outputs.current_price.relinquish_enabled);
+  setInputChecked("config-relinquish-grid-lockout", normalized.outputs.grid_lockout.relinquish_enabled);
+  setInputChecked("config-relinquish-spotmarket-lockout", normalized.outputs.spotmarket_lockout.relinquish_enabled);
+  setInputChecked("config-relinquish-heartbeat", normalized.outputs.edge_heartbeat.relinquish_enabled);
   renderSiteConfigChannels(normalized.additional_inputs);
   updateSiteConfigPreview();
 }
@@ -1598,7 +1724,13 @@ function normalizeSiteConfig(config) {
       spotmarket_lockout: { ...base.controllers.spotmarket_lockout, ...(raw.controllers?.spotmarket_lockout || {}) },
     },
     safety: { ...base.safety, ...(raw.safety || {}) },
-    outputs: { ...base.outputs, ...(raw.outputs || {}) },
+    outputs: {
+      current_price: { ...base.outputs.current_price, ...(raw.outputs?.current_price || {}) },
+      grid_lockout: { ...base.outputs.grid_lockout, ...(raw.outputs?.grid_lockout || {}) },
+      spotmarket_lockout: { ...base.outputs.spotmarket_lockout, ...(raw.outputs?.spotmarket_lockout || {}) },
+      edge_heartbeat: { ...base.outputs.edge_heartbeat, ...(raw.outputs?.edge_heartbeat || {}) },
+    },
+    ddc_heartbeat: { ...base.ddc_heartbeat, ...(raw.ddc_heartbeat || {}) },
     database: { ...base.database, ...(raw.database || {}) },
     logging: { ...base.logging, ...(raw.logging || {}) },
     additional_inputs: normalizeSiteConfigChannels(raw.additional_inputs || base.additional_inputs),
@@ -1682,7 +1814,7 @@ function renderSiteConfigChannels(channels) {
 }
 
 function normalizeSiteConfigChannels(channels) {
-  const source = Array.isArray(channels) && channels.length ? channels : CONFIG_CHANNEL_DEFAULTS;
+  const source = Array.isArray(channels) ? channels : [];
   const byId = new Map();
   source.forEach((channel) => {
     if (!channel || typeof channel.channel_id !== "string") {
@@ -1737,6 +1869,11 @@ function buildSiteConfigPayload() {
   const environment = selectValue("config-runtime-environment", base.runtime.environment);
   return {
     patch: {
+      site: {
+        name: textValue("config-site-name", base.site.name),
+        access_status: selectValue("config-access-status", base.site.access_status),
+        operator_note: textValue("config-operator-note", base.site.operator_note),
+      },
       runtime: {
         environment,
         bacnet_mode: selectValue("config-bacnet-mode", base.runtime.bacnet_mode),
@@ -1747,6 +1884,8 @@ function buildSiteConfigPayload() {
         controller_port: integerValue("config-controller-port", base.network.controller_port),
         local_ip: textValue("config-local-ip", base.network.local_ip),
         local_port: integerValue("config-local-port", base.network.local_port),
+        response_timeout_seconds: numericValue("config-response-timeout", base.network.response_timeout_seconds),
+        retries: integerValue("config-network-retries", base.network.retries),
       },
       timing: {
         cycle_seconds: integerValue("config-cycle-seconds", base.timing.cycle_seconds),
@@ -1759,6 +1898,7 @@ function buildSiteConfigPayload() {
         host: textValue("config-api-host", base.api.host),
         port: integerValue("config-api-port", base.api.port),
         history_default_limit: integerValue("config-history-limit", base.api.history_default_limit),
+        read_only: checkboxValue("config-api-read-only"),
       },
       price_source: {
         provider: selectValue("config-price-provider", base.price_source.provider),
@@ -1782,7 +1922,42 @@ function buildSiteConfigPayload() {
         },
       },
       safety: {
+        fail_safe_output: checkboxValue("config-fail-safe-output"),
         comm_error_safe_mode_threshold: integerValue("config-safe-mode-threshold", base.safety.comm_error_safe_mode_threshold),
+      },
+      ddc_heartbeat: {
+        enabled: checkboxValue("config-heartbeat-enabled"),
+        object_type: "av",
+        instance: optionalIntegerFromElement(document.getElementById("config-heartbeat-instance")),
+        controller_ip: optionalTextFromElement(document.getElementById("config-heartbeat-controller-ip")),
+        controller_port: optionalIntegerFromElement(document.getElementById("config-heartbeat-controller-port")),
+        fallback_timeout_seconds: optionalNumberFromElement(document.getElementById("config-heartbeat-timeout")),
+      },
+      outputs: {
+        current_price: {
+          confirmation_mode: "ack_or_readback",
+          criticality: "noncritical",
+          write_priority: integerValue("config-priority-current-price", base.outputs.current_price.write_priority),
+          relinquish_enabled: checkboxValue("config-relinquish-current-price"),
+        },
+        grid_lockout: {
+          confirmation_mode: "ack_only",
+          criticality: "critical",
+          write_priority: integerValue("config-priority-grid-lockout", base.outputs.grid_lockout.write_priority),
+          relinquish_enabled: checkboxValue("config-relinquish-grid-lockout"),
+        },
+        spotmarket_lockout: {
+          confirmation_mode: "ack_only",
+          criticality: "critical",
+          write_priority: integerValue("config-priority-spotmarket-lockout", base.outputs.spotmarket_lockout.write_priority),
+          relinquish_enabled: checkboxValue("config-relinquish-spotmarket-lockout"),
+        },
+        edge_heartbeat: {
+          confirmation_mode: "ack_only",
+          criticality: "critical",
+          write_priority: integerValue("config-priority-heartbeat", base.outputs.edge_heartbeat.write_priority),
+          relinquish_enabled: checkboxValue("config-relinquish-heartbeat"),
+        },
       },
       additional_inputs: readSiteConfigChannels(),
     },
@@ -1847,10 +2022,10 @@ async function saveSiteConfig() {
     setSiteConfigFeedback("Bitte die markierten Felder korrigieren.", "warn");
     return;
   }
-  const token = document.getElementById("site-config-token").value.trim();
+  const token = appState.access.adminToken;
   if (!token) {
-    setSiteConfigFeedback("Bitte zuerst den Freigabecode eintragen. Ohne Freigabe wird nichts gespeichert.", "warn");
-    document.getElementById("site-config-token").focus();
+    setSiteConfigFeedback("Die Verwaltung ist nicht freigegeben. Bitte den Verwaltungsbereich erneut öffnen.", "warn");
+    openAdminAccessModal();
     return;
   }
   const button = document.getElementById("site-config-save");
@@ -2013,6 +2188,7 @@ const setupState = {
   siteConfig: null,
   saveEnabled: false,
   readOnly: false,
+  activeStep: "standort",
   devices: [],
   rows: [],
   filters: { status: "alle", group: "alle", sort: "gruppe" },
@@ -2223,10 +2399,7 @@ function importResultToSetup(payload, existingRowIds, existingDeviceIds) {
 
 /* Beim Zuordnen sinnvolle Plausibilitäts-/Aktualitätswerte vorbelegen. */
 function applySetupChannelDefaults(row) {
-  const defaults = CONFIG_CHANNEL_DEFAULTS.find((entry) => entry.channel_id === row.channelId);
-  if (!defaults) {
-    return;
-  }
+  const defaults = defaultChannelConfig(row.channelId);
   if (row.plausibleMin === null && defaults.plausible_min !== "") {
     row.plausibleMin = setupOptionalNumber(defaults.plausible_min);
   }
@@ -2474,9 +2647,7 @@ function computeSetupSteps(state) {
     steps.push({ id: "testen", label: "Testen", state: "open", detail: "Noch nicht geprüft." });
   }
 
-  if (state.readOnly) {
-    steps.push({ id: "aktivieren", label: "Abschließen", state: "locked", detail: "Nur lokal/administrativ möglich." });
-  } else if (state.dirty && state.loaded && !state.saveEnabled) {
+  if (state.dirty && state.loaded && !state.saveEnabled) {
     steps.push({ id: "aktivieren", label: "Abschließen", state: "locked", detail: "Freigabecode fehlt auf der Anlage." });
   } else if (state.dirty) {
     steps.push({ id: "aktivieren", label: "Abschließen", state: "open", detail: "Änderungen noch nicht übernommen." });
@@ -2507,13 +2678,6 @@ function setupEnvironmentLabel(environment) {
 
 /* Hauptbotschaft der Seite: "Ist dieser Standort bereit?" (UX14). */
 function buildSetupHeroMessage(steps, counts, state) {
-  if (state.readOnly) {
-    return {
-      level: "warn",
-      headline: "Nur-Lese-Zugriff: Inbetriebnahme hier nicht möglich.",
-      detail: "Ansehen ist möglich. Datenpunkte ändern, testen und abschließen geht nur über den lokalen bzw. administrativen Zugriff auf der Anlage.",
-    };
-  }
   if (state.activation.done && state.activation.restartRequired && !state.dirty) {
     return {
       level: "ok",
@@ -2526,6 +2690,13 @@ function buildSetupHeroMessage(steps, counts, state) {
       level: "ok",
       headline: "Der Standort ist eingerichtet.",
       detail: "Die aktuelle Zuordnung ist aktiv. Änderungen werden erst nach einer erneuten Freigabe übernommen.",
+    };
+  }
+  if (state.readOnly) {
+    return {
+      level: "neutral",
+      headline: "Der Standort kann über den geschützten Zugriff eingerichtet werden.",
+      detail: "Punktlisten zuordnen und Änderungen übernehmen ist möglich. Nur die aktive Anlagensuche und Live-Prüfung bleiben gesperrt.",
     };
   }
   const doneCount = steps.filter((step) => step.state === "done").length;
@@ -2563,7 +2734,7 @@ function seedSetupFromSiteConfig(payload) {
   setupState.loadFailed = !setupState.loaded;
   let seeded = { devices: [], rows: [] };
   let pendingImportCount = 0;
-  if (setupState.loaded) {
+  if (setupState.loaded && safe.setup_required !== true) {
     seeded = buildSetupFromSiteConfig(setupState.siteConfig);
     const importedDevices = setupState.devices.filter((device) => device.origin === "import");
     const importedRows = setupState.rows.filter((row) => row.origin !== "active");
@@ -2575,7 +2746,7 @@ function seedSetupFromSiteConfig(payload) {
     ? safe.mapping_status
     : {};
   setupState.activation = {
-    done: mappingStatus.active === true || seeded.rows.some((row) => Boolean(row.channelId)),
+    done: mappingStatus.active === true,
     restartRequired: safe.restart_required === true,
     revision: mappingStatus.revision || null,
     activatedAt: mappingStatus.activated_at || null,
@@ -2866,13 +3037,10 @@ async function runSetupActivation() {
     setSetupActivateFeedback("Es sind keine offenen Änderungen vorhanden.", "ok");
     return;
   }
-  const tokenInput = document.getElementById("setup-activate-token");
-  const token = tokenInput ? tokenInput.value.trim() : "";
+  const token = appState.access.adminToken;
   if (!token) {
-    setSetupActivateFeedback("Bitte zuerst den Freigabecode eintragen. Ohne Freigabe wird nichts übernommen.", "warn");
-    if (tokenInput) {
-      tokenInput.focus();
-    }
+    setSetupActivateFeedback("Die Verwaltung ist nicht freigegeben. Bitte den Verwaltungsbereich erneut öffnen.", "warn");
+    openAdminAccessModal();
     return;
   }
   const draft = await runSetupPreview();
@@ -2899,9 +3067,6 @@ async function runSetupActivation() {
         "Einrichtung abgeschlossen. Der vorherige Stand wurde automatisch gesichert und die Änderung protokolliert. Bitte Mini EMS einmal neu starten.",
         "ok",
       );
-      if (tokenInput) {
-        tokenInput.value = "";
-      }
       await loadSetupChangeHistory();
     } else {
       const errors = Array.isArray(response.errors) ? response.errors.map(String) : [];
@@ -2934,6 +3099,7 @@ function renderSetupPage() {
   renderSetupCounts(counts);
   renderSetupActionAvailability();
   renderSetupActivateArea();
+  renderActiveSetupStep();
 }
 
 function renderSetupTableAndSteps() {
@@ -2967,7 +3133,7 @@ function renderSetupSteps(steps) {
   const stateClasses = { done: "done", open: "", error: "alert", locked: "warn" };
   target.innerHTML = steps.map((step, index) => `
     <li>
-      <button type="button" class="setup-step ${stateClasses[step.state] || ""}" data-setup-step="${escapeHtml(step.id)}">
+      <button type="button" class="setup-step ${stateClasses[step.state] || ""} ${step.id === setupState.activeStep ? "active" : ""}" data-setup-step="${escapeHtml(step.id)}" aria-current="${step.id === setupState.activeStep ? "step" : "false"}">
         <span class="micro-label">Schritt ${index + 1} · ${escapeHtml(stateWords[step.state] || "offen")}</span>
         <strong>${escapeHtml(step.label)}</strong>
         <small>${escapeHtml(step.detail)}</small>
@@ -2976,12 +3142,40 @@ function renderSetupSteps(steps) {
   `).join("");
   target.querySelectorAll("button[data-setup-step]").forEach((button) => {
     button.addEventListener("click", () => {
-      const panel = document.getElementById(`setup-panel-${button.dataset.setupStep}`);
-      if (panel) {
-        panel.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
+      setupState.activeStep = button.dataset.setupStep;
+      renderSetupPage();
     });
   });
+}
+
+function renderActiveSetupStep() {
+  const activeIndex = Math.max(0, SETUP_STEPS.findIndex((step) => step.id === setupState.activeStep));
+  const activeId = SETUP_STEPS[activeIndex].id;
+  setupState.activeStep = activeId;
+  SETUP_STEPS.forEach((step) => {
+    const panel = document.getElementById(`setup-panel-${step.id}`);
+    if (panel) {
+      panel.hidden = step.id !== activeId;
+    }
+  });
+  setText("setup-step-position", `Schritt ${activeIndex + 1} von ${SETUP_STEPS.length}`);
+  const back = document.getElementById("setup-step-back");
+  const next = document.getElementById("setup-step-next");
+  if (back) {
+    back.disabled = activeIndex === 0;
+  }
+  if (next) {
+    next.hidden = activeIndex === SETUP_STEPS.length - 1;
+    next.textContent = activeIndex === SETUP_STEPS.length - 2 ? "Zum Abschluss" : "Weiter";
+  }
+}
+
+function moveSetupStep(direction) {
+  const current = Math.max(0, SETUP_STEPS.findIndex((step) => step.id === setupState.activeStep));
+  const nextIndex = Math.min(SETUP_STEPS.length - 1, Math.max(0, current + direction));
+  setupState.activeStep = SETUP_STEPS[nextIndex].id;
+  renderSetupPage();
+  document.getElementById("setup-steps")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderSetupStandort() {
@@ -3004,7 +3198,7 @@ function renderSetupStandort() {
     reportTile("Betriebsumgebung", setupEnvironmentLabel(runtime.environment)),
     reportTile("Anlagenkommunikation", modeLabels[String(runtime.bacnet_mode || "").toLowerCase()] || "-"),
     reportTile("Zielgerät Anlage", network.controller_ip ? `${network.controller_ip}:${network.controller_port ?? ""}` : "-"),
-    reportTile("Dashboard/API", api.host ? `${api.host}:${api.port ?? ""}` : "-"),
+    reportTile("Dashboard", api.host ? `${api.host}:${api.port ?? ""}` : "-"),
   ].join("");
 }
 
@@ -3029,11 +3223,11 @@ function renderSetupDevices() {
         <div class="config-point-fields setup-device-fields">
           <label>
             Geräteadresse (IP)
-            <input type="text" data-setup-device-field="host" value="${escapeHtml(inputValue(device.host))}" placeholder="z. B. 192.168.244.20" ${setupState.readOnly ? "disabled" : ""}>
+            <input type="text" data-setup-device-field="host" value="${escapeHtml(inputValue(device.host))}" placeholder="z. B. 192.168.244.20">
           </label>
           <label>
             Port
-            <input type="number" min="1" max="65535" data-setup-device-field="port" value="${escapeHtml(inputValue(device.port))}" ${setupState.readOnly ? "disabled" : ""}>
+            <input type="number" min="1" max="65535" data-setup-device-field="port" value="${escapeHtml(inputValue(device.port))}">
           </label>
         </div>
       </div>
@@ -3160,7 +3354,7 @@ function renderSetupTable() {
       sourceParts.push(`${formatNumber(row.listValue, row.unit, 2)} laut Liste`);
     }
     const resultTone = row.test ? row.test.tone : "";
-    const selectDisabled = !row.supported || setupState.readOnly ? "disabled" : "";
+    const selectDisabled = !row.supported ? "disabled" : "";
     return `
       <tr class="mapping-row" data-setup-row="${escapeHtml(row.id)}">
         <td class="mapping-main">
@@ -3194,7 +3388,7 @@ function setupDetailHtml(row) {
   if (row.protocol !== "bacnet") {
     return `<p class="config-note">Dieser Punkt wird über ein anderes Protokoll gelesen (${escapeHtml(protocolLabel(row.protocol))}). Änderungen bitte über die Direktbearbeitung unten.</p>`;
   }
-  const disabled = setupState.readOnly ? "disabled" : "";
+  const disabled = "";
   return `
     <div class="config-point-fields mapping-detail-grid">
       <label>
@@ -3305,22 +3499,21 @@ function renderSetupActionAvailability() {
   const readOnly = setupState.readOnly;
   const fileButton = document.querySelector(".setup-file-button");
   if (fileButton) {
-    fileButton.hidden = readOnly;
+    fileButton.hidden = false;
   }
-  ["setup-discovery-button", "setup-test-button", "setup-preview-button", "setup-activate-button"].forEach((id) => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.hidden = readOnly;
+  for (const id of ["setup-discovery-button", "setup-test-button"]) {
+    const control = document.getElementById(id);
+    if (control) {
+      control.hidden = readOnly;
     }
-  });
-  const tokenField = document.getElementById("setup-activate-token");
-  if (tokenField) {
-    tokenField.closest(".token-field").hidden = readOnly;
-    tokenField.disabled = (setupState.activation.done && !setupState.dirty)
-      || (setupState.loaded && !setupState.saveEnabled);
+  }
+  const previewButton = document.getElementById("setup-preview-button");
+  if (previewButton) {
+    previewButton.hidden = true;
   }
   const activateButton = document.getElementById("setup-activate-button");
   if (activateButton && !setupState.test.running) {
+    activateButton.hidden = false;
     activateButton.disabled = (setupState.activation.done && !setupState.dirty)
       || (setupState.loaded && !setupState.saveEnabled);
   }
@@ -3339,9 +3532,6 @@ function renderSetupActivateArea() {
     if (setupState.preview.message) {
       feedback.className = `config-feedback ${setupState.preview.tone}`;
       feedback.textContent = setupState.preview.message;
-    } else if (setupState.readOnly) {
-      feedback.className = "config-feedback warn";
-      feedback.textContent = "Nur-Lese-Zugriff: Aktivierung ist nur lokal bzw. administrativ an der Anlage möglich.";
     } else if (setupState.loaded && !setupState.saveEnabled) {
       feedback.className = "config-feedback warn";
       feedback.textContent = "Gesperrt: Auf der Anlage ist kein Freigabecode eingerichtet.";
@@ -3353,7 +3543,7 @@ function renderSetupActivateArea() {
       feedback.textContent = "Die angezeigte Zuordnung ist aktiv. Es sind keine offenen Änderungen vorhanden.";
     } else {
       feedback.className = "config-feedback neutral";
-      feedback.textContent = "Mit „Einrichtung abschließen“ wird zuerst geprüft und erst danach mit Freigabecode übernommen.";
+      feedback.textContent = "Mit „Änderungen übernehmen“ werden Prüfung, Sicherung und Freigabe automatisch nacheinander ausgeführt.";
     }
   }
   const pre = document.getElementById("setup-patch-preview");
@@ -3372,7 +3562,7 @@ function renderSetupCompletionStatus() {
   }
   let tone = "neutral";
   let title = "Noch nicht abgeschlossen";
-  let detail = "Ordnen Sie die Datenpunkte zu und schließen Sie die Einrichtung anschließend mit dem Freigabecode ab.";
+  let detail = "Ordnen Sie die Datenpunkte zu und übernehmen Sie die Einrichtung anschließend mit einem Klick.";
   if (setupState.dirty) {
     tone = "warn";
     title = "Entwurf mit offenen Änderungen";
@@ -3478,6 +3668,8 @@ function bindSetupUi() {
   });
   document.getElementById("setup-preview-button").addEventListener("click", runSetupPreview);
   document.getElementById("setup-activate-button").addEventListener("click", runSetupActivation);
+  document.getElementById("setup-step-back").addEventListener("click", () => moveSetupStep(-1));
+  document.getElementById("setup-step-next").addEventListener("click", () => moveSetupStep(1));
   document.querySelectorAll("#setup-status-filter button[data-status-filter]").forEach((button) => {
     button.addEventListener("click", () => {
       setupState.filters.status = button.dataset.statusFilter;

@@ -1,4 +1,3 @@
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -294,17 +293,130 @@ class MiniEmsConfig:
 
     @property
     def simulation_values_path(self) -> Path:
-        return self.resolve_path(self.simulation.values_file)
+        return self._resolve_resource_path(self.simulation.values_file)
 
     @property
     def simulation_prices_path(self) -> Path:
-        return self.resolve_path(self.simulation.prices_file)
+        return self._resolve_resource_path(self.simulation.prices_file)
+
+    def _resolve_resource_path(self, value: str) -> Path:
+        """Resolve bundled sample data separately from writable site data."""
+        candidate = self.resolve_path(value)
+        if candidate.exists():
+            return candidate
+        from .resources import resource_base_dir
+
+        return resource_base_dir(self.base_dir) / value
 
 
-def load_config(path: Path) -> MiniEmsConfig:
-    config_path = Path(path)
-    raw = json.loads(config_path.read_text(encoding="utf-8"))
-    return validate_raw_config(raw, base_dir=config_path.resolve().parent)
+def build_default_site_config(admin_token: str) -> Dict[str, Any]:
+    """Safe, site-neutral first-start configuration for UI onboarding.
+
+    It deliberately uses simulation, loopback-only access and disabled real
+    writes.  The placeholders make the runtime structurally valid while the
+    operator maps the actual site in the UI.
+    """
+    return {
+        "site": {
+            "name": "Neuer Standort",
+            "access_status": "restricted",
+            "operator_note": "Bitte Geräte und Datenpunkte im Einrichtungsassistenten zuordnen.",
+        },
+        "runtime": {
+            "environment": "local",
+            "bacnet_mode": "simulated",
+            "real_writes_enabled": False,
+        },
+        "simulation": {
+            "values_file": "sim/sample_values.json",
+            "prices_file": "sim/sample_prices.json",
+        },
+        "network": {
+            "controller_ip": "127.0.0.1",
+            "controller_port": 47808,
+            "local_ip": "127.0.0.1",
+            "local_port": 47809,
+            "response_timeout_seconds": 1.0,
+            "retries": 0,
+        },
+        "points": {
+            "grid_active_power_kw": 0,
+            "current_price_av": 1,
+            "grid_lockout_bv": 2,
+            "spotmarket_lockout_bv": 3,
+        },
+        "additional_inputs": [],
+        "timing": {
+            "cycle_seconds": 30,
+            "inter_read_delay_seconds": 0.05,
+        },
+        "price_source": {
+            "provider": "smard",
+            "region": "DE-LU",
+            "filter": 4169,
+            "resolution": "quarterhour",
+            "timeout_seconds": 10.0,
+            "price_factor": 0.1,
+        },
+        "controllers": {
+            "grid_lockout": {
+                "enabled": False,
+                "threshold_kw": 5.0,
+                "clear_threshold_kw": 5.5,
+                "below_threshold_cycles_required": 3,
+            },
+            "spotmarket_lockout": {
+                "negative_quarters_min_consecutive": 8,
+                "min_valid_quarters": 96,
+                "invalid_price_sentinel": None,
+            },
+        },
+        "safety": {
+            "fail_safe_output": True,
+            "comm_error_safe_mode_threshold": 3,
+        },
+        "watchdog": {"max_cycle_age_seconds": 120},
+        "outputs": {
+            "current_price": {
+                "confirmation_mode": "ack_or_readback",
+                "criticality": "noncritical",
+                "write_priority": DEFAULT_BACNET_WRITE_PRIORITY,
+                "relinquish_enabled": False,
+            },
+            "grid_lockout": {
+                "confirmation_mode": "ack_only",
+                "criticality": "critical",
+                "write_priority": DEFAULT_BACNET_WRITE_PRIORITY,
+                "relinquish_enabled": False,
+            },
+            "spotmarket_lockout": {
+                "confirmation_mode": "ack_only",
+                "criticality": "critical",
+                "write_priority": DEFAULT_BACNET_WRITE_PRIORITY,
+                "relinquish_enabled": False,
+            },
+        },
+        "database": {"sqlite_file": "data/runtime/mini_ems.sqlite"},
+        "api": {
+            "enabled": True,
+            "host": "127.0.0.1",
+            "port": 8090,
+            "history_default_limit": 96,
+            "config_admin_token": admin_token,
+            "read_only": True,
+        },
+        "logging": {
+            "directory": "logs",
+            "log_file": "mini_ems.log",
+            "state_file": "runtime/state.json",
+            "health_file": "runtime/health.json",
+            "price_cache_file": "data/spotmarket/price_cache.json",
+            "spotmarket_plan_file": "data/spotmarket/spotmarket_tomorrow_windows.json",
+            "spotmarket_override_file": "data/spotmarket/spotmarket_manual_override.json",
+            "level": "INFO",
+            "stdout": True,
+        },
+    }
 
 
 def validate_raw_config(raw: Dict[str, Any], *, base_dir: Path) -> MiniEmsConfig:

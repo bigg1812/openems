@@ -14,19 +14,16 @@
 param(
     [string]$ServiceName = "MiniEmsPoC",
     [string]$PythonPath = "C:\Python39\python.exe",
-    [string]$ProjectDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+    [string]$ProjectDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
+    [string]$SiteDir = "C:\ProgramData\MiniEMS"
 )
 
 # Legacy helper for a true Windows service wrapper.
 # The current mini_ems.py runtime is console-based, so the supported
 # production start path is install_task.ps1 + run_mini_ems.cmd.
 
-$configPath = Join-Path $ProjectDir "config.json"
 $scriptPath = Join-Path $ProjectDir "mini_ems.py"
 
-if (-not (Test-Path $configPath)) {
-    throw "config.json not found at $configPath"
-}
 if (-not (Test-Path $scriptPath)) {
     throw "mini_ems.py not found at $scriptPath"
 }
@@ -34,8 +31,7 @@ if (-not (Test-Path $PythonPath)) {
     throw "Python executable not found at $PythonPath"
 }
 
-$config = Get-Content $configPath -Encoding UTF8 | ConvertFrom-Json
-$binaryPath = "`"$PythonPath`" `"$scriptPath`" --config `"$configPath`" --loop"
+$binaryPath = "`"$PythonPath`" `"$scriptPath`" --site-dir `"$SiteDir`" --loop"
 
 if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) {
     New-Service `
@@ -53,32 +49,6 @@ sc.exe failureflag $ServiceName 1 | Out-Null
 # Run as LocalSystem so the service can access the per-user Python installation
 # and project files without having to grant access to LocalService explicitly.
 sc.exe config $ServiceName obj= "LocalSystem" | Out-Null
-
-$outboundRule = "$ServiceName BACnet Outbound"
-$inboundRule = "$ServiceName BACnet Inbound"
-
-if (-not (Get-NetFirewallRule -DisplayName $outboundRule -ErrorAction SilentlyContinue)) {
-    New-NetFirewallRule `
-        -DisplayName $outboundRule `
-        -Direction Outbound `
-        -Action Allow `
-        -Protocol UDP `
-        -Program $PythonPath `
-        -RemoteAddress $config.network.controller_ip `
-        -RemotePort $config.network.controller_port | Out-Null
-}
-
-if (-not (Get-NetFirewallRule -DisplayName $inboundRule -ErrorAction SilentlyContinue)) {
-    New-NetFirewallRule `
-        -DisplayName $inboundRule `
-        -Direction Inbound `
-        -Action Allow `
-        -Protocol UDP `
-        -Program $PythonPath `
-        -LocalAddress $config.network.local_ip `
-        -LocalPort $config.network.local_port `
-        -RemoteAddress $config.network.controller_ip | Out-Null
-}
 
 Write-Host "Service '$ServiceName' created or updated."
 Write-Host "This service path is not the recommended runtime for mini_ems.py."

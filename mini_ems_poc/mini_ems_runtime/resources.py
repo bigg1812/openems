@@ -3,17 +3,12 @@
 Application resources are the read-only files that ship *with* the code:
 ``dashboard/`` (UI assets), ``mini_ems_runtime/templates/`` (report template)
 and ``data/weather/`` (weather cache). They must not be confused with
-site/operational data (``config.json``, SQLite history, logs, runtime state),
-which stay next to the external ``config.json`` on the IPC.
+site/operational data (``site.sqlite``, SQLite history, logs, runtime state),
+which stay in the external site directory on the IPC.
 
-In a normal Git/development checkout the config file sits next to those
-resource directories, so the resource base is simply ``config.base_dir`` and
-behaviour is unchanged. When the app runs as a packaged, frozen artifact
-(PyInstaller today, Nuitka later), ``config.json`` lives in a separate
-operational directory, so the resources are resolved next to the executable
-instead. Both packagers set ``sys.frozen``, so this resolution is generic and
-carries no PyInstaller-only mechanics into the runtime (H2 / Nuitka
-compatibility).
+In development the resources live at the repository's ``mini_ems_poc`` root,
+independently of the local site directory. In a packaged artifact they live
+next to the executable. Both packagers set ``sys.frozen``.
 """
 
 import subprocess
@@ -99,12 +94,15 @@ def _git_short_commit(resource_base: Path) -> Optional[str]:
 def resource_base_dir(config_base_dir: Path) -> Path:
     """Directory that contains ``dashboard/``, ``mini_ems_runtime/templates/`` etc.
 
-    - Development/Git checkout (not frozen): the config directory, exactly as
-      before – existing behaviour is preserved bit for bit.
+    - Development/Git checkout (not frozen): the project root that contains
+      ``dashboard/`` and ``sim/``.
     - Frozen artifact: the directory next to the executable, where the build
       places ``dashboard/`` and ``mini_ems_runtime/templates/`` as data beside
       the binary (not only embedded).
     """
     if is_frozen():
         return Path(sys.executable).resolve().parent
-    return Path(config_base_dir)
+    candidate = Path(config_base_dir)
+    if (candidate / "dashboard").is_dir():
+        return candidate
+    return Path(__file__).resolve().parents[1]

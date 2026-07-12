@@ -3,7 +3,7 @@
 # Mirrors the Windows build_release.ps1 logic and uses the same PyInstaller spec.
 #
 # Output: packaging/dist/mini_ems/  (one-dir: executable + resources + VERSION +
-# SHA256SUMS + RELEASE_HINWEISE.md). config.json / operational data are never
+# SHA256SUMS + RELEASE_HINWEISE.md). site.sqlite / operational data are never
 # part of the package.
 #
 # Prerequisites: a Python >= 3.10 interpreter with PyInstaller installed on PATH

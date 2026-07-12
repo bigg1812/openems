@@ -23,9 +23,10 @@
     <aside class="side-nav" aria-label="Hauptnavigation">
       <div class="brand-block">
         <span class="brand-kicker">Mini EMS</span>
-        <strong>Leitstand</strong>
+        <strong>Betrieb</strong>
       </div>
       <nav class="nav-list">
+        <span class="nav-group-label">Betrieb</span>
         <a href="#/dashboard" class="nav-link" data-page="dashboard">
           <span class="nav-icon" aria-hidden="true">▦</span>Übersicht
         </a>
@@ -35,12 +36,23 @@
         <a href="#/berichte" class="nav-link" data-page="berichte">
           <span class="nav-icon" aria-hidden="true">▣</span>Berichte
         </a>
-        <a href="#/konfiguration" class="nav-link" data-page="konfiguration">
-          <span class="nav-icon" aria-hidden="true">◎</span>Konfiguration
-        </a>
-        <a href="#/system" class="nav-link" data-page="system">
-          <span class="nav-icon" aria-hidden="true">◉</span>Systemstatus
-        </a>
+        <div class="nav-admin-block">
+          <button class="nav-admin-button" id="admin-access-button" type="button" aria-expanded="false">
+            <span>
+              <span class="nav-group-label">Verwaltung</span>
+              <strong id="admin-access-label">Verwaltung öffnen</strong>
+            </span>
+            <span aria-hidden="true">›</span>
+          </button>
+          <div class="nav-admin-links" id="admin-nav-links" hidden>
+            <a href="#/konfiguration" class="nav-link" data-page="konfiguration">
+              <span class="nav-icon" aria-hidden="true">◎</span>Standort einrichten
+            </a>
+            <a href="#/system" class="nav-link" data-page="system">
+              <span class="nav-icon" aria-hidden="true">◉</span>Technik und Status
+            </a>
+          </div>
+        </div>
       </nav>
       <div class="nav-status">
         <span class="status-dot" id="global-status-dot"></span>
@@ -59,6 +71,7 @@
         </div>
         <div class="top-actions">
           <span class="load-indicator" id="load-indicator" role="status" aria-live="polite" hidden>Daten werden geladen</span>
+          <span class="access-badge" id="access-mode-badge">Zugriff wird geladen</span>
           <span class="timestamp" id="last-updated">-</span>
           <div class="theme-toggle" role="group" aria-label="Darstellung">
             <button type="button" id="theme-light" data-theme-value="light" aria-pressed="true">Hell</button>
@@ -70,14 +83,6 @@
 
       <!-- ============ DASHBOARD ============ -->
       <section class="page" data-page="dashboard" aria-label="Dashboard">
-        <div class="section-head">
-          <div>
-            <span class="section-kicker">Startseite</span>
-            <h2>Anlagenüberblick</h2>
-          </div>
-          <button class="button" id="dashboard-config-button" type="button">Ansicht anpassen</button>
-        </div>
-
         <!-- Hauptbotschaft: eine Aussage zu "Läuft die Anlage?" (UX4) -->
         <article class="status-hero neutral" id="status-hero" aria-live="polite">
           <div class="status-hero-text">
@@ -110,16 +115,6 @@
             <div class="chart-stats" id="price-chart-stats"></div>
           </article>
 
-          <article class="tool-panel" data-widget="weather">
-            <div class="panel-head">
-              <div>
-                <h3>Wetter</h3>
-                <p>Aktuelle Lage am Standort.</p>
-              </div>
-            </div>
-            <div class="weather-panel" id="weather-panel"></div>
-          </article>
-
           <article class="tool-panel" data-widget="windows">
             <div class="panel-head">
               <div>
@@ -140,7 +135,25 @@
           </article>
         </div>
 
-        <div class="dashboard-charts" id="dashboard-charts"></div>
+        <details class="dashboard-more" id="dashboard-more">
+          <summary>Weitere Anzeigen</summary>
+          <div class="dashboard-more-body">
+            <div class="dashboard-more-head">
+              <p>Wetter und individuell zusammengestellte Diagramme.</p>
+              <button class="button" id="dashboard-config-button" type="button">Anzeigen auswählen</button>
+            </div>
+            <article class="tool-panel" data-widget="weather">
+              <div class="panel-head">
+                <div>
+                  <h3>Wetter</h3>
+                  <p>Aktuelle Lage am Standort.</p>
+                </div>
+              </div>
+              <div class="weather-panel" id="weather-panel"></div>
+            </article>
+            <div class="dashboard-charts" id="dashboard-charts"></div>
+          </div>
+        </details>
       </section>
 
       <!-- ============ ANALYSE ============ -->
@@ -324,11 +337,11 @@
       <section class="page" data-page="konfiguration" aria-label="Admin-Konfiguration">
         <div class="section-head">
           <div>
-            <span class="section-kicker">Inbetriebnahme</span>
+            <span class="section-kicker">Verwaltung</span>
             <h2>Standort einrichten</h2>
           </div>
           <div class="export-actions">
-            <div class="health-line" id="site-config-source">Prototypvorlage</div>
+            <div class="health-line" id="site-config-source">Aktiver Stand</div>
           </div>
         </div>
 
@@ -355,7 +368,7 @@
             <div class="daily-report setup-standort-tiles" id="setup-standort-summary">
               <div class="empty-state compact">Die aktive Konfiguration wird geladen.</div>
             </div>
-            <p class="config-note">Änderungen an Standort und Betriebsparametern stehen unten unter „Erweiterte Direktbearbeitung“ bereit.</p>
+            <p class="config-note">Weitere Betriebsparameter stehen unten unter „Technische Einstellungen“ bereit.</p>
           </article>
 
           <article class="tool-panel" id="setup-panel-geraete">
@@ -446,19 +459,15 @@
             <div class="panel-head">
               <div>
                 <h3>5. Abschließen</h3>
-                <p>Mini EMS prüft die Zuordnung, sichert den bisherigen Stand und protokolliert die Freigabe automatisch.</p>
+                <p>Mini EMS prüft die Zuordnung, sichert den bisherigen Stand und übernimmt die Änderung in einem Schritt.</p>
               </div>
             </div>
             <div class="setup-completion-status" id="setup-completion-status" aria-live="polite">
               Der aktuelle Stand wird geladen.
             </div>
             <form class="config-toolbar" id="setup-activate-form">
-              <label class="token-field">
-                Freigabecode
-                <input id="setup-activate-token" type="password" autocomplete="off" placeholder="Freigabecode eingeben">
-              </label>
-              <button class="button" id="setup-preview-button" type="button">Nur prüfen</button>
-              <button class="button primary" id="setup-activate-button" type="button">Einrichtung abschließen</button>
+              <button class="button" id="setup-preview-button" type="button" hidden>Nur prüfen</button>
+              <button class="button primary" id="setup-activate-button" type="button">Änderungen übernehmen</button>
             </form>
             <div class="config-feedback" id="setup-activate-feedback">Noch nicht geprüft.</div>
             <div class="setup-change-history">
@@ -474,18 +483,20 @@
           </article>
         </div>
 
+        <nav class="setup-step-navigation" aria-label="Einrichtungsschritte">
+          <button class="button" id="setup-step-back" type="button">Zurück</button>
+          <span id="setup-step-position">Schritt 1 von 5</span>
+          <button class="button primary" id="setup-step-next" type="button">Weiter</button>
+        </nav>
+
         <!-- Erweiterte Direktbearbeitung (UX14): das vollständige Konfigurationsformular
              bleibt erhalten und erreichbar, aber außerhalb des geführten Wegs. -->
         <details class="report-advanced setup-advanced" id="setup-advanced">
-          <summary>Erweiterte Direktbearbeitung (gesamte Konfiguration)</summary>
+          <summary>Technische Einstellungen</summary>
           <div class="report-advanced-body">
-            <p class="report-advanced-hint">Alle Betriebsparameter direkt bearbeiten. Für die Inbetriebnahme der Datenpunkte reicht der geführte Weg oben.</p>
+            <p class="report-advanced-hint">Nur für Inbetriebnahme und Service. Für die normale Einrichtung reicht der geführte Weg oben.</p>
         <form class="site-config-form" id="site-config-form">
           <div class="config-toolbar">
-            <label class="token-field">
-              Freigabecode
-              <input id="site-config-token" type="password" autocomplete="off" placeholder="Freigabecode eingeben">
-            </label>
             <button class="button" id="site-config-validate" type="button">Konfiguration prüfen</button>
             <button class="button primary" id="site-config-save" type="button">Speichern</button>
           </div>
@@ -570,6 +581,14 @@
                   <input id="config-local-port" type="number" min="1" max="65535" value="47809">
                 </label>
                 <label>
+                  Antwort-Timeout in Sekunden
+                  <input id="config-response-timeout" type="number" min="0.1" step="0.1" value="1">
+                </label>
+                <label>
+                  Wiederholungen
+                  <input id="config-network-retries" type="number" min="0" value="0">
+                </label>
+                <label>
                   Anlagenkommunikation
                   <select id="config-bacnet-mode">
                     <option value="simulated">Simulation ohne echte Schreibfreigabe</option>
@@ -579,6 +598,10 @@
                 <label class="check config-check">
                   <input id="config-real-writes-enabled" type="checkbox">
                   <span>Schreibfreigabe am IPC vorbereiten</span>
+                </label>
+                <label class="check config-check">
+                  <input id="config-api-read-only" type="checkbox">
+                  <span>Anlagenaktionen über Netzwerk sperren</span>
                 </label>
               </div>
               <p class="config-note">Diese Oberfläche löst selbst keine BACnet-Schaltaktion aus. Sie bereitet nur die spätere Server-Konfiguration vor.</p>
@@ -598,7 +621,7 @@
                 </label>
                 <label>
                   Leseabstand in Sekunden
-                  <input id="config-inter-read-delay" type="number" min="0" step="0.1" value="0">
+                  <input id="config-inter-read-delay" type="number" min="0" step="0.01" value="0">
                 </label>
                 <label>
                   Max. Alter Systemstatus in Sekunden
@@ -691,7 +714,62 @@
                   Kommunikationsfehler bis sicherer Modus
                   <input id="config-safe-mode-threshold" type="number" min="1" value="2">
                 </label>
+                <label class="check config-check">
+                  <input id="config-fail-safe-output" type="checkbox">
+                  <span>Bei Fehlern sichere Ausgangswerte erzwingen</span>
+                </label>
               </div>
+            </article>
+
+            <article class="tool-panel config-card">
+              <div class="panel-head">
+                <div>
+                  <h3>DDC-Heartbeat</h3>
+                  <p>Optionales Lebenszeichen zur übergeordneten Automationsstation.</p>
+                </div>
+              </div>
+              <div class="config-field-grid">
+                <label class="check config-check">
+                  <input id="config-heartbeat-enabled" type="checkbox">
+                  <span>Heartbeat aktivieren</span>
+                </label>
+                <label>
+                  BACnet-Instanz
+                  <input id="config-heartbeat-instance" type="number" min="0" max="4194303" placeholder="z. B. 1200">
+                </label>
+                <label>
+                  Zielgerät
+                  <input id="config-heartbeat-controller-ip" type="text" placeholder="Standardgerät">
+                </label>
+                <label>
+                  Kommunikationsport
+                  <input id="config-heartbeat-controller-port" type="number" min="1" max="65535" value="47808">
+                </label>
+                <label>
+                  Fallback-Timeout in Sekunden
+                  <input id="config-heartbeat-timeout" type="number" min="1" placeholder="optional">
+                </label>
+              </div>
+            </article>
+
+            <article class="tool-panel config-card">
+              <div class="panel-head">
+                <div>
+                  <h3>Schreibprioritäten</h3>
+                  <p>BACnet-Prioritäten und kontrollierte Rückgabe der vom Mini EMS belegten Werte.</p>
+                </div>
+              </div>
+              <div class="config-field-grid">
+                <label>Preisübergabe <input id="config-priority-current-price" type="number" min="3" max="16" value="14"></label>
+                <label>Netzsperre <input id="config-priority-grid-lockout" type="number" min="3" max="16" value="14"></label>
+                <label>Preissperre <input id="config-priority-spotmarket-lockout" type="number" min="3" max="16" value="14"></label>
+                <label>Heartbeat <input id="config-priority-heartbeat" type="number" min="3" max="16" value="14"></label>
+                <label class="check config-check"><input id="config-relinquish-current-price" type="checkbox"><span>Preiswert zurückgeben erlauben</span></label>
+                <label class="check config-check"><input id="config-relinquish-grid-lockout" type="checkbox"><span>Netzsperre zurückgeben erlauben</span></label>
+                <label class="check config-check"><input id="config-relinquish-spotmarket-lockout" type="checkbox"><span>Preissperre zurückgeben erlauben</span></label>
+                <label class="check config-check"><input id="config-relinquish-heartbeat" type="checkbox"><span>Heartbeat zurückgeben erlauben</span></label>
+              </div>
+              <p class="config-note">Prioritäten 1, 2, 5 und 6 bleiben für Schutzfunktionen reserviert und werden vom Backend abgelehnt.</p>
             </article>
 
             <article class="tool-panel config-card config-card-wide">
@@ -766,6 +844,26 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <!-- Verwaltungszugang: ein Freigabecode für die laufende Browsersitzung. -->
+  <div class="modal-overlay" id="admin-access-modal" hidden>
+    <form class="modal admin-access-modal" id="admin-access-form" role="dialog" aria-modal="true" aria-labelledby="admin-access-title">
+      <div class="modal-head">
+        <h3 id="admin-access-title">Verwaltung öffnen</h3>
+        <button class="link-button" id="admin-access-close" type="button">Schließen</button>
+      </div>
+      <p class="modal-hint">Der Freigabecode schützt Einrichtung und technische Einstellungen. Er wird nur für diese geöffnete Seite verwendet.</p>
+      <label>
+        Freigabecode
+        <input id="admin-access-token" type="password" autocomplete="off" required placeholder="Freigabecode eingeben">
+      </label>
+      <div class="config-feedback neutral" id="admin-access-feedback" role="status">Noch nicht freigegeben.</div>
+      <div class="modal-actions">
+        <button class="button" id="admin-access-cancel" type="button">Abbrechen</button>
+        <button class="button primary" id="admin-access-submit" type="submit">Verwaltung öffnen</button>
+      </div>
+    </form>
   </div>
 
   <!-- Konfigurationsdialog Dashboard -->

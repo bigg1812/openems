@@ -65,14 +65,15 @@ Die UI importiert eine Datenpunktliste oder später eine read-only Discovery, er
 daraus einen Mapping-Entwurf, validiert ihn und übernimmt ihn erst nach Freigabe.
 Vor der Übernahme werden Backup, gespeicherter Entwurf und Audit-Eintrag angelegt.
 
-`config.json` bleibt trotzdem wichtig: Es ist die aktive Runtime-Konfiguration der
-Installation. Für den ersten Start braucht Mini EMS eine gültige Startkonfiguration,
-weil die UI erst erreichbar ist, wenn die Runtime läuft. Danach soll die laufende
-Konfiguration über die UI und den Freigabecode gepflegt werden, nicht per
-Alltags-Handedit.
+Mini EMS PoC ist absichtlich kein vollwertiges Multi-Site-EMS. Der Edge-Kern ist für unterschiedliche Standorte
+konfigurierbar, läuft aber jeweils als eine lokale Instanz pro Standort. Der Fokus bleibt auf einem klaren MVP mit
+nachvollziehbarer Logik und realem Betriebskontext.
+Innerhalb des großen OpenEMS-Repos wird `mini_ems_poc/` wie ein eigenständiges Teilprojekt geführt.
+OpenEMS bleibt Referenz für professionelle Struktur, Begriffe und Muster; produktive Änderungen sollen aber eng auf Mini EMS begrenzt bleiben.
 
-Für lokale Entwicklung gibt es `config.local.json`. Sie nutzt Simulation und darf
-keine echten BACnet-Writes senden.
+Konfiguration, Mapping-Entwürfe und Revisionen liegen ausschließlich in `site.sqlite`
+im gewählten Standortordner. Eine aktive `config.json` gibt es nicht mehr. Ein neuer
+Standort startet sicher in Simulation und wird anschließend über die UI eingerichtet.
 
 ## Lokale Entwicklung
 
@@ -83,17 +84,17 @@ Ein sicherer lokaler Einzelzyklus:
 
 ```powershell
 cd C:\dev\openems\mini_ems_poc
-.\.venv\Scripts\python.exe mini_ems.py --config config.local.json --once
+.\.venv\Scripts\python.exe mini_ems.py --site-dir runtime/local/site --once
 ```
 
 Lokaler Loop mit Dashboard/API:
 
 ```powershell
 cd C:\dev\openems\mini_ems_poc
-.\.venv\Scripts\python.exe mini_ems.py --config config.local.json --loop
+.\.venv\Scripts\python.exe mini_ems.py --site-dir runtime/local/site --loop
 ```
 
-Die lokale API läuft mit `config.local.json` auf:
+Die lokale API läuft mit dem sicheren Standortordner auf:
 
 ```text
 http://127.0.0.1:8090
@@ -133,8 +134,8 @@ cd C:\dev\openems\mini_ems_poc
 .\windows\update_release.ps1 -PackagePath <Ordner-des-neuen-Release-Pakets>
 ```
 
-Das Update-Skript ersetzt die App-Dateien und lässt Standortdaten wie `config.json`,
-SQLite-Datenbank, Logs, Runtime-Dateien, Mapping-Entwürfe und Audit-Log unangetastet.
+Das Update-Skript ersetzt die App-Dateien und lässt Standortdaten wie `site.sqlite`,
+Logs, Runtime-Dateien, Mapping-Entwürfe und Audit-Log unangetastet.
 Rollback läuft über:
 
 ```powershell
@@ -148,8 +149,7 @@ Rollback läuft über:
 | `mini_ems.py` | CLI-Einstieg für Einzelzyklus und Loop im Checkout-Betrieb. |
 | `mini_ems_runtime/` | Runtime-Code für Config, Adapter, Zyklus, API, Persistenz und Reports. |
 | `dashboard/` | Browser-UI für Dashboard, Einrichtung, Diagnose und Systemstatus. |
-| `config.local.json` | Sichere lokale Simulationskonfiguration. |
-| `config.json` | Beispiel bzw. IPC-Startkonfiguration; im produktiven Betrieb liegt die aktive Datei unter `C:\ProgramData\MiniEMS`. |
+| `<Standortordner>/site.sqlite` | Aktive Konfiguration, Mapping-Entwürfe und Revisionen; produktiv unter `C:\ProgramData\MiniEMS`. |
 | `sim/` | Beispielwerte und Beispielpreise für lokale Simulation. |
 | `tests/` | Python-`unittest`-Tests. |
 | `packaging/` | Build-Tooling für versionierte Release-Pakete. |
@@ -178,5 +178,5 @@ Rollback läuft über:
 ## Wenn du nur drei Dinge behalten willst
 
 1. Mini EMS läuft produktiv als Release-Paket auf dem IPC, nicht als Git-Checkout.
-2. Standort-Mapping wird über UI, Entwurf, Test und Freigabe gepflegt; `config.json` ist Runtime- und Bootstrap-Datei, nicht die normale Bedienoberfläche.
+2. Standort-Mapping wird über UI, Entwurf, Test und Freigabe gepflegt; `site.sqlite` ist die einzige aktive Konfigurationsquelle.
 3. App-Dateien und Standortdaten bleiben strikt getrennt, damit Updates die Anlage nicht versehentlich überschreiben.

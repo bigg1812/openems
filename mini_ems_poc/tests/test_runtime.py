@@ -38,6 +38,7 @@ from mini_ems_poc.mini_ems_runtime.config import (
     SpotMarketLockoutConfig,
     TimingConfig,
     WatchdogConfig,
+    build_default_site_config,
 )
 from mini_ems_poc.mini_ems_runtime.cycle import CycleRunner
 from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
@@ -54,6 +55,7 @@ from mini_ems_poc.mini_ems_runtime.runtime_db import RuntimeDatabase
 from mini_ems_poc.mini_ems_runtime.simulation import SimulatedBacnetAdapter, SimulatedSpotmarketPriceService
 from mini_ems_poc.mini_ems_runtime.spotmarket_plan import SpotmarketManualOverrideStore, SpotmarketPlanWriter
 from mini_ems_poc.mini_ems_runtime.state_store import StateStore
+from mini_ems_poc.mini_ems_runtime.site_store import SiteConfigStore
 
 
 class FakeSocket:
@@ -1116,20 +1118,9 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertEqual(payload["spotmarket_settings"]["min_consecutive_quarters"], 8)
 
     def test_api_updates_spotmarket_duration_and_persists_config(self) -> None:
-        config_path = self.base_dir / "config.json"
-        config_path.write_text(
-            json.dumps(
-                {
-                    "controllers": {
-                        "spotmarket_lockout": {
-                            "negative_quarters_min_consecutive": 8,
-                            "min_valid_quarters": 96,
-                        }
-                    }
-                }
-            ),
-            encoding="utf-8",
-        )
+        site_store = SiteConfigStore(self.base_dir / "site")
+        raw = build_default_site_config("secret-token")
+        site_store.save_revision(raw, action="site.bootstrap", actor="test")
         writer = SpotmarketPlanWriter(
             self.config.spotmarket_plan_path,
             negative_threshold_ct_kwh=0.0,
@@ -1145,13 +1136,13 @@ class CycleRunnerTest(unittest.TestCase):
             dashboard_dir=self.base_dir / "dashboard",
             logger=self.logger,
             read_diagnostics=None,
-            config_path=config_path,
+            site_store=site_store,
             spotmarket_plan_writer=writer,
             price_source_resolution="quarterhour",
         )
 
         payload = api_server.update_spotmarket_lockout_settings({"min_consecutive_hours": 2.5})
-        persisted = json.loads(config_path.read_text(encoding="utf-8"))
+        persisted = site_store.active_config()
 
         self.assertEqual(payload["min_consecutive_quarters"], 10)
         self.assertEqual(writer.min_consecutive_quarters, 10)

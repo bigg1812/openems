@@ -5,6 +5,7 @@ if "%PROJECT_DIR:~-1%"=="\" set "PROJECT_DIR=%PROJECT_DIR:~0,-1%"
 cd /d "%PROJECT_DIR%"
 
 if not exist "%PROJECT_DIR%\logs" mkdir "%PROJECT_DIR%\logs"
+set "SITE_DIR=C:\ProgramData\MiniEMS"
 
 set "MINI_EMS_PYTHON=%PROJECT_DIR%\.venv\Scripts\python.exe"
 
@@ -17,7 +18,7 @@ if not exist "%MINI_EMS_PYTHON%" (
 echo [%DATE% %TIME%] Starting Mini EMS runtime >> "%PROJECT_DIR%\logs\mini_ems_stdout.log"
 "%MINI_EMS_PYTHON%" ^
   "%PROJECT_DIR%\mini_ems.py" ^
-  --config "%PROJECT_DIR%\config.json" ^
+  --site-dir "%SITE_DIR%" ^
   --loop >> "%PROJECT_DIR%\logs\mini_ems_stdout.log" 2>&1
 
 set "EXIT_CODE=%ERRORLEVEL%"

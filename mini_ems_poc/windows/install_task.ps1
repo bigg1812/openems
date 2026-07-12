@@ -5,7 +5,7 @@ param(
     [string]$ProjectDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
     [string]$PythonPath = "python",
     [string]$AppDir = "C:\Program Files\MiniEMS",
-    [string]$ConfigPath = "C:\ProgramData\MiniEMS\config.json",
+    [string]$SiteDir = "C:\ProgramData\MiniEMS",
     [string]$LauncherPath = "",
     [bool]$StartNow = $true
 )
@@ -51,19 +51,19 @@ try {
         if (-not (Test-Path $exePath)) {
             throw "mini_ems.exe not found at $exePath"
         }
-        if (-not (Test-Path $ConfigPath)) {
-            throw "Config file not found at $ConfigPath"
-        }
         if (-not (Test-Path $AppDir)) {
             throw "App directory not found at $AppDir"
+        }
+        if (-not (Test-Path $SiteDir)) {
+            New-Item -ItemType Directory -Path $SiteDir -Force | Out-Null
         }
 
         $cmdPath = (Resolve-Path $LauncherPath).Path
         $workingDirectory = (Resolve-Path $AppDir).Path
-        $actionArgument = "/c `"`"$cmdPath`" `"$ConfigPath`"`""
+        $actionArgument = "/c `"`"$cmdPath`" `"$SiteDir`"`""
         Write-Host "Installing release task '$TaskName'"
         Write-Host "  launcher : $cmdPath"
-        Write-Host "  config   : $ConfigPath"
+        Write-Host "  site dir : $SiteDir"
     } else {
         $cmdPath = Join-Path $ProjectDir "run_mini_ems.cmd"
         $venvDir = Join-Path $ProjectDir ".venv"
