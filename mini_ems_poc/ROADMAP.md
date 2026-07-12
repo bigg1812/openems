@@ -731,8 +731,12 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     Smoketest); `-Rollback` schiebt den vorherigen Stand zurück. `windows/smoketest_release.ps1` prüft frische
     `health.json`, `/api/status` inkl. erwarteter `app_version`/`api_read_only` und das Log auf neue
     ERROR-Zeilen (Exit-Code 0/1). Standortdaten (`SiteDir`) werden nie angefasst. `UPDATE_WARTUNG.md` ist auf
-    Skript-first umgestellt, die manuellen Schritte bleiben als Fallback-Referenz. Der Lauf beider Skripte auf
-    der realen IPC steht noch aus (bisher nur Review; kein PowerShell auf dem Build-Laptop verfügbar).
+    Skript-first umgestellt, die manuellen Schritte bleiben als Fallback-Referenz.
+  - **IPC-Abnahme (2026-07-12, Betreiberbestätigung):** Das neue Release wurde auf der realen IPC installiert
+    und läuft fehlerfrei. Die bestehende Standortkonfiguration blieb erhalten, der Freigabecode funktionierte
+    und es traten keine Fehlermeldungen auf. Damit ist der reale H7-Updatepfad einschließlich Erhalt der
+    Standortdaten und anschließendem Anwendungsstart bestätigt. Konsolenausgaben wurden auf Wunsch nicht ins
+    Repository übernommen; der Nachweis ist ausdrücklich als Betreiberbestätigung dokumentiert.
 
 - [x] **H8. Audit, Nachvollziehbarkeit und Betreiberfreigabe**
   - **Was:** UI-Zugriffe, Runtime-Starts, Konfigurationsänderungen und spätere Schreibaktionen nachvollziehbar loggen.

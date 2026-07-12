@@ -4,6 +4,11 @@ Diese Anleitung beschreibt den normalen Release-Wechsel auf der Windows-IPC. Der
 Das geprüfte Paket wird mit einem Skript installiert, automatisch getestet und kann mit einem Skript
 zurückgerollt werden.
 
+> **Realer Nachweis vom 12.07.2026:** Der Betreiber hat den Release-Wechsel auf der Pilot-IPC erfolgreich
+> durchgeführt. Die neue Version lief fehlerfrei, die bestehende Konfiguration blieb erhalten, der
+> Freigabecode funktionierte und es gab keine Fehlermeldungen. Dieser Nachweis beruht auf der ausdrücklichen
+> Betreiberbestätigung; Konsolenausgaben wurden nicht ins Repository übernommen.
+
 ## Was beim Update getrennt bleibt
 
 ```text

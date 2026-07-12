@@ -108,8 +108,8 @@ Leitentscheidungen:
     englischen Zustandswörter in normalen Ansichten (Technikdetails bleiben in der einklappbaren
     Konfigurations-/Diagnoseansicht).
 
-- [ ] **UX23. Release-Oberfläche radikal vereinfachen und Rollen sichtbar trennen** — lokal umgesetzt,
-  reale IPC-Abnahme offen.
+- [ ] **UX23. Release-Oberfläche radikal vereinfachen und Rollen sichtbar trennen** — technisch auf der
+  realen IPC abgenommen; fachfremder Usability-Test noch offen.
   - **Auslöser:** Die Release-Abnahme am 12.07.2026 zeigte trotz erledigter UX4/UX5/UX14 eine zu hohe
     Gesamtkomplexität: fünf gleichgewichtete Hauptseiten, alle Einrichtungsschritte gleichzeitig und
     mehrere technische Freigabepfade.
@@ -124,6 +124,9 @@ Leitentscheidungen:
   - **Definition of Done:** Eine fachfremde Testperson findet Anlagenzustand und Bericht ohne Einweisung,
     öffnet mit Freigabecode die Verwaltung und durchläuft den Einrichtungsassistenten ohne PowerShell oder
     alternative URL. Danach reale IPC-Abnahme über Caddy in Desktop- und Mobilbreite.
+  - **IPC-Abnahme (2026-07-12, Betreiberbestätigung):** Das neue Release läuft fehlerfrei, die bestehende
+    Konfiguration blieb erhalten und der Verwaltungszugang mit Freigabecode funktionierte. Offen bleibt nur
+    der ausdrücklich geforderte Durchlauf durch eine fachfremde Testperson; deshalb bleibt UX23 insgesamt offen.
 
 - [x] **UX6. Zustände und Warnungen verständlich machen** — erledigt: jeder kritische Zustand erscheint als
   verständliche Meldung mit nächstem Schritt; dezenter Ladehinweis beim ersten Laden und beim Aktualisieren.

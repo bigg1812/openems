@@ -51,6 +51,9 @@ Repo-Datei wird vom Build nicht umgeschrieben, sondern bleibt manuelle Pflege
   `health.json` (`timestamp`, `runtime_status`), `/api/status` inkl.
   erwarteter `app_version` und `api_read_only`, sowie das Log auf neue
   `ERROR`-Zeilen. Exit-Code 0/1 mit deutschen Meldungen.
+- Reale IPC-Abnahme des Release-Wechsels am 12.07.2026 durch den Betreiber bestätigt:
+  neue Version fehlerfrei, Standortkonfiguration erhalten, Freigabecode erfolgreich
+  und keine Fehlermeldungen. Die Bestätigung ist ohne gespeicherte Konsolenausgaben dokumentiert.
 
 ### Geändert
 
