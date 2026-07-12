@@ -2536,6 +2536,21 @@ textarea:focus {
   .nav-list {
     order: 3;
     flex-basis: 100%;
+    gap: 0;
+  }
+
+  .nav-link,
+  .nav-admin-button {
+    padding-inline: 6px;
+    font-size: 12px;
+  }
+
+  .nav-icon {
+    display: none;
+  }
+
+  .nav-admin-button strong {
+    font-size: 12px;
   }
 
   .status-hero {

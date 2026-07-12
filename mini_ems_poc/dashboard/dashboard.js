@@ -458,7 +458,7 @@ function updateAccessUi(payload = appState.statusPayload) {
     admin: "Verwaltung",
   };
   setText("access-mode-badge", labels[appState.access.level] || "Zugriff");
-  setText("admin-access-label", isAdmin ? "Verwaltung schließen" : "Verwaltung öffnen");
+  setText("admin-access-label", "Verwaltung");
   const links = document.getElementById("admin-nav-links");
   if (links) {
     links.hidden = !isAdmin;
