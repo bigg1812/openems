@@ -212,6 +212,16 @@ class MiniEmsApiServer:
                 if self._deny_in_read_only("POST", parsed.path):
                     return
                 try:
+                    if parsed.path == "/api/auth/admin/verify":
+                        try:
+                            api_server.verify_admin_access(self._admin_token())
+                            self._send_json({"authenticated": True, "role": "admin"})
+                        except PermissionError as error:
+                            self._send_json(
+                                {"authenticated": False, "message": str(error)},
+                                status=HTTPStatus.FORBIDDEN,
+                            )
+                        return
                     if parsed.path == "/api/config/spotmarket-lockout":
                         payload = self._read_json_body()
                         self._send_json(api_server.update_spotmarket_lockout_settings(payload))
@@ -280,15 +290,18 @@ class MiniEmsApiServer:
             def _deny_in_read_only(self, method: str, path: str) -> bool:
                 """Zentrale Read-only-Sperre (H5) fuer das Request-Handling.
 
-                Deny-by-default: Im read-only Netzwerkmodus werden alle nicht-GET-
-                Methoden abgelehnt, damit auch spaeter ergaenzte Schreib-Endpunkte
-                automatisch gesperrt bleiben. Zusaetzlich wird der aktive
+                Deny-by-default: Im read-only Netzwerkmodus werden nicht freigegebene
+                POST-Methoden abgelehnt. Der UI-Konfigurationspfad bleibt verfügbar;
+                seine aktivierenden Endpunkte erzwingen weiterhin den Freigabecode.
+                Zusaetzlich wird der aktive
                 Anlagen-Read GET /api/diagnostics/read explizit gesperrt (er loest
                 trotz GET einen Live-Lesezugriff aus, siehe HOSTING_SICHERHEIT.md
                 Abschnitt 2.1). Rueckgabe True bedeutet: Antwort wurde gesendet,
                 der Aufrufer muss abbrechen.
                 """
                 if not api_server.api_config.read_only:
+                    return False
+                if method == "POST" and path in _READ_ONLY_CONFIG_POST_PATHS:
                     return False
                 if method != "GET" or path in _READ_ONLY_BLOCKED_GET_PATHS:
                     self._send_json(
@@ -779,6 +792,9 @@ class MiniEmsApiServer:
         if admin_token is None or not hmac.compare_digest(str(admin_token), str(expected_token)):
             raise PermissionError("Der Freigabecode ist nicht gültig.")
 
+    def verify_admin_access(self, admin_token: Optional[str]) -> None:
+        self._require_admin_token(admin_token, "Admin access")
+
     def _config_fingerprint(self) -> Optional[str]:
         if self.config_path is None or not self.config_path.exists():
             return None
@@ -893,6 +909,15 @@ class MiniEmsApiServer:
 # weil sie einen aktiven Lesezugriff auf die Anlage ausloesen (HOSTING_SICHERHEIT.md
 # Abschnitt 2.1). Alle nicht-GET-Methoden werden ohnehin deny-by-default gesperrt.
 _READ_ONLY_BLOCKED_GET_PATHS = frozenset({"/api/diagnostics/read"})
+
+_READ_ONLY_CONFIG_POST_PATHS = frozenset({
+    "/api/auth/admin/verify",
+    "/api/config/site/validate",
+    "/api/config/site/save",
+    "/api/config/mapping/preview",
+    "/api/config/pointlist/import",
+    "/api/config/mapping/activate",
+})
 
 
 _SITE_CONFIG_EDITABLE_SECTIONS = (

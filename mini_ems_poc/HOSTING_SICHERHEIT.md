@@ -55,7 +55,7 @@ Windows-Rechner sitzt, ohne Mini-EMS-Rolle.
 | **UI – Dashboard, Analyse, Berichte, Systemzustand** | nur, wenn im Kundennetz/VPN und Zugangsdaten vorhanden (sonst gar nicht) | sehen | sehen | sehen |
 | **UI – Diagnose (Preisprüfung, technische Details)** | nein | nein | sehen + ausführen | sehen + ausführen |
 | **UI – Einstellung Preissteuerung (Mindestdauer Preisfenster)** | nein | nein | ändern | ändern |
-| **Standortkonfiguration `config.json` (Grenzwerte, Datenpunkte, `api.host`)** | nein (Dateirechte, Ziel H3) | nein | nein | lesen + ändern (lokal/administrativ) |
+| **Standortkonfiguration (Grenzwerte, Datenpunkte, `api.host`)** | nein (Dateirechte, Ziel H3) | nein | nein | über token-geschützte Verwaltung lesen + ändern |
 | **Runtime-Dateien (`runtime/state.json`, `runtime/health.json`)** | nein direkt; `health.json`-Inhalte nur mittelbar über das UI | Inhalte über UI in Betreiber-Sprache | Inhalte über UI + Diagnose | Dateien direkt |
 | **Logs (`logs/mini_ems.log`)** | nein | nein | nein (nur aufbereitete Kommunikationshinweise im UI) | lesen |
 | **Betriebsdaten SQLite (`data/runtime/mini_ems.sqlite`)** | nein direkt | Auswertungen über Historie/Reports im UI | Auswertungen über UI | Datei direkt |
@@ -71,8 +71,8 @@ Kurzfassung der Grenzen:
 - **Operator** darf zusätzlich die Preisprüfung ausführen (aktiver Lesezugriff auf die Anlage) und die
   Mindestdauer der Preisfenster einstellen – beides bleibt zunächst dem lokalen bzw. ausdrücklich
   freigegebenen Zugriff vorbehalten, nicht dem read-only Online-Pfad.
-- **Admin** sieht und ändert Standortkonfiguration, Logs, Datenbank und Safety-Flags – ausschließlich
-  lokal/administrativ auf der IPC, nie über den Netzwerkzugriff.
+- **Admin** öffnet Standortkonfiguration und technische Einstellungen über den geschützten HTTPS-Zugang
+  mit Freigabecode. Direkter Datei-/Datenbankzugriff und Safety-Flags bleiben lokale IPC-Administration.
 
 ### 1.3 Ehrliche Abgrenzung (Risiko-Leitplanke aus H1)
 
@@ -124,12 +124,13 @@ der H4-Umschaltung. Für den aktuellen Zugriffsweg auf der Pilot-IPC gilt Teil 4
 
 ### 2.1 Endpunkt-Einstufung (Basis für beide Pfade)
 
-*Stand: 2026-07-11 – abgeglichen mit `mini_ems_runtime/http_api.py` inklusive Pointlist-Import,
-Mapping-Aktivierung und bereinigtem H8-Änderungsverlauf; Testabdeckung in `tests/test_read_only_api.py`.*
+*Stand: 2026-07-12 – abgeglichen mit `mini_ems_runtime/http_api.py` inklusive Verwaltungsfreigabe,
+Pointlist-Import, Mapping-Aktivierung und H8-Änderungsverlauf; Testabdeckung in
+`tests/test_read_only_api.py`.*
 
-Abgeleitet aus `mini_ems_runtime/http_api.py`. Nur die als **read-only** eingestuften Endpunkte dürfen im
-Online-Pfad erreichbar sein. Die als **sperren** markierten bleiben lokal/administrativ bzw. auf die
-Operator-Rolle beschränkt.
+Abgeleitet aus `mini_ems_runtime/http_api.py`. Viewer erhalten reine Anzeige/Datenabrufe. Der ausdrücklich
+freigegebene UI-Konfigurationspfad ist über denselben HTTPS-Zugang erreichbar, aktiviert Änderungen aber nur
+nach serverseitiger Prüfung des Freigabecodes. Aktive Anlagenzugriffe und Bedienaktionen bleiben gesperrt.
 
 **Read-only (freigebbar, reine Anzeige/Datenabruf):**
 
@@ -149,33 +150,38 @@ Operator-Rolle beschränkt.
 | `GET /api/report/html`, `/api/report/pdf` | konfigurierbarer Bericht HTML/PDF | liest DB, rendert |
 | `GET /api/weather` | Wetter-Kachel (Open-Meteo-Cache) | liest Cache; ruft nur Wetterdienst, nie die Anlage |
 
+**Verwaltung (über HTTPS freigegeben, Aktivierung nur mit Freigabecode):**
+
+| Endpunkt | Zweck | Schutz/Wirkung |
+|---|---|---|
+| `POST /api/auth/admin/verify` | öffnet den Verwaltungsbereich für die aktuelle Browserseite | prüft nur den Freigabecode, ändert keinen Anlagenzustand |
+| `POST /api/config/site/validate` | prüft einen Konfigurationsentwurf | keine Speicherung |
+| `POST /api/config/site/save` | speichert technische Einstellungen | Freigabecode zwingend; Backup/Audit/Neustarthinweis |
+| `POST /api/config/mapping/preview` | prüft den Mapping-Entwurf | keine Speicherung |
+| `POST /api/config/pointlist/import` | liest CSV/TSV/XLSX und bildet Zuordnungskandidaten | keine Anlagenkommunikation, keine Speicherung |
+| `POST /api/config/mapping/activate` | übernimmt die geprüfte Zuordnung | Freigabecode zwingend; Backup/Audit/Neustarthinweis |
+
 **Zu sperren (nicht in den Online-Pfad):**
 
 | Endpunkt | Warum gesperrt |
 |---|---|
 | `GET /api/diagnostics/read` | löst einen **aktiven Live-Lesezugriff auf die Anlage** aus (BACnet-Read über `read_diagnostics`); im Rollenmodell Operator, nicht Viewer – im read-only Modus (H5) von außen nicht erreichbar |
 | `POST /api/config/spotmarket-lockout` | **schreibt in `config.json`** (`_persist_min_consecutive_quarters`) und ändert das Planungsverhalten; Operator/Admin, kein Online-Viewer |
-| `POST /api/config/site/validate` | Validierung eines Konfigurations-Entwurfs (S5/H9); zwar nur prüfend, aber ein POST-Schreibpfad-Muster und Teil des Konfigurationsflusses; nicht in den Online-Pfad |
-| `POST /api/config/site/save` | **speichert die Standortkonfiguration**; prüft den Freigabecode und erstellt Backup, Audit und Neustarthinweis, ohne den Code zu protokollieren; rein administrativ, nie über den Netzwerkzugriff |
-| `POST /api/config/mapping/preview` | Vorschau/Validierung eines Mapping-Entwurfs (S5); POST-Konfigurationspfad, nicht für den read-only Viewer |
 | `POST /api/report/preview` | zwar nur DB-Lesen, aber ein POST-Schreibpfad-Muster; für den read-only Pilot nicht nötig und bewusst außerhalb gehalten |
-| `POST /api/config/pointlist/import` | parst eine hochgeladene BACnet-Punkteliste (CSV/TSV/XLSX) zu Mapping-Kandidaten; schreibt zwar nicht in `config.json`, ist aber Teil des Konfigurations-Editors (S5/S6) und kein Viewer-Endpunkt |
 | `POST /api/config/discovery/bacnet/preview` | löst optional eine **echte BACnet-Discovery** (`who_is`/`read_property`) gegen die Anlage aus, sobald BACpypes3 installiert ist – aktiver Anlagenzugriff wie `GET /api/diagnostics/read`, deshalb gesperrt |
-| `POST /api/config/mapping/activate` | **sicherheitskritischster Endpunkt:** aktiviert einen Mapping-Patch, schreibt `config.json`, legt Backup/Draft/Audit-Log an und lädt die Konfiguration neu; nur mit lokalem Freigabecode, nie über den Netzwerkzugriff |
 
-Hinweis zur Robustheit: Die Sperre ist **positiv/deny-by-default** umgesetzt (nur GET-Methoden werden
-grundsätzlich durchgelassen; `POST`/`PUT`/`DELETE` sind generell gesperrt), nicht als Blocklist einzelner
-Pfade. So bleiben auch später neu hinzukommende Schreib-Endpunkte standardmäßig draußen. Die einzige
-zusätzliche Ausnahme ist der aktive Anlagen-Read `GET /api/diagnostics/read`, der trotz GET explizit
-gesperrt wird.
+Hinweis zur Robustheit: Die Sperre ist **positiv/deny-by-default** umgesetzt. GET wird grundsätzlich
+durchgelassen, abgesehen vom aktiven Anlagen-Read `GET /api/diagnostics/read`. POST bleibt gesperrt, sofern
+der Pfad nicht ausdrücklich in der kleinen Konfigurations-Allowlist steht. Neue Endpunkte bleiben damit
+standardmäßig draußen; aktivierende Allowlist-Endpunkte prüfen zusätzlich den Freigabecode.
 
 **Serverseitiger Read-only-Modus (`api.read_only`, umgesetzt für H5).** Die Endpunkt-Einstufung dieses
 Abschnitts wird jetzt direkt in der HTTP-API durchgesetzt und hängt nicht mehr allein an einem vorgelagerten
 Reverse Proxy. Der Schlüssel `api.read_only` (Boolean, Default `false`) steht im `api`-Block der
-Konfiguration. Ist er `true`, lehnt die API an **einer zentralen Stelle im Request-Handling** alle nicht-GET-
-Methoden sowie `GET /api/diagnostics/read` mit `HTTP 403` und einem kurzen deutschen JSON-Hinweis ab
+Konfiguration. Ist er `true`, lehnt die API an **einer zentralen Stelle im Request-Handling** alle nicht
+freigegebenen POST-Methoden sowie `GET /api/diagnostics/read` mit `HTTP 403` und einem kurzen deutschen JSON-Hinweis ab
 (`{"error": "read_only_mode", "message": "Diese Funktion ist über den Netzwerkzugriff nicht verfügbar. …"}`).
-Alle read-only Endpunkte oben bleiben erreichbar. Zusätzlich meldet `GET /api/status` das Feld
+Alle Anzeige- und ausdrücklich freigegebenen Konfigurationsendpunkte oben bleiben erreichbar. Zusätzlich meldet `GET /api/status` das Feld
 `api_read_only: true`, damit das UI den Modus erkennen kann. Default `false` lässt das bisherige Verhalten
 unverändert; `config.json`/`config.local.json` werden dafür nicht geändert – der Schlüssel wird nur dort
 gesetzt, wo der read-only Netzbetrieb (Pilot-Pfad a) gewünscht ist.
@@ -226,18 +232,13 @@ und den Zugriff dokumentieren. Keine Codeänderung.
 
 **Risiken / Grenzen:**
 
-- Mit `api.read_only: true` (siehe 2.1) sind die schreibenden/aktiven Endpunkte serverseitig gesperrt und
-  liefern über denselben Port `HTTP 403`. Ohne diesen Schalter reicht der Pfad den **kompletten** Dienst
-  durch: die schreibenden/aktiven Endpunkte (`/api/diagnostics/read`, `POST /api/config/spotmarket-lockout`,
-  die `POST /api/config/site/*`- und `POST /api/config/mapping/preview`-Konfigurationspfade,
-  `POST /api/report/preview`, die Config-Editor-Pipeline `POST /api/config/pointlist/import` und
-  `POST /api/config/discovery/bacnet/preview` sowie insbesondere `POST /api/config/mapping/activate`)
-  sind dann technisch erreichbar, und nur die **organisatorische** Vergabe des
-  VPN-Zugangs trennt Viewer von Operator. Für den Pilot-Pfad (a) wird deshalb `api.read_only: true` gesetzt;
-  eine echte Rollen-/Login-Trennung bleibt H6 vorbehalten.
-- Jeder mit VPN-Zugang sieht das Dashboard so, wie es ist; es gibt heute keine UI-seitige Rollentrennung.
-- Kein zusätzlicher Login vor dem Dashboard, solange H6 nicht umgesetzt ist – der Schutz ist der
-  VPN-/Secomea-Zugang selbst.
+- Mit `api.read_only: true` (siehe 2.1) bleiben aktive Anlagenzugriffe und Bedienaktionen serverseitig
+  gesperrt. Der kleine Konfigurationspfad ist bewusst erreichbar; Speichern und Aktivieren scheitern ohne
+  gültigen Freigabecode. Ohne den Schalter wäre weiterhin der komplette Dienst erreichbar.
+- Jeder mit VPN-Zugang sieht Übersicht, Analyse und Berichte. Standort-Einrichtung und Technik erscheinen
+  erst nach erfolgreicher Prüfung des Freigabecodes. Der Code wird nicht im Browser gespeichert.
+- Das ist eine Pilot-Rollentrennung, noch keine persönliche Anmeldung. Benutzerkonten, individuelle Rechte,
+  Rate-Limits und Sitzungsverwaltung bleiben H6; der VPN-/Secomea-Zugang bleibt die äußere Zugangsgrenze.
 
 ### 2.3 Pfad (b) – Read-only Export an einen kleinen externen Hosting-Punkt mit Login
 
@@ -307,17 +308,16 @@ Datenauslagerung auf.
    freigeben.
 4. Vom zweiten Rechner über VPN/Secomea das Dashboard öffnen und prüfen, dass echte IPC-Daten erscheinen
    (Status, Historie, Berichte).
-5. `api.read_only: true` im `api`-Block der `config.json` setzen und Mini EMS neu starten. Danach prüfen,
-   dass `GET /api/diagnostics/read` und die `POST`-Endpunkte (`/api/config/spotmarket-lockout`,
-   `/api/config/site/validate`, `/api/config/site/save`, `/api/config/mapping/preview`,
-   `/api/report/preview`) über diesen Pfad `HTTP 403` liefern und `GET /api/status` `api_read_only: true`
-   meldet. Solange keine Rollenschicht (H6) existiert, den VPN-Zugang zusätzlich nur an
-   vertrauenswürdige Personen vergeben.
+5. `api.read_only: true` setzen und Mini EMS neu starten. Danach prüfen: `GET /api/diagnostics/read`,
+   `POST /api/config/spotmarket-lockout`, `POST /api/report/preview` und
+   `POST /api/config/discovery/bacnet/preview` liefern `HTTP 403`; `GET /api/status` meldet
+   `api_read_only: true`. Die Verwaltung lässt sich mit gültigem Freigabecode öffnen; Import, Vorschau,
+   Speichern und Aktivieren laufen über denselben HTTPS-Link.
 6. Nach dem Test im Betriebslog und im H8-Konfigurationsverlauf prüfen, dass Zugriff und Freigabe nachvollziehbar
    erfasst wurden; bis H6 wird dabei bewusst nur die Rolle, keine persönliche Identität protokolliert.
-7. **Definition-of-Done-Nachweis (durch den Betreiber/Nutzer vor Ort):** Ein zweiter Rechner am Standort
-   zeigt echte IPC-Daten; Schalt-/Konfigurationsaktionen sind über diesen Pfad nicht vorgesehen. Dieser
-   Nachweis kann nur am realen Standort erbracht werden und bleibt in `ROADMAP.md` (To-do 3) offen.
+7. **Definition-of-Done-Nachweis:** Eine fachfremde Person sieht Betriebsdaten ohne Techniknavigation,
+   öffnet mit Freigabecode die Verwaltung und kann einen Mapping-Entwurf über denselben Link bis zur
+   Aktivierung führen. Aktive Anlagenaktionen bleiben gesperrt. Dieser Nachweis bleibt auf der realen IPC offen.
 
 ### 2.6 Verbleibende offene Entscheidungen des Betreibers/Nutzers
 
@@ -721,8 +721,9 @@ auf dem einen vorgesehenen Weg annimmt. Das ist genau die Festlegung aus Teil 1.
 
 **Zusammenspiel mit `api.read_only`:** Die Bindung sagt, *wer* die API erreicht; `api.read_only` sagt, *was*
 er dann darf. Beides ist unabhängig und wirkt additiv (defense in depth). In Szenario 3 gilt bewusst beides:
-`127.0.0.1` nimmt die API aus dem Netz, `read_only: true` sperrt zusätzlich serverseitig alle Schreib-/
-Aktiv-Endpunkte (siehe 2.1) – selbst wenn der Proxy einmal fehlkonfiguriert wäre, bliebe die API read-only.
+`127.0.0.1` nimmt die API aus dem Netz, `read_only: true` sperrt zusätzlich serverseitig alle nicht
+freigegebenen Bedien-/Aktiv-Endpunkte (siehe 2.1). Die kleine Konfigurations-Allowlist verlangt für jede
+Aktivierung weiterhin den Freigabecode.
 
 ### 4.2 Reverse-Proxy-Empfehlung: Caddy
 
@@ -771,13 +772,14 @@ Kernpunkte der `Caddyfile` (verifiziert gegen die aktuelle Caddy-v2-Dokumentatio
 - **TLS** für den UI-Zugriff über ein intern vertrauenswürdiges Zertifikat, ohne Internet-CA.
 - Der Zugriff ist auf **genau einen Einstiegspunkt kanalisiert** (der Proxy), zusätzlich per Firewall auf
   das Kundennetz/VPN begrenzt.
-- Zusammen mit `api.read_only: true` bleiben Schreib-/Aktiv-Endpunkte serverseitig gesperrt (siehe 2.1).
+- Zusammen mit `api.read_only: true` bleiben Anlagenaktionen gesperrt; Konfigurationsänderungen sind nur
+  über die token-geschützte Allowlist möglich (siehe 2.1).
 
 **Leistet NICHT (bewusst nicht Teil von H4):**
 
-- **Kein Login und keine Rollen.** Wer den Proxy im Kundennetz/VPN erreicht, sieht das Dashboard ohne
-  Passwort. Der `basic_auth`-Block ist vorbereitet, aber inaktiv – Login/Rollen (`viewer`/`operator`/
-  `admin`) kommen mit **H6** (`PRODUCT_UX_KONZEPT.md`, Abschnitt 3).
+- **Keine persönlichen Konten.** Wer den Proxy im Kundennetz/VPN erreicht, sieht die Betriebsoberfläche.
+  Die Verwaltung verlangt einen Freigabecode, ordnet Aktionen aber noch keiner Person zu. Benutzerkonten,
+  Operator-Rechte und Sitzungen kommen mit **H6** (`PRODUCT_UX_KONZEPT.md`, Abschnitt 3).
 - **Keine Uneinsehbarkeit gegenüber dem Kunden-Administrator.** Der Schutz ist eine Netzwerk- und
   Zugriffsgrenze, keine kryptografische Uneinsehbarkeit auf der IPC. Wer lokalen Admin-Zugriff hat, kann
   den Proxy umgehen und `127.0.0.1:8090` direkt ansprechen – das ist die Grenze aus **Teil 1.3** und wird

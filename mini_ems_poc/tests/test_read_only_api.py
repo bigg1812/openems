@@ -4,12 +4,12 @@ Setzt die Endpunkt-Einstufung aus HOSTING_SICHERHEIT.md Abschnitt 2.1 durch:
 
 - api.read_only Default False -> Verhalten unveraendert (Bestandssuite deckt das ab;
   hier zusaetzlich explizit geprueft, dass POST- und diagnostics/read-Pfade nicht 403 sind).
-- api.read_only True -> alle nicht-GET-Methoden und GET /api/diagnostics/read
-  liefern 403 mit deutschem JSON-Fehlerkoerper; die read-only Freigabeliste bleibt erreichbar.
+- api.read_only True -> Anlagenaktionen und GET /api/diagnostics/read liefern
+  403. Der UI-Konfigurationspfad bleibt erreichbar; Speichern und Aktivieren
+  verlangen weiterhin den Freigabecode.
 - Die Config-Editor-Pipeline, die seit Commit e5417edd2 hinzugekommen ist
   (POST /api/config/pointlist/import, POST /api/config/discovery/bacnet/preview,
-  POST /api/config/mapping/activate), ist Teil derselben Liste und Sperre; ein
-  gueltiges Admin-Token darf sie im read-only Modus nicht umgehen.
+  POST /api/config/mapping/activate), ist explizit inventarisiert.
 - ReadOnlyGuardStructuralTest scannt do_POST in http_api.py und stellt sicher,
   dass jeder dort verdrahtete POST-Pfad in dieser Testliste vorkommt, damit
   kuenftige neue Endpunkte nicht unbemerkt an der Sperre vorbeirutschen.
@@ -65,16 +65,18 @@ API_ENDPOINTS = [
     ("GET", "/api/weather", False),
     # Aktiver Anlagen-Read: trotz GET gesperrt (2.1)
     ("GET", "/api/diagnostics/read", True),
-    # Alle POST-Endpunkte: deny-by-default gesperrt
+    # Anlagen-/Bedienaktionen bleiben gesperrt
     ("POST", "/api/config/spotmarket-lockout", True),
-    ("POST", "/api/config/site/validate", True),
-    ("POST", "/api/config/site/save", True),
-    ("POST", "/api/config/mapping/preview", True),
+    # Verwaltungszugang und Konfigurationsfluss bleiben erreichbar.
+    ("POST", "/api/auth/admin/verify", False),
+    ("POST", "/api/config/site/validate", False),
+    ("POST", "/api/config/site/save", False),
+    ("POST", "/api/config/mapping/preview", False),
     ("POST", "/api/report/preview", True),
     # Config-Editor-Pipeline (S5/S6, seit Commit e5417edd2 hinzugekommen):
-    ("POST", "/api/config/pointlist/import", True),
+    ("POST", "/api/config/pointlist/import", False),
     ("POST", "/api/config/discovery/bacnet/preview", True),
-    ("POST", "/api/config/mapping/activate", True),
+    ("POST", "/api/config/mapping/activate", False),
 ]
 
 BLOCKED_ENDPOINTS = [(m, p) for (m, p, blocked) in API_ENDPOINTS if blocked]
@@ -82,10 +84,15 @@ BLOCKED_ENDPOINTS = [(m, p) for (m, p, blocked) in API_ENDPOINTS if blocked]
 # (Wetterdienst / PDF-Renderer); fuer die offline/deterministische Erreichbarkeits-
 # Stichprobe ausgenommen. Ihre Read-only-Einstufung (Freigabe) aendert sich dadurch nicht.
 _LIVE_DEPENDENT_PATHS = frozenset({"/api/weather", "/api/report/pdf"})
+_TOKEN_PROTECTED_PATHS = frozenset({
+    "/api/auth/admin/verify",
+    "/api/config/site/save",
+    "/api/config/mapping/activate",
+})
 NON_BLOCKED_ENDPOINTS = [
     (m, p)
     for (m, p, blocked) in API_ENDPOINTS
-    if not blocked and p not in _LIVE_DEPENDENT_PATHS
+    if not blocked and p not in _LIVE_DEPENDENT_PATHS and p not in _TOKEN_PROTECTED_PATHS
 ]
 
 
@@ -246,36 +253,45 @@ class ReadOnlyEnabledTest(ReadOnlyApiTestBase):
         self.assertNotIn("user", event)
 
 
-class ReadOnlyBlocksWriteEndpointsEvenWithAdminTokenTest(ReadOnlyApiTestBase):
-    """Sicherheitskritische Zusatzprobe: die zentrale read-only Sperre muss VOR
-    jeder Admin-Token-Pruefung greifen. Ein gueltiges Admin-Token darf im
-    read-only Netzwerkmodus insbesondere den sicherheitskritischsten Endpunkt
-    POST /api/config/mapping/activate (aktiviert eine neue Konfiguration inkl.
-    Backup/Audit) nicht freischalten - ebenso wenig POST /api/config/site/save.
-    """
+class ReadOnlyAllowsProtectedUiConfigurationTest(ReadOnlyApiTestBase):
+    """Der UI-Konfigurationspfad bleibt mit Freigabecode erreichbar."""
 
     read_only = True
     admin_token = "test-admin-token-for-read-only-guard"
 
-    def _assert_blocked_with_admin_token(self, path: str) -> None:
+    def _assert_reaches_handler_with_admin_token(self, path: str) -> None:
         status, raw = self._request(
             "POST",
             path,
             headers={"X-Mini-Ems-Admin-Token": self.admin_token},
         )
-        self.assertEqual(status, 403, "{0} should stay 403 even with a valid admin token".format(path))
+        self.assertEqual(status, 200, "{0} should reach its token-protected handler".format(path))
         payload = json.loads(raw.decode("utf-8"))
-        self.assertEqual(
-            payload["error"],
-            "read_only_mode",
-            "{0} must fail on the read-only gate, not on token/permission handling".format(path),
+        self.assertNotEqual(payload.get("error"), "read_only_mode")
+
+    def test_admin_verify_accepts_valid_token(self) -> None:
+        status, raw = self._request(
+            "POST",
+            "/api/auth/admin/verify",
+            headers={"X-Mini-Ems-Admin-Token": self.admin_token},
         )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(raw.decode("utf-8"))["authenticated"])
 
-    def test_mapping_activate_blocked_even_with_valid_admin_token(self) -> None:
-        self._assert_blocked_with_admin_token("/api/config/mapping/activate")
+    def test_admin_verify_rejects_invalid_token(self) -> None:
+        status, raw = self._request(
+            "POST",
+            "/api/auth/admin/verify",
+            headers={"X-Mini-Ems-Admin-Token": "wrong"},
+        )
+        self.assertEqual(status, 403)
+        self.assertFalse(json.loads(raw.decode("utf-8"))["authenticated"])
 
-    def test_site_save_blocked_even_with_valid_admin_token(self) -> None:
-        self._assert_blocked_with_admin_token("/api/config/site/save")
+    def test_mapping_activate_reaches_handler_with_valid_admin_token(self) -> None:
+        self._assert_reaches_handler_with_admin_token("/api/config/mapping/activate")
+
+    def test_site_save_reaches_handler_with_valid_admin_token(self) -> None:
+        self._assert_reaches_handler_with_admin_token("/api/config/site/save")
 
 
 class ReadOnlyGuardStructuralTest(unittest.TestCase):
@@ -303,7 +319,7 @@ class ReadOnlyGuardStructuralTest(unittest.TestCase):
             "sich veraendert, Waechter-Regex in test_read_only_api.py anpassen.",
         )
 
-        covered_paths = {path for (method, path) in BLOCKED_ENDPOINTS if method == "POST"}
+        covered_paths = {path for (method, path, _blocked) in API_ENDPOINTS if method == "POST"}
         missing = found_paths - covered_paths
         self.assertFalse(
             missing,

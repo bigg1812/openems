@@ -233,6 +233,15 @@ h3 {
   gap: 2px;
 }
 
+.nav-group-label {
+  display: block;
+  padding: 0 var(--sp-3) var(--sp-1);
+  color: #6f8197;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
 .nav-link {
   min-height: 38px;
   display: flex;
@@ -254,6 +263,56 @@ h3 {
   background: var(--nav-active);
   color: var(--nav-ink-strong);
   box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.nav-admin-block {
+  display: grid;
+  gap: 2px;
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--nav-line);
+}
+
+.nav-admin-button {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--nav-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav-admin-button:hover,
+.nav-admin-button.active {
+  background: var(--nav-active);
+  color: var(--nav-ink-strong);
+}
+
+.nav-admin-button .nav-group-label {
+  padding: 0;
+}
+
+.nav-admin-button strong {
+  display: block;
+  margin-top: 2px;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.nav-admin-links {
+  display: grid;
+  gap: 2px;
+}
+
+.nav-admin-links[hidden] {
+  display: none;
 }
 
 .nav-status {
@@ -344,6 +403,20 @@ h3 {
 .timestamp {
   color: var(--muted);
   font-size: 12px;
+  white-space: nowrap;
+}
+
+.access-badge {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -493,6 +566,11 @@ h3 {
 .button:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+.button[hidden],
+.link-button[hidden] {
+  display: none;
 }
 
 /* Fokus-Zustaende: sichtbarer Ring fuer Tastaturbedienung, konsistent mit Eingabefeldern. */
@@ -683,7 +761,42 @@ input[type="checkbox"]:focus-visible {
 }
 
 .dashboard-layout .tool-panel[data-widget="price"] {
-  grid-row: span 2;
+  grid-row: auto;
+}
+
+.dashboard-more {
+  margin-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+
+.dashboard-more > summary {
+  padding: var(--sp-3) 0;
+  color: var(--muted);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.dashboard-more-body {
+  display: grid;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-3);
+}
+
+.dashboard-more-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.dashboard-more-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dashboard-more .weather-panel {
+  max-width: 680px;
 }
 
 .system-layout {
@@ -1295,6 +1408,12 @@ select:focus {
   border-left-color: var(--alert);
 }
 
+.setup-step.active {
+  border-color: var(--accent);
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .setup-panels {
   display: grid;
   gap: var(--sp-3);
@@ -1303,6 +1422,45 @@ select:focus {
 
 .setup-panels > .tool-panel {
   scroll-margin-top: 88px;
+}
+
+.setup-panels > .tool-panel[hidden] {
+  display: none;
+}
+
+.setup-step-navigation {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.setup-step-navigation > span {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.setup-step-navigation .button[hidden] {
+  display: block;
+  visibility: hidden;
+}
+
+.admin-access-modal {
+  width: min(440px, calc(100vw - 32px));
+}
+
+.admin-access-modal > label {
+  display: grid;
+  gap: var(--sp-2);
+  margin: var(--sp-4) 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .setup-actions {
@@ -2249,6 +2407,35 @@ textarea:focus {
     box-shadow: inset 0 -2px 0 var(--accent);
   }
 
+  .nav-list > .nav-group-label {
+    display: none;
+  }
+
+  .nav-admin-block,
+  .nav-admin-links {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .nav-admin-button {
+    min-height: 38px;
+    padding: 0 var(--sp-3);
+  }
+
+  .nav-admin-button .nav-group-label,
+  .nav-admin-button > span:last-child {
+    display: none;
+  }
+
+  .nav-admin-button strong {
+    margin: 0;
+    white-space: nowrap;
+  }
+
   /* Statuskarte kompakt und fest rechts, kein unkontrolliertes Stapeln. */
   .nav-status {
     flex: 0 0 auto;
@@ -2323,7 +2510,8 @@ textarea:focus {
   .section-head,
   .top-actions,
   .view-actions,
-  .export-actions {
+  .export-actions,
+  .dashboard-more-head {
     align-items: stretch;
     flex-direction: column;
   }
@@ -2407,6 +2595,15 @@ textarea:focus {
   .setup-actions .button,
   .setup-actions .setup-file-button {
     flex: 1 1 auto;
+  }
+
+  .setup-step-navigation {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .setup-step-navigation > span {
+    grid-column: 1 / -1;
+    grid-row: 1;
   }
 
   .mapping-toolbar {
