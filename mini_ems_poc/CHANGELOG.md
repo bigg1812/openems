@@ -41,7 +41,7 @@ Repo-Datei wird vom Build nicht umgeschrieben, sondern bleibt manuelle Pflege
   um; `-Rollback` schiebt den vorherigen App-Ordner zurück. Standortdaten
   (`SiteDir`) werden nie angefasst.
 - Smoketest nach dem Update: `windows/smoketest_release.ps1` prüft frische
-  `health.json` (`last_cycle_at`, `runtime_status`), `/api/status` inkl.
+  `health.json` (`timestamp`, `runtime_status`), `/api/status` inkl.
   erwarteter `app_version` und `api_read_only`, sowie das Log auf neue
   `ERROR`-Zeilen. Exit-Code 0/1 mit deutschen Meldungen.
 
@@ -51,6 +51,8 @@ Repo-Datei wird vom Build nicht umgeschrieben, sondern bleibt manuelle Pflege
   Version jetzt als expliziten Pflicht-Parameter (`-Version` bzw.
   `MINI_EMS_VERSION`) statt eines still veraltenden Vorgabewerts – reproduzierbar
   und ohne versehentlich falsche Versionskennung.
+- Der Windows-Smoketest prüft den tatsächlichen Zeitstempel `timestamp` der kompakten
+  `health.json`; ältere Pakete mit `last_cycle_at` bleiben kompatibel.
 
 ## [2026.07.0] - 2026-07-08
 

@@ -1058,6 +1058,7 @@ class CycleRunnerTest(unittest.TestCase):
         health = json.loads(self.config.health_path.read_text(encoding="utf-8"))
 
         self.assertEqual(health["status"], "healthy")
+        self.assertIsNotNone(health["timestamp"])
         self.assertEqual(health["current_price_ct_kwh"], -0.25)
         self.assertEqual(health["grid_read_status"], "ok")
         self.assertNotIn("input_reads", health)

@@ -598,7 +598,7 @@ wiedererkennbar ist):
   (Object Inherit/Container Inherit), nicht nur ein Recht auf die heute schon vorhandenen Dateien.
 - **Fehlendes Schreibrecht auf `runtime\`:** `state.json`/`health.json` können nicht aktualisiert werden.
   Der Healthcheck aus `UPDATE_WARTUNG.md` 2.6 zeigt dann entweder eine veraltete `health.json`
-  (`last_cycle_at` bleibt stehen) oder der Prozess wirft beim Schreibversuch eine Exception und der
+  (`timestamp` bleibt stehen) oder der Prozess wirft beim Schreibversuch eine Exception und der
   Watchdog/`runtime_status` kippt auf `stale_runtime`.
 - **Fehlendes Leserecht auf `config.json`:** Der Prozess kann gar nicht starten (`load_config` schlägt
   schon beim `read_text` fehl); sichtbar als sofortiger Absturz direkt nach Taskstart, `LastTaskResult`
@@ -617,7 +617,7 @@ hier auf das Rechte-Setzen zugeschnitten statt auf ein volles Update):
 1. Task starten (`Start-ScheduledTask -TaskName "MiniEmsPoCRelease"`) und mindestens einen Zyklus abwarten
    (`timing.cycle_seconds`, siehe `config.json`).
 2. `runtime\health.json` öffnen: `status` muss `healthy` sein, `runtime_status` muss `live` sein,
-   `last_cycle_at` muss aktuell sein – identische Prüfpunkte wie in `UPDATE_WARTUNG.md` 2.6, Punkt 15.
+   `timestamp` muss aktuell sein – identische Prüfpunkte wie in `UPDATE_WARTUNG.md` 2.6, Punkt 15.
 3. `logs\mini_ems.log` auf neue `ERROR`/`Traceback`-Einträge seit dem Start prüfen
    (`Select-String -Path "logs\mini_ems.log" -Pattern "ERROR","Traceback" | Select-Object -Last 20`).
 4. `data\runtime\mini_ems.sqlite` Dateigröße/Änderungszeitpunkt prüfen (`Get-Item ... | Select

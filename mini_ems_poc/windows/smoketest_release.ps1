@@ -6,7 +6,8 @@ laeuft. Wird von windows\update_release.ps1 aufgerufen, ist aber auch solo
 nutzbar.
 
 Geprueft wird:
-  1. Frische runtime\health.json: last_cycle_at neuer als der Startzeitpunkt,
+  1. Frische runtime\health.json: timestamp neuer als der Startzeitpunkt
+     (last_cycle_at bleibt als Rueckwaertskompatibilitaet akzeptiert),
      runtime_status = live, status = healthy. Es wird bis -TimeoutSeconds
      gewartet, damit mindestens ein Zyklus nach dem Neustart laufen kann.
   2. /api/status ist erreichbar und meldet die erwartete app_version sowie
@@ -64,13 +65,17 @@ while ((Get-Date) -lt $deadline) {
             $lastReason = "health.json nicht lesbar/parsebar"
         }
         if ($health) {
-            $lastCycleUtc = Convert-IsoToUtc $health.last_cycle_at
+            $lastCycleValue = [string]$health.timestamp
+            if (-not $lastCycleValue) {
+                $lastCycleValue = [string]$health.last_cycle_at
+            }
+            $lastCycleUtc = Convert-IsoToUtc $lastCycleValue
             $runtimeStatus = [string]$health.runtime_status
             $status = [string]$health.status
             if (-not $lastCycleUtc) {
-                $lastReason = "last_cycle_at fehlt oder unlesbar"
+                $lastReason = "timestamp/last_cycle_at fehlt oder ist unlesbar"
             } elseif ($lastCycleUtc -le $SinceUtc) {
-                $lastReason = "last_cycle_at ($($health.last_cycle_at)) ist nicht neuer als der Startzeitpunkt"
+                $lastReason = "Zykluszeitpunkt ($lastCycleValue) ist nicht neuer als der Startzeitpunkt"
             } elseif ($runtimeStatus -ne "live") {
                 $lastReason = "runtime_status ist '$runtimeStatus' (erwartet 'live')"
             } elseif ($status -ne "healthy") {

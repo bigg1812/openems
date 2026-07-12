@@ -60,7 +60,7 @@ ein Skript nicht nutzbar ist.
   .\windows\smoketest_release.ps1 -ExpectedVersion 2026.07.1
   ```
 
-  Prüft frische `runtime\health.json` (`last_cycle_at` neu, `runtime_status`
+  Prüft frische `runtime\health.json` (`timestamp` neu, `runtime_status`
   `live`, `status` `healthy`), `/api/status` inkl. erwarteter `app_version` und
   `api_read_only` wie in `config.json` konfiguriert, sowie das Log auf neue
   `ERROR`-Zeilen. Exit-Code `0` = bestanden, `1` = nicht bestanden.
@@ -234,7 +234,7 @@ Durchführung remote via Secomea/VPN auf die IPC, wie in `HOSTING_SICHERHEIT.md`
     - `status` ist `healthy` (nicht `degraded`, nicht `safe_mode`).
     - `runtime_status` ist `live` (nicht `stale_runtime`) – das Watchdog-Feld aus
       `mini_ems_runtime/cycle.py` (`_watchdog_liveness`).
-    - `last_cycle_at` bzw. `watchdog.last_cycle_at` liegt nach dem Neustart-Zeitpunkt und ist nicht
+    - `timestamp` liegt nach dem Neustart-Zeitpunkt und ist nicht
       älter als ein bis zwei Zykluslängen.
     - `write_status` zeigt für die konfigurierten Outputs (`current_price`, `grid_lockout`,
       `spotmarket_lockout`) keine neuen `last_error`-Einträge seit dem Update.
