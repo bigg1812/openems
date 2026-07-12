@@ -33,6 +33,7 @@ Der Build erzeugt ein One-Dir-Paket unter `packaging/dist/mini_ems/`:
 mini_ems/
 |-- mini_ems(.exe)                     # ausführbares Artefakt
 |-- run_mini_ems_release.cmd           # Windows-Launcher für den geplanten Task
+|-- windows/                           # Installation, Update, Smoketest und Rollback
 |-- _internal/                         # PyInstaller-Laufzeit (nicht editieren)
 |-- dashboard/                         # UI-Assets als DATEN neben dem Binary
 |   `-- vendor/

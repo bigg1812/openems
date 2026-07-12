@@ -74,6 +74,7 @@ Write-Host "[build] wrote VERSION ($Version, $GitCommit)"
 # --- Release launcher + notes: package vs. site data ------------------------
 Copy-Item (Join-Path $ProjectDir "run_mini_ems_release.cmd") (Join-Path $ReleaseDir "run_mini_ems_release.cmd") -Force
 Copy-Item (Join-Path $ScriptDir "RELEASE_HINWEISE.md") (Join-Path $ReleaseDir "RELEASE_HINWEISE.md") -Force
+Copy-Item (Join-Path $ProjectDir "windows") (Join-Path $ReleaseDir "windows") -Recurse -Force
 
 # --- CHANGELOG snapshot into the package (repo CHANGELOG is NOT rewritten) ---
 # The [Unreleased] heading becomes the versioned snapshot heading in the copy
