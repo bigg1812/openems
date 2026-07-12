@@ -7,3 +7,5 @@ runtime/local/
 data/spotmarket/*.json
 data/runtime/*.sqlite
 data/local/
+runtime/site/
+runtime/local/site/

@@ -22,7 +22,7 @@ from mini_ems_poc.mini_ems_runtime.config import (
     AdditionalInputConfig,
     ModbusPointConfig,
     PointsConfig,
-    load_config,
+    validate_raw_config,
 )
 from mini_ems_poc.mini_ems_runtime.modbus import (
     ModbusCommunicationError,
@@ -467,9 +467,7 @@ class ModbusConfigTest(unittest.TestCase):
                 "stdout": False,
             },
         }
-        config_path = Path(self._temp_dir.name) / "config.json"
-        config_path.write_text(json.dumps(raw), encoding="utf-8")
-        return load_config(config_path)
+        return validate_raw_config(raw, base_dir=Path(self._temp_dir.name))
 
     def _modbus_entry(self, **overrides) -> dict:
         modbus = {

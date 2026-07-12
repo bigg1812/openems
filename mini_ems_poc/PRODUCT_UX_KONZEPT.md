@@ -219,7 +219,7 @@ sondern was jede Rolle sehen und tun darf.
 | Eigene Dashboard-/Analyse-Ansichten speichern (nur im eigenen Browser) | ja | ja | ja |
 | Preisprüfung ausführen (`/api/diagnostics/read`, aktiver Lesezugriff auf die Anlage) | nein | ja | ja |
 | Preissteuerung einstellen (Mindestdauer der Preisfenster, `POST /api/config/spotmarket-lockout`) | nein | ja | ja |
-| Standortkonfiguration ändern (`config.json`, Grenzwerte, Datenpunkte) | nein | nein | ja |
+| Standortkonfiguration ändern (UI, Grenzwerte, Datenpunkte) | nein | nein | ja |
 | Runtime starten/stoppen, Updates, Logs und Datenbank einsehen | nein | nein | ja |
 | Schreibfreigaben an der Anlage ändern (Safety-Flags) | nein | nein | ja (nur lokal/administrativ, nie über den Netzwerkzugriff) |
 

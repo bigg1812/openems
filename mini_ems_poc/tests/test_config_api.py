@@ -6,6 +6,7 @@ from pathlib import Path
 
 from mini_ems_poc.mini_ems_runtime.config import validate_raw_config
 from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
+from mini_ems_poc.mini_ems_runtime.site_store import SiteConfigStore
 from mini_ems_poc.tests.test_mapping_config import sample_mapping_draft
 
 
@@ -100,17 +101,20 @@ class ConfigApiTest(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
         self.base_dir = Path(self.tmpdir.name)
-        self.config_path = self.base_dir / "config.json"
+        self.site_store = SiteConfigStore(self.base_dir)
         self.logger = logging.getLogger("mini_ems.runtime.test.config_api")
         self.logger.handlers.clear()
         self.logger.addHandler(logging.NullHandler())
 
     def _build_server(self, raw):
-        self.config_path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
-        return self._build_server_from_existing_config()
+        if self.site_store.has_active_config():
+            self.site_store.save_revision(raw, action="test.reset", actor="test")
+        else:
+            self.site_store.save_revision(raw, action="site.bootstrap", actor="test")
+        return self._build_server_from_existing_store()
 
-    def _build_server_from_existing_config(self):
-        raw = json.loads(self.config_path.read_text(encoding="utf-8"))
+    def _build_server_from_existing_store(self):
+        raw = self.site_store.active_config()
         config = validate_raw_config(raw, base_dir=self.base_dir)
         return MiniEmsApiServer(
             api_config=config.api,
@@ -122,14 +126,14 @@ class ConfigApiTest(unittest.TestCase):
             dashboard_dir=self.base_dir / "dashboard",
             logger=self.logger,
             read_diagnostics=None,
-            config_path=self.config_path,
+            site_store=self.site_store,
         )
 
     def test_validate_accepts_safe_patch_without_saving(self) -> None:
         server = self._build_server(make_raw_config())
 
         payload = server.validate_site_config_payload({"patch": {"timing": {"cycle_seconds": 60}}})
-        persisted = json.loads(self.config_path.read_text(encoding="utf-8"))
+        persisted = self.site_store.active_config()
 
         self.assertEqual(payload, {"valid": True})
         self.assertEqual(persisted["timing"]["cycle_seconds"], 30)
@@ -378,40 +382,32 @@ class ConfigApiTest(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "Freigabecode ist nicht gültig"):
             server.activate_mapping_config_payload(sample_mapping_draft(), admin_token=None)
 
-    def test_mapping_activate_persists_patch_and_keeps_draft_audit_and_backup(self) -> None:
+    def test_mapping_activate_persists_patch_draft_audit_and_previous_revision(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
 
         payload = server.activate_mapping_config_payload(
             sample_mapping_draft(),
             admin_token="secret-token",
         )
-        persisted = json.loads(self.config_path.read_text(encoding="utf-8"))
-        backups = sorted(self.base_dir.glob("config.json.*.bak"))
-        drafts = sorted((self.base_dir / "mapping_drafts").glob("mapping.*.json"))
-        audit_lines = (self.base_dir / "config_audit.jsonl").read_text(encoding="utf-8").splitlines()
-        audit = json.loads(audit_lines[0])
+        persisted = self.site_store.active_config()
+        revision = self.site_store.revision(payload["revision"])
 
         self.assertTrue(payload["activated"])
         self.assertTrue(payload["valid"])
         self.assertTrue(payload["restart_required"])
-        self.assertEqual(payload["backup_file"], backups[0].name)
-        self.assertEqual(payload["draft_file"], "mapping_drafts/{0}".format(drafts[0].name))
-        self.assertEqual(payload["audit_file"], "config_audit.jsonl")
+        self.assertIsNotNone(payload["previous_revision"])
         self.assertEqual(persisted["network"]["controller_ip"], "192.168.1.20")
         self.assertEqual(persisted["points"]["grid_active_power_kw"], 300)
         self.assertEqual(
             persisted["additional_inputs"][0]["channel_id"],
             "site.outdoor_temperature_c",
         )
-        self.assertEqual(json.loads(drafts[0].read_text(encoding="utf-8")), sample_mapping_draft())
-        self.assertEqual(audit["action"], "mapping.activate")
-        self.assertEqual(audit["actor"], "local_admin")
-        self.assertEqual(audit["backup_file"], backups[0].name)
-        self.assertEqual(audit["draft_file"], "mapping_drafts/{0}".format(drafts[0].name))
-        self.assertEqual(audit["patch_sections"], ["additional_inputs", "network", "points"])
-        self.assertEqual(audit["device_count"], 1)
-        self.assertEqual(audit["mapping_count"], 2)
-        self.assertEqual(payload["revision"], audit["revision"])
+        self.assertEqual(revision.mapping_draft, sample_mapping_draft())
+        self.assertEqual(revision.action, "mapping.activate")
+        self.assertEqual(revision.actor, "local_admin")
+        self.assertEqual(revision.details["patch_sections"], ["additional_inputs", "network", "points"])
+        self.assertEqual(revision.details["device_count"], 1)
+        self.assertEqual(revision.details["mapping_count"], 2)
         validate_raw_config(persisted, base_dir=self.base_dir)
 
         site = server.get_site_config()
@@ -423,7 +419,7 @@ class ConfigApiTest(unittest.TestCase):
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
         server.activate_mapping_config_payload(sample_mapping_draft(), admin_token="secret-token")
 
-        restarted_server = self._build_server_from_existing_config()
+        restarted_server = self._build_server_from_existing_store()
         site = restarted_server.get_site_config()
 
         self.assertFalse(site["restart_required"])
@@ -436,15 +432,13 @@ class ConfigApiTest(unittest.TestCase):
         draft["raw_points"][0]["object_type"] = "ai"
 
         payload = server.activate_mapping_config_payload(draft, admin_token="secret-token")
-        persisted = json.loads(self.config_path.read_text(encoding="utf-8"))
+        persisted = self.site_store.active_config()
 
         self.assertFalse(payload["activated"])
         self.assertFalse(payload["valid"])
         self.assertIn("BACnet-AV-Datenpunkt", " / ".join(payload["errors"]))
         self.assertEqual(persisted["network"]["controller_ip"], "192.168.1.100")
-        self.assertEqual(list(self.base_dir.glob("config.json.*.bak")), [])
-        self.assertFalse((self.base_dir / "mapping_drafts").exists())
-        self.assertFalse((self.base_dir / "config_audit.jsonl").exists())
+        self.assertEqual(len(self.site_store.history()), 1)
 
     def test_site_config_view_strips_admin_token_and_keeps_editable_sections(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
@@ -457,8 +451,21 @@ class ConfigApiTest(unittest.TestCase):
         self.assertIn("safety", payload["config"])
         self.assertIn("watchdog", payload["config"])
         self.assertIn("additional_inputs", payload["config"])
+        self.assertIn("site", payload["editable_sections"])
+        self.assertIn("outputs", payload["editable_sections"])
         # Inbetriebnahme-UI (UX14/UX15): aktive Kernadressen sind sichtbar.
         self.assertEqual(payload["config"]["points"]["grid_active_power_kw"], 300)
+
+    def test_site_metadata_is_saved_from_ui_patch(self) -> None:
+        server = self._build_server(make_raw_config(config_admin_token="secret-token"))
+
+        response = server.save_site_config_payload(
+            {"patch": {"site": {"name": "Werk Nord", "access_status": "restricted", "operator_note": "Pilot"}}},
+            admin_token="secret-token",
+        )
+
+        self.assertTrue(response["saved"])
+        self.assertEqual(self.site_store.active_config()["site"]["name"], "Werk Nord")
 
     def test_save_is_disabled_without_configured_admin_token(self) -> None:
         server = self._build_server(make_raw_config())
@@ -475,29 +482,26 @@ class ConfigApiTest(unittest.TestCase):
                 admin_token="wrong-token",
             )
 
-    def test_save_with_admin_token_persists_patch_and_keeps_backup(self) -> None:
+    def test_save_with_admin_token_persists_patch_and_keeps_previous_revision(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
 
         payload = server.save_site_config_payload(
             {"patch": {"timing": {"cycle_seconds": 60}}},
             admin_token="secret-token",
         )
-        persisted = json.loads(self.config_path.read_text(encoding="utf-8"))
-        backups = sorted(self.base_dir.glob("config.json.*.bak"))
-        backup = json.loads(backups[0].read_text(encoding="utf-8"))
-        audit = json.loads((self.base_dir / "config_audit.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        persisted = self.site_store.active_config()
+        revision = self.site_store.revision(payload["revision"])
+        previous = self.site_store.revision(payload["previous_revision"])
 
         self.assertTrue(payload["saved"])
         self.assertTrue(payload["valid"])
         self.assertTrue(payload["restart_required"])
-        self.assertEqual(payload["backup_file"], backups[0].name)
-        self.assertEqual(payload["audit_file"], "config_audit.jsonl")
         self.assertEqual(persisted["timing"]["cycle_seconds"], 60)
         self.assertEqual(persisted["api"]["config_admin_token"], "secret-token")
         self.assertEqual(persisted["logging"]["state_file"], "runtime/local/state.json")
-        self.assertEqual(backup["timing"]["cycle_seconds"], 30)
-        self.assertEqual(audit["action"], "site_config.save")
-        self.assertEqual(audit["changed_sections"], ["timing"])
+        self.assertEqual(previous.config["timing"]["cycle_seconds"], 30)
+        self.assertEqual(revision.action, "site_config.save")
+        self.assertEqual(revision.details["changed_sections"], ["timing"])
         validate_raw_config(persisted, base_dir=self.base_dir)
 
     def test_change_history_is_latest_first_and_hides_internal_file_names(self) -> None:

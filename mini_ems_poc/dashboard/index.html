@@ -570,6 +570,14 @@
                   <input id="config-local-port" type="number" min="1" max="65535" value="47809">
                 </label>
                 <label>
+                  Antwort-Timeout in Sekunden
+                  <input id="config-response-timeout" type="number" min="0.1" step="0.1" value="1">
+                </label>
+                <label>
+                  Wiederholungen
+                  <input id="config-network-retries" type="number" min="0" value="0">
+                </label>
+                <label>
                   Anlagenkommunikation
                   <select id="config-bacnet-mode">
                     <option value="simulated">Simulation ohne echte Schreibfreigabe</option>
@@ -579,6 +587,10 @@
                 <label class="check config-check">
                   <input id="config-real-writes-enabled" type="checkbox">
                   <span>Schreibfreigabe am IPC vorbereiten</span>
+                </label>
+                <label class="check config-check">
+                  <input id="config-api-read-only" type="checkbox">
+                  <span>Anlagenaktionen über Netzwerk sperren</span>
                 </label>
               </div>
               <p class="config-note">Diese Oberfläche löst selbst keine BACnet-Schaltaktion aus. Sie bereitet nur die spätere Server-Konfiguration vor.</p>
@@ -598,7 +610,7 @@
                 </label>
                 <label>
                   Leseabstand in Sekunden
-                  <input id="config-inter-read-delay" type="number" min="0" step="0.1" value="0">
+                  <input id="config-inter-read-delay" type="number" min="0" step="0.01" value="0">
                 </label>
                 <label>
                   Max. Alter Systemstatus in Sekunden
@@ -691,7 +703,62 @@
                   Kommunikationsfehler bis sicherer Modus
                   <input id="config-safe-mode-threshold" type="number" min="1" value="2">
                 </label>
+                <label class="check config-check">
+                  <input id="config-fail-safe-output" type="checkbox">
+                  <span>Bei Fehlern sichere Ausgangswerte erzwingen</span>
+                </label>
               </div>
+            </article>
+
+            <article class="tool-panel config-card">
+              <div class="panel-head">
+                <div>
+                  <h3>DDC-Heartbeat</h3>
+                  <p>Optionales Lebenszeichen zur übergeordneten Automationsstation.</p>
+                </div>
+              </div>
+              <div class="config-field-grid">
+                <label class="check config-check">
+                  <input id="config-heartbeat-enabled" type="checkbox">
+                  <span>Heartbeat aktivieren</span>
+                </label>
+                <label>
+                  BACnet-Instanz
+                  <input id="config-heartbeat-instance" type="number" min="0" max="4194303" placeholder="z. B. 1200">
+                </label>
+                <label>
+                  Zielgerät
+                  <input id="config-heartbeat-controller-ip" type="text" placeholder="Standardgerät">
+                </label>
+                <label>
+                  Kommunikationsport
+                  <input id="config-heartbeat-controller-port" type="number" min="1" max="65535" value="47808">
+                </label>
+                <label>
+                  Fallback-Timeout in Sekunden
+                  <input id="config-heartbeat-timeout" type="number" min="1" placeholder="optional">
+                </label>
+              </div>
+            </article>
+
+            <article class="tool-panel config-card">
+              <div class="panel-head">
+                <div>
+                  <h3>Schreibprioritäten</h3>
+                  <p>BACnet-Prioritäten und kontrollierte Rückgabe der vom Mini EMS belegten Werte.</p>
+                </div>
+              </div>
+              <div class="config-field-grid">
+                <label>Preisübergabe <input id="config-priority-current-price" type="number" min="3" max="16" value="14"></label>
+                <label>Netzsperre <input id="config-priority-grid-lockout" type="number" min="3" max="16" value="14"></label>
+                <label>Preissperre <input id="config-priority-spotmarket-lockout" type="number" min="3" max="16" value="14"></label>
+                <label>Heartbeat <input id="config-priority-heartbeat" type="number" min="3" max="16" value="14"></label>
+                <label class="check config-check"><input id="config-relinquish-current-price" type="checkbox"><span>Preiswert zurückgeben erlauben</span></label>
+                <label class="check config-check"><input id="config-relinquish-grid-lockout" type="checkbox"><span>Netzsperre zurückgeben erlauben</span></label>
+                <label class="check config-check"><input id="config-relinquish-spotmarket-lockout" type="checkbox"><span>Preissperre zurückgeben erlauben</span></label>
+                <label class="check config-check"><input id="config-relinquish-heartbeat" type="checkbox"><span>Heartbeat zurückgeben erlauben</span></label>
+              </div>
+              <p class="config-note">Prioritäten 1, 2, 5 und 6 bleiben für Schutzfunktionen reserviert und werden vom Backend abgelehnt.</p>
             </article>
 
             <article class="tool-panel config-card config-card-wide">

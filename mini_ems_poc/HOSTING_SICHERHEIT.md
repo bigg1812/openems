@@ -1,5 +1,12 @@
 # Mini EMS – Hosting und Sicherheitsgrenze
 
+> **Aktueller Release-Pfad (2026-07-12):** Standortparameter, Mapping-Entwürfe, Freigabecode und Revisionen
+> liegen in `C:\ProgramData\MiniEMS\site.sqlite`; die Runtime startet ausschließlich mit `--site-dir`.
+> Eine `config.json` ist nur noch einmalige Migrationsquelle. Im geschützten Netzwerkmodus bleiben
+> Vorschau/Import sowie die mit Freigabecode geschützten UI-Endpunkte zum Speichern und Aktivieren erreichbar;
+> Anlagenaktionen und aktive Discovery-/Diagnosezugriffe bleiben gesperrt. Ältere `config.json`-Passagen weiter
+> unten dokumentieren den Pilotstand vor dieser Umstellung.
+
 Diese Datei erledigt vier Dinge:
 
 - **Teil 1 (H1 aus `ROADMAP.md`)** legt das Zielbild und die Sicherheitsgrenze fest: wer UI, Runtime-Dateien,
@@ -16,7 +23,7 @@ Diese Datei erledigt vier Dinge:
   Verifikations-Checkliste für den Standort.
 
 Grundsatz wie im `EDGE_INTEGRATION_CONTRACT.md`: **Der Code ist die Wahrheit.** Die Endpunkt-Listen und
-Aussagen zu Lese-/Schreibpfaden sind aus `mini_ems_runtime/http_api.py`, `config.json` und dem
+Aussagen zu Lese-/Schreibpfaden sind aus `mini_ems_runtime/http_api.py`, `mini_ems_runtime/site_store.py` und dem
 Rollenmodell in `PRODUCT_UX_KONZEPT.md` (Abschnitt 3) abgeleitet. Weicht diese Datei vom Code ab, gilt
 der Code, und diese Datei ist zu korrigieren.
 
@@ -34,14 +41,14 @@ Mini EMS läuft auf **kundeneigener IPC-Hardware** und bleibt der lokale Anlagen
 nicht als frei einsehbarer Entwicklerordner ausgeliefert, und die Anlagen-API wird nicht offen ins Netz
 gestellt. Konkret gilt:
 
-- Der Betriebspfad ist die **IPC vor Ort**. `config.json` bleibt der reale IPC-/Anlagenpfad,
-  `config.local.json` bleibt ausschließlich der Laptop-/Simulationspfad. Beide werden nie vermischt.
+- Der Betriebspfad ist die **IPC vor Ort**. Ihre aktive Standortkonfiguration liegt revisionssicher in
+  `C:\ProgramData\MiniEMS\site.sqlite`; lokale Entwicklung verwendet einen getrennten temporären `--site-dir`.
 - Der Zugriff auf **UI und API** bleibt auf **Kundennetz, VPN oder Secomea** beschränkt. Es gibt keine
   direkte Erreichbarkeit der Anlagen-API aus dem offenen Internet.
-- Die API bindet heute laut `config.json` an `192.168.244.10:8090` (die EMS-LAN-IP des IPC), lokal an
-  `127.0.0.1:8090`. Beides ist bewusst kein `0.0.0.0` und keine Internet-Adresse.
+- Die Runtime bindet auf der IPC an `127.0.0.1:8090`; Caddy stellt das Dashboard geschützt auf der
+  EMS-LAN-IP bereit. Beides ist bewusst kein offener Internet-Zugang.
 - Das ausgelieferte Zielformat ist ein **versioniertes Release-Paket** statt eines Git-Checkouts
-  (Detailschritt: H2 in `ROADMAP.md`, hier noch offen). Ziel ist, dass ein normaler Windows-Nutzer nicht
+  (H2 in `ROADMAP.md`, umgesetzt). Ziel ist, dass ein normaler Windows-Nutzer nicht
   beiläufig den gesamten Python-Quellcode lesen kann.
 
 ### 1.2 Sichtbarkeits- und Änderungsmatrix
@@ -140,7 +147,7 @@ Operator-Rolle beschränkt.
 | `GET /api/status` | Anlagenzustand (`health.json`, `state.json`, Preis-Cache, Plan, letzte Zyklen) | liest nur Dateien/DB |
 | `GET /api/spotmarket/windows` | aktueller Preisfenster-Plan | liest Datei |
 | `GET /api/config/spotmarket-lockout` | aktuelle Einstellung der Preissteuerung (nur Anzeige) | liest Einstellung, schreibt nichts |
-| `GET /api/config/site` | Standortkonfiguration als geschützte Anzeige (Freigabecode wird ausgeblendet) | liest `config.json`, schreibt nichts |
+| `GET /api/config/site` | aktive Standortrevision als geschützte Anzeige (Freigabecode wird ausgeblendet) | liest `site.sqlite`, schreibt nichts |
 | `GET /api/config/changes` | bereinigter administrativer Änderungsverlauf | liest Audit, blendet Tokens und interne Dateipfade aus |
 | `GET /api/history` | Messwert-Historie inkl. Rollups | liest DB |
 | `GET /api/cycles` | letzte Zyklen | liest DB |
@@ -149,49 +156,34 @@ Operator-Rolle beschränkt.
 | `GET /api/report/html`, `/api/report/pdf` | konfigurierbarer Bericht HTML/PDF | liest DB, rendert |
 | `GET /api/weather` | Wetter-Kachel (Open-Meteo-Cache) | liest Cache; ruft nur Wetterdienst, nie die Anlage |
 
-**Zu sperren (nicht in den Online-Pfad):**
+**POST- und aktive Endpunkte im geschützten Netzwerkmodus:**
 
 | Endpunkt | Warum gesperrt |
 |---|---|
 | `GET /api/diagnostics/read` | löst einen **aktiven Live-Lesezugriff auf die Anlage** aus (BACnet-Read über `read_diagnostics`); im Rollenmodell Operator, nicht Viewer – im read-only Modus (H5) von außen nicht erreichbar |
-| `POST /api/config/spotmarket-lockout` | **schreibt in `config.json`** (`_persist_min_consecutive_quarters`) und ändert das Planungsverhalten; Operator/Admin, kein Online-Viewer |
-| `POST /api/config/site/validate` | Validierung eines Konfigurations-Entwurfs (S5/H9); zwar nur prüfend, aber ein POST-Schreibpfad-Muster und Teil des Konfigurationsflusses; nicht in den Online-Pfad |
-| `POST /api/config/site/save` | **speichert die Standortkonfiguration**; prüft den Freigabecode und erstellt Backup, Audit und Neustarthinweis, ohne den Code zu protokollieren; rein administrativ, nie über den Netzwerkzugriff |
-| `POST /api/config/mapping/preview` | Vorschau/Validierung eines Mapping-Entwurfs (S5); POST-Konfigurationspfad, nicht für den read-only Viewer |
+| `POST /api/config/spotmarket-lockout` | erzeugt eine neue Standortrevision und ändert das Planungsverhalten; Bedienaktion, deshalb im geschützten Netzwerkmodus gesperrt |
+| `POST /api/config/site/validate` | validiert einen Konfigurationsentwurf ohne Aktivierung; für den UI-Einrichtungsfluss freigegeben |
+| `POST /api/config/site/save` | speichert eine neue Standortrevision; nur mit Freigabecode, der weder protokolliert noch zurückgegeben wird |
+| `POST /api/config/mapping/preview` | validiert einen Mapping-Entwurf ohne Aktivierung; für den UI-Einrichtungsfluss freigegeben |
 | `POST /api/report/preview` | zwar nur DB-Lesen, aber ein POST-Schreibpfad-Muster; für den read-only Pilot nicht nötig und bewusst außerhalb gehalten |
-| `POST /api/config/pointlist/import` | parst eine hochgeladene BACnet-Punkteliste (CSV/TSV/XLSX) zu Mapping-Kandidaten; schreibt zwar nicht in `config.json`, ist aber Teil des Konfigurations-Editors (S5/S6) und kein Viewer-Endpunkt |
+| `POST /api/config/pointlist/import` | parst eine hochgeladene BACnet-Punkteliste (CSV/TSV/XLSX) zu Mapping-Kandidaten, ohne die aktive Revision zu ändern; für den UI-Einrichtungsfluss freigegeben |
 | `POST /api/config/discovery/bacnet/preview` | löst optional eine **echte BACnet-Discovery** (`who_is`/`read_property`) gegen die Anlage aus, sobald BACpypes3 installiert ist – aktiver Anlagenzugriff wie `GET /api/diagnostics/read`, deshalb gesperrt |
-| `POST /api/config/mapping/activate` | **sicherheitskritischster Endpunkt:** aktiviert einen Mapping-Patch, schreibt `config.json`, legt Backup/Draft/Audit-Log an und lädt die Konfiguration neu; nur mit lokalem Freigabecode, nie über den Netzwerkzugriff |
+| `POST /api/config/mapping/activate` | **sicherheitskritischster Konfigurationsendpunkt:** aktiviert eine neue unveränderliche Standortrevision; nur mit Freigabecode |
 
-Hinweis zur Robustheit: Die Sperre ist **positiv/deny-by-default** umgesetzt (nur GET-Methoden werden
-grundsätzlich durchgelassen; `POST`/`PUT`/`DELETE` sind generell gesperrt), nicht als Blocklist einzelner
-Pfade. So bleiben auch später neu hinzukommende Schreib-Endpunkte standardmäßig draußen. Die einzige
-zusätzliche Ausnahme ist der aktive Anlagen-Read `GET /api/diagnostics/read`, der trotz GET explizit
-gesperrt wird.
+Hinweis zur Robustheit: Die Sperre ist **deny-by-default** umgesetzt. GET-Endpunkte sind grundsätzlich
+lesbar, außer dem aktiven Anlagen-Read `GET /api/diagnostics/read`. POST-Endpunkte sind grundsätzlich
+gesperrt; nur die explizit aufgezählten, anlagenpassiven Konfigurationsschritte für Validierung, Import,
+Vorschau und token-geschützte Aktivierung sind freigegeben. Neu hinzukommende POST-Endpunkte bleiben damit
+automatisch gesperrt.
 
 **Serverseitiger Read-only-Modus (`api.read_only`, umgesetzt für H5).** Die Endpunkt-Einstufung dieses
 Abschnitts wird jetzt direkt in der HTTP-API durchgesetzt und hängt nicht mehr allein an einem vorgelagerten
-Reverse Proxy. Der Schlüssel `api.read_only` (Boolean, Default `false`) steht im `api`-Block der
-Konfiguration. Ist er `true`, lehnt die API an **einer zentralen Stelle im Request-Handling** alle nicht-GET-
-Methoden sowie `GET /api/diagnostics/read` mit `HTTP 403` und einem kurzen deutschen JSON-Hinweis ab
-(`{"error": "read_only_mode", "message": "Diese Funktion ist über den Netzwerkzugriff nicht verfügbar. …"}`).
-Alle read-only Endpunkte oben bleiben erreichbar. Zusätzlich meldet `GET /api/status` das Feld
-`api_read_only: true`, damit das UI den Modus erkennen kann. Default `false` lässt das bisherige Verhalten
-unverändert; `config.json`/`config.local.json` werden dafür nicht geändert – der Schlüssel wird nur dort
-gesetzt, wo der read-only Netzbetrieb (Pilot-Pfad a) gewünscht ist.
-
-Aktivierung für den Pilot-Pfad (a): Im `api`-Block der auf der IPC verwendeten `config.json` ergänzen:
-
-```json
-"api": {
-  "host": "192.168.244.10",
-  "port": 8090,
-  "read_only": true
-}
-```
-
-Anschließend Mini EMS neu starten (der Schlüssel wird beim Start geladen). Danach greift die read-only
-Grenze serverseitig, unabhängig davon, ob zusätzlich ein Reverse Proxy davorsteht.
+Reverse Proxy. Der Schlüssel `api.read_only` (Boolean, Default `false`) liegt in der aktiven Standortrevision.
+Ist er `true`, setzt die API die oben beschriebene Sperre an einer zentralen Stelle im Request-Handling durch
+und antwortet bei gesperrten Zugriffen mit `HTTP 403`. `GET /api/status` meldet zusätzlich
+`api_read_only: true`, damit das UI den Modus erkennen kann. Auf der IPC wird dieser Wert bei der einmaligen
+Migration übernommen und danach ausschließlich über den geschützten Standortfluss verwaltet; eine aktive
+JSON-Datei wird dafür nicht bearbeitet.
 
 ### 2.2 Pfad (a) – Secomea/VPN-Zugriff auf das bestehende Dashboard
 
@@ -411,11 +403,9 @@ C:\ProgramData\MiniEMS\                        <- Standortdaten (Task-Benutzer s
   "nur für lokale Simulation relevant, nicht IPC-Betriebsdaten") und bleibt deshalb unter
   `C:\Program Files\MiniEMS\sim`, nicht unter `ProgramData`.
 
-**Wie die Runtime das findet:** Der Betriebspfad bleibt unverändert das, was H2 und `UPDATE_WARTUNG.md`
-bereits festlegen: `config.json` liegt außerhalb des Release-Pakets und wird als **Argument beim Start**
-übergeben (`--config <pfad>\config.json`). Im aktuellen Release-Betrieb übernimmt das
-`run_mini_ems_release.cmd` mit `--config C:\ProgramData\MiniEMS\config.json`; der ältere
-Checkout-Betrieb nutzte dafür `run_mini_ems.cmd` und `mini_ems.py`.
+**Wie die Runtime das findet:** `run_mini_ems_release.cmd` übergibt ausschließlich
+`--site-dir C:\ProgramData\MiniEMS`. Dort findet die Runtime `site.sqlite` sowie alle Betriebsdaten.
+App-Ressourcen bleiben getrennt neben dem Executable unter `C:\Program Files\MiniEMS`.
 
 Alle übrigen Datenpfade sind **config-relativ**, nicht fest verdrahtet auf einen bestimmten
 Windows-Ordner. Das ist an `mini_ems_runtime/config.py` nachvollziehbar:
@@ -657,9 +647,9 @@ Ablauf bleibt als Vorlage für neue Standorte oder Rollback-/Migrationsprüfunge
 4. Release-Paket nach `C:\Program Files\MiniEMS` entpacken (identisch zum "Release-Ordner tauschen" aus
    `UPDATE_WARTUNG.md` 2.4, nur mit neuem Zielpfad statt In-Place-Ersetzung im Checkout-Ordner).
 5. Geplanten Task auf den neuen Installationsort umstellen: `windows/install_task.ps1 -Mode release`
-   registriert einen separaten Release-Task, der `C:\Program Files\MiniEMS\run_mini_ems_release.cmd`
-   mit `C:\ProgramData\MiniEMS\config.json` startet. Der Launcher ruft `mini_ems.exe --config
-   C:\ProgramData\MiniEMS\config.json --loop` auf; Arbeitsverzeichnis ist `C:\Program Files\MiniEMS`.
+   registriert einen separaten Release-Task. Der Launcher ruft `mini_ems.exe --site-dir
+   C:\ProgramData\MiniEMS --loop` auf; eine vorhandene Pilot-`config.json` wird beim ersten Start einmalig
+   nach `site.sqlite` migriert.
 6. Funktionstest wie in 3.4 durchführen, bevor der alte Checkout-Ordner entfernt wird.
 7. Erst nach bestandenem Funktionstest den alten Task deregistrieren/alten Checkout-Ordner archivieren
    oder löschen – nicht vorher, damit im Fehlerfall der bekannte funktionierende Zustand sofort wieder

@@ -1,5 +1,4 @@
 import copy
-import hashlib
 import hmac
 import json
 import logging
@@ -16,13 +15,14 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 from .bacnet_discovery import preview_bacnet_discovery_payload
-from .config import ApiConfig, load_config, validate_raw_config
-from .logging_utils import log_event, utcnow_iso
+from .config import ApiConfig, validate_raw_config
+from .logging_utils import log_event
 from .mapping_config import build_mapping_config_patch
 from .pointlist_import import import_pointlist_payload
 from .read_diagnostics import ChannelReadDiagnosticsService
 from .runtime_db import RuntimeDatabase
 from .spotmarket_plan import SpotmarketPlanWriter
+from .site_store import SiteConfigStore, SiteRevision
 
 
 class MiniEmsApiServer:
@@ -37,7 +37,7 @@ class MiniEmsApiServer:
         dashboard_dir: Path,
         logger,
         read_diagnostics: ChannelReadDiagnosticsService,
-        config_path: Optional[Path] = None,
+        site_store: Optional[SiteConfigStore] = None,
         spotmarket_plan_writer: Optional[SpotmarketPlanWriter] = None,
         price_source_resolution: str = "quarterhour",
         app_version: Optional[Dict[str, object]] = None,
@@ -51,7 +51,7 @@ class MiniEmsApiServer:
         self.dashboard_dir = Path(dashboard_dir)
         self.logger = logger
         self.read_diagnostics = read_diagnostics
-        self.config_path = Path(config_path) if config_path is not None else None
+        self.site_store = site_store
         self._runtime_config_fingerprint = self._config_fingerprint()
         self.spotmarket_plan_writer = spotmarket_plan_writer
         self.price_source_resolution = str(price_source_resolution).lower()
@@ -280,15 +280,18 @@ class MiniEmsApiServer:
             def _deny_in_read_only(self, method: str, path: str) -> bool:
                 """Zentrale Read-only-Sperre (H5) fuer das Request-Handling.
 
-                Deny-by-default: Im read-only Netzwerkmodus werden alle nicht-GET-
-                Methoden abgelehnt, damit auch spaeter ergaenzte Schreib-Endpunkte
-                automatisch gesperrt bleiben. Zusaetzlich wird der aktive
+                Deny-by-default: Im read-only Netzwerkmodus werden nicht freigegebene
+                POST-Methoden abgelehnt. Der UI-Konfigurationspfad bleibt verfügbar;
+                seine aktivierenden Endpunkte erzwingen danach weiterhin den
+                Freigabecode. Zusaetzlich wird der aktive
                 Anlagen-Read GET /api/diagnostics/read explizit gesperrt (er loest
                 trotz GET einen Live-Lesezugriff aus, siehe HOSTING_SICHERHEIT.md
                 Abschnitt 2.1). Rueckgabe True bedeutet: Antwort wurde gesendet,
                 der Aufrufer muss abbrechen.
                 """
                 if not api_server.api_config.read_only:
+                    return False
+                if method == "POST" and path in _READ_ONLY_CONFIG_POST_PATHS:
                     return False
                 if method != "GET" or path in _READ_ONLY_BLOCKED_GET_PATHS:
                     self._send_json(
@@ -479,23 +482,34 @@ class MiniEmsApiServer:
         return payload
 
     def get_site_config(self) -> Dict[str, object]:
-        raw = self._read_config_file()
+        raw = self._read_site_config()
         config = validate_raw_config(raw, base_dir=self._config_base_dir())
         restart_required = self._config_restart_required()
+        mapping_status = self._mapping_status(restart_required)
         return {
             "config": _safe_site_config_view(raw, config),
             "editable_sections": list(_SITE_CONFIG_EDITABLE_SECTIONS),
             "save_enabled": bool(self.api_config.config_admin_token),
             "restart_required_on_save": True,
             "restart_required": restart_required,
-            "mapping_status": self._mapping_status(restart_required),
+            "setup_required": not mapping_status["active"],
+            "mapping_status": mapping_status,
         }
 
     def get_config_changes_payload(self, limit: int = 10) -> Dict[str, object]:
         safe_limit = min(max(int(limit), 1), 50)
-        entries = self._read_config_audit_entries()
+        entries = [
+            entry
+            for entry in self._site_history(200)
+            if entry.get("action") in {
+                "mapping.activate",
+                "site_config.save",
+                "spotmarket.settings.update",
+                "admin_code.reset",
+            }
+        ][:safe_limit]
         return {
-            "changes": [self._public_config_change(entry) for entry in reversed(entries[-safe_limit:])],
+            "changes": [self._public_config_change(entry) for entry in entries],
         }
 
     def validate_site_config_payload(self, payload: Dict[str, object]) -> Dict[str, object]:
@@ -511,7 +525,7 @@ class MiniEmsApiServer:
         if not result.get("valid"):
             return result
         try:
-            raw = _deep_merge_dicts(self._read_config_file(), result["patch"])
+            raw = _deep_merge_dicts(self._read_site_config(), result["patch"])
             validate_raw_config(raw, base_dir=self._config_base_dir())
         except Exception as error:
             errors = list(result.get("errors", []))
@@ -536,29 +550,24 @@ class MiniEmsApiServer:
     ) -> Dict[str, object]:
         self._require_admin_token(admin_token, "Config save")
 
-        previous = self._read_config_file()
+        previous = self._read_site_config()
         try:
             raw = self._candidate_config_from_payload(payload)
             validate_raw_config(raw, base_dir=self._config_base_dir())
         except Exception as error:
             return {"saved": False, "valid": False, "message": str(error)}
 
-        config_path = self._require_config_path()
-        backup_path = self._backup_config_file(config_path)
-        _write_json_preserve_order(config_path, raw)
-        load_config(config_path)
         changed_sections = _changed_top_level_sections(previous, raw)
-        audit_path = self._append_config_audit(
-            {
-                "timestamp": utcnow_iso(),
-                "revision": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"),
-                "action": "site_config.save",
-                "actor": "local_admin",
-                "config_file": config_path.name,
-                "backup_file": backup_path.name,
+        store = self._require_site_store()
+        previous_revision = store.active_revision()
+        revision = store.save_revision(
+            raw,
+            action="site_config.save",
+            actor="local_admin",
+            details={
                 "restart_required": True,
                 "changed_sections": changed_sections,
-            }
+            },
         )
         log_event(
             self.logger,
@@ -571,8 +580,8 @@ class MiniEmsApiServer:
             "saved": True,
             "valid": True,
             "restart_required": True,
-            "backup_file": backup_path.name,
-            "audit_file": audit_path.name,
+            "previous_revision": previous_revision,
+            "revision": revision,
         }
 
     def activate_mapping_config_payload(
@@ -591,29 +600,21 @@ class MiniEmsApiServer:
                 "warnings": list(preview.get("warnings", [])),
             }
 
-        config_path = self._require_config_path()
-        raw = _deep_merge_dicts(self._read_config_file(), preview["patch"])
+        store = self._require_site_store()
+        raw = _deep_merge_dicts(self._read_site_config(), preview["patch"])
         validate_raw_config(raw, base_dir=self._config_base_dir())
-        revision = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-        backup_path = self._backup_config_file(config_path, revision)
-        draft_path = self._write_mapping_draft(payload, revision)
-        draft_file = draft_path.relative_to(config_path.parent).as_posix()
-        _write_json_preserve_order(config_path, raw)
-        load_config(config_path)
-        audit_path = self._append_config_audit(
-            {
-                "timestamp": utcnow_iso(),
-                "revision": revision,
-                "action": "mapping.activate",
-                "actor": "local_admin",
-                "config_file": config_path.name,
-                "backup_file": backup_path.name,
-                "draft_file": draft_file,
+        previous_revision = store.active_revision()
+        revision = store.save_revision(
+            raw,
+            action="mapping.activate",
+            actor="local_admin",
+            mapping_draft=payload,
+            details={
                 "restart_required": True,
                 "patch_sections": sorted(str(key) for key in preview["patch"].keys()),
                 "device_count": len(payload.get("devices", [])),
                 "mapping_count": len(payload.get("mappings", [])),
-            }
+            },
         )
         log_event(
             self.logger,
@@ -628,32 +629,22 @@ class MiniEmsApiServer:
             "activated": True,
             "valid": True,
             "restart_required": True,
-            "backup_file": backup_path.name,
-            "draft_file": draft_file,
-            "audit_file": audit_path.name,
+            "previous_revision": previous_revision,
             "revision": revision,
             "warnings": list(preview.get("warnings", [])),
         }
 
     def update_spotmarket_lockout_settings(self, payload: Dict[str, object]) -> Dict[str, object]:
         min_consecutive_quarters = self._parse_min_consecutive_quarters(payload)
-        if self.config_path is not None:
+        if self.site_store is not None:
             restart_was_required = self._config_restart_required()
             self._persist_min_consecutive_quarters(min_consecutive_quarters)
             if not restart_was_required:
                 # Diese Einstellung wird unten direkt in die laufende Runtime
                 # übernommen und benötigt für sich allein keinen Neustart.
                 self._runtime_config_fingerprint = self._config_fingerprint()
-            self._append_config_audit(
-                {
-                    "timestamp": utcnow_iso(),
-                    "revision": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"),
-                    "action": "spotmarket.settings.update",
-                    "actor": "operator",
-                    "restart_required": False,
-                    "min_consecutive_quarters": min_consecutive_quarters,
-                }
-            )
+            # _persist_min_consecutive_quarters already wrote the immutable
+            # revision; no separate audit file exists anymore.
         if self.spotmarket_plan_writer is not None:
             self.spotmarket_plan_writer.set_min_consecutive_quarters(min_consecutive_quarters)
         log_event(
@@ -699,14 +690,9 @@ class MiniEmsApiServer:
         return quarters
 
     def _persist_min_consecutive_quarters(self, min_consecutive_quarters: int) -> None:
-        if self.config_path is None:
+        if self.site_store is None:
             return
-        try:
-            raw = json.loads(self.config_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            raise ValueError("Unable to read config file: {0}".format(error)) from error
-        if not isinstance(raw, dict):
-            raise ValueError("Config file root must be a JSON object")
+        raw = self._read_site_config()
         controllers = raw.setdefault("controllers", {})
         if not isinstance(controllers, dict):
             raise ValueError("Config section controllers must be a JSON object")
@@ -714,7 +700,16 @@ class MiniEmsApiServer:
         if not isinstance(spotmarket_lockout, dict):
             raise ValueError("Config section controllers.spotmarket_lockout must be a JSON object")
         spotmarket_lockout["negative_quarters_min_consecutive"] = min_consecutive_quarters
-        _write_json_preserve_order(self.config_path, raw)
+        validate_raw_config(raw, base_dir=self._config_base_dir())
+        self.site_store.save_revision(
+            raw,
+            action="spotmarket.settings.update",
+            actor="operator",
+            details={
+                "restart_required": False,
+                "min_consecutive_quarters": min_consecutive_quarters,
+            },
+        )
 
     def _spotmarket_settings_payload(self, min_consecutive_quarters: int) -> Dict[str, object]:
         slots_per_hour = self._slots_per_hour()
@@ -744,33 +739,26 @@ class MiniEmsApiServer:
                 raise ValueError("config must be a JSON object")
             if _looks_like_full_config(config_payload):
                 return copy.deepcopy(config_payload)
-            return _deep_merge_dicts(self._read_config_file(), config_payload)
+            return _deep_merge_dicts(self._read_site_config(), config_payload)
         if "patch" in payload:
             patch = payload["patch"]
             if not isinstance(patch, dict):
                 raise ValueError("patch must be a JSON object")
-            return _deep_merge_dicts(self._read_config_file(), patch)
+            return _deep_merge_dicts(self._read_site_config(), patch)
         if _looks_like_full_config(payload):
             return copy.deepcopy(payload)
-        return _deep_merge_dicts(self._read_config_file(), payload)
+        return _deep_merge_dicts(self._read_site_config(), payload)
 
-    def _read_config_file(self) -> Dict[str, object]:
-        config_path = self._require_config_path()
-        try:
-            raw = json.loads(config_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            raise ValueError("Unable to read config file: {0}".format(error)) from error
-        if not isinstance(raw, dict):
-            raise ValueError("Config file root must be a JSON object")
-        return raw
+    def _read_site_config(self) -> Dict[str, object]:
+        return self._require_site_store().active_config()
 
     def _config_base_dir(self) -> Path:
-        return self._require_config_path().resolve().parent
+        return self._require_site_store().site_dir
 
-    def _require_config_path(self) -> Path:
-        if self.config_path is None:
-            raise ValueError("Config file is not available")
-        return self.config_path
+    def _require_site_store(self) -> SiteConfigStore:
+        if self.site_store is None:
+            raise ValueError("Der Standort-Speicher ist nicht verfügbar.")
+        return self.site_store
 
     def _require_admin_token(self, admin_token: Optional[str], action: str) -> None:
         expected_token = self.api_config.config_admin_token
@@ -780,24 +768,38 @@ class MiniEmsApiServer:
             raise PermissionError("Der Freigabecode ist nicht gültig.")
 
     def _config_fingerprint(self) -> Optional[str]:
-        if self.config_path is None or not self.config_path.exists():
-            return None
-        return hashlib.sha256(self.config_path.read_bytes()).hexdigest()
+        return self.site_store.active_fingerprint() if self.site_store is not None else None
 
     def _config_restart_required(self) -> bool:
         current = self._config_fingerprint()
         return current is not None and current != self._runtime_config_fingerprint
 
     def _mapping_status(self, restart_required: bool) -> Dict[str, object]:
-        for entry in reversed(self._read_config_audit_entries()):
-            if entry.get("action") != "mapping.activate":
-                continue
+        if self.site_store is not None:
+            revision = self.site_store.latest_for_action("mapping.activate")
+        else:
+            revision = None
+        if revision is not None:
+            entry = self._revision_entry(revision)
             return {
                 "active": True,
                 "revision": str(entry.get("revision") or ""),
                 "activated_at": _normalize_audit_timestamp(entry.get("timestamp")),
                 "device_count": _safe_nonnegative_int(entry.get("device_count")),
                 "mapping_count": _safe_nonnegative_int(entry.get("mapping_count")),
+                "restart_required": restart_required,
+            }
+        if self.site_store is not None:
+            imported = self.site_store.latest_for_action("legacy_config.import")
+        else:
+            imported = None
+        if imported is not None:
+            return {
+                "active": True,
+                "revision": imported.revision,
+                "activated_at": _normalize_audit_timestamp(imported.timestamp),
+                "device_count": 0,
+                "mapping_count": 0,
                 "restart_required": restart_required,
             }
         return {
@@ -809,23 +811,20 @@ class MiniEmsApiServer:
             "restart_required": restart_required,
         }
 
-    def _read_config_audit_entries(self) -> list[Dict[str, object]]:
-        if self.config_path is None:
+    def _site_history(self, limit: int) -> list[Dict[str, object]]:
+        if self.site_store is None:
             return []
-        audit_path = self.config_path.parent / "config_audit.jsonl"
-        if not audit_path.exists():
-            return []
-        entries: list[Dict[str, object]] = []
-        for line in audit_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(entry, dict):
-                entries.append(entry)
-        return entries
+        return [self._revision_entry(revision) for revision in self.site_store.history(limit)]
+
+    @staticmethod
+    def _revision_entry(revision: SiteRevision) -> Dict[str, object]:
+        return {
+            "timestamp": revision.timestamp,
+            "revision": revision.revision,
+            "action": revision.action,
+            "actor": revision.actor,
+            **revision.details,
+        }
 
     def _public_config_change(self, entry: Dict[str, object]) -> Dict[str, object]:
         action = str(entry.get("action") or "")
@@ -847,6 +846,15 @@ class MiniEmsApiServer:
             title = "Preissteuerung angepasst"
             quarters = _safe_nonnegative_int(entry.get("min_consecutive_quarters"))
             detail = "Mindestdauer auf {0} Viertelstunden gesetzt.".format(quarters)
+        elif action == "legacy_config.import":
+            title = "Bestehenden Standort übernommen"
+            detail = "Die bisherige Standortkonfiguration wurde einmalig in den Standort-Speicher migriert."
+        elif action == "site.bootstrap":
+            title = "Standort angelegt"
+            detail = "Ein sicherer Einrichtungsstand wurde erzeugt."
+        elif action == "admin_code.reset":
+            title = "Freigabecode erneuert"
+            detail = "Der lokale Freigabecode wurde erneuert."
         else:
             title = "Änderung protokolliert"
             detail = "Eine administrative Änderung wurde erfasst."
@@ -866,36 +874,26 @@ class MiniEmsApiServer:
             access_mode="read_only" if self.api_config.read_only else "administrative",
         )
 
-    def _backup_config_file(self, config_path: Path, timestamp: Optional[str] = None) -> Path:
-        if timestamp is None:
-            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-        backup_path = config_path.with_name("{0}.{1}.bak".format(config_path.name, timestamp))
-        backup_path.write_bytes(config_path.read_bytes())
-        return backup_path
-
-    def _write_mapping_draft(self, payload: Dict[str, object], timestamp: str) -> Path:
-        config_path = self._require_config_path()
-        draft_dir = config_path.parent / "mapping_drafts"
-        draft_path = draft_dir / "mapping.{0}.json".format(timestamp)
-        _write_json_preserve_order(draft_path, payload)
-        return draft_path
-
-    def _append_config_audit(self, entry: Dict[str, object]) -> Path:
-        config_path = self._require_config_path()
-        audit_path = config_path.parent / "config_audit.jsonl"
-        audit_path.parent.mkdir(parents=True, exist_ok=True)
-        with audit_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry, ensure_ascii=True, sort_keys=True) + "\n")
-        return audit_path
-
-
 # GET-Endpunkte, die trotz GET im read-only Netzwerkmodus (H5) gesperrt bleiben,
 # weil sie einen aktiven Lesezugriff auf die Anlage ausloesen (HOSTING_SICHERHEIT.md
 # Abschnitt 2.1). Alle nicht-GET-Methoden werden ohnehin deny-by-default gesperrt.
 _READ_ONLY_BLOCKED_GET_PATHS = frozenset({"/api/diagnostics/read"})
 
+# UI-Konfiguration bleibt auch im geschuetzten Netzwerkmodus nutzbar. Nur die
+# beiden persistierenden Pfade speichern Zustand und beide verlangen im Handler
+# zusaetzlich den lokalen Freigabecode. Discovery bleibt als aktiver Anlagenread
+# gesperrt; Punktlisten-Import und Vorschau arbeiten nur auf dem Request-Inhalt.
+_READ_ONLY_CONFIG_POST_PATHS = frozenset({
+    "/api/config/site/validate",
+    "/api/config/site/save",
+    "/api/config/mapping/preview",
+    "/api/config/pointlist/import",
+    "/api/config/mapping/activate",
+})
+
 
 _SITE_CONFIG_EDITABLE_SECTIONS = (
+    "site",
     "runtime",
     "network",
     "api",
@@ -904,6 +902,8 @@ _SITE_CONFIG_EDITABLE_SECTIONS = (
     "price_source",
     "controllers",
     "safety",
+    "ddc_heartbeat",
+    "outputs",
     "additional_inputs",
 )
 # Anzeige-Sektionen der Site-Konfiguration: zusaetzlich zu den editierbaren

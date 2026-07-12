@@ -5,25 +5,29 @@ Automatisiert den bisher manuellen Update-Ablauf aus UPDATE_WARTUNG.md:
 
   1. SHA256SUMS des neuen Pakets pruefen (Uebertragungs-/Integritaetsschutz).
   2. Geplanten Task stoppen und Prozess-Ende verifizieren.
-  3. Bisherigen App-Ordner nach <AppDir>_vorher_<version> umbenennen
+  3. Standortordner im gestoppten Zustand als <SiteDir>_backup_<zeit> sichern.
+  4. Bisherigen App-Ordner nach <AppDir>_vorher_<version> umbenennen
      (Rollback-Kandidat) - Standortdaten in -SiteDir bleiben unberuehrt.
-  4. Neues Paket nach <AppDir> kopieren.
-  5. Task starten.
-  6. Smoketest (windows\smoketest_release.ps1) fahren.
-  7. Ergebnis ausgeben; bei Fehlschlag klare Anweisung zum Rollback.
+  5. Neues Paket nach <AppDir> kopieren.
+  6. Task starten.
+  7. Smoketest (windows\smoketest_release.ps1) fahren.
+  8. Ergebnis ausgeben; bei Fehlschlag klare Anweisung zum Rollback.
 
-Standortdaten (-SiteDir: config.json, data\, logs\, runtime\,
-config_audit.jsonl, mapping_drafts\, config.json.*.bak) werden NIE
+Standortdaten (-SiteDir: site.sqlite, data\, logs\, runtime\) werden NIE
 angefasst - nur der App-Ordner wird ersetzt.
 
 Rollback: erneut mit -Rollback aufrufen. Der juengste <AppDir>_vorher_*-Ordner
 wird zurueckgeschoben und der Task wieder gestartet.
+Mit -RestoreSiteBackup wird zusaetzlich die juengste Standort-Sicherung
+zurueckgespielt. Das ist nur beim Ruecksprung ueber eine inkompatible
+Standortdaten-Migration vorgesehen.
 
 Unterstuetzt -WhatIf fuer die veraendernden Schritte (Stop/Rename/Copy/Start).
 
 Beispiele:
   .\update_release.ps1 -PackagePath D:\releases\mini_ems_2026.07.1
   .\update_release.ps1 -Rollback
+  .\update_release.ps1 -Rollback -RestoreSiteBackup
 #>
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
 param(
@@ -32,11 +36,16 @@ param(
     [string]$SiteDir = "C:\ProgramData\MiniEMS",
     [string]$TaskName = "MiniEmsPoCRelease",
     [int]$SmoketestTimeoutSeconds = 120,
-    [switch]$Rollback
+    [switch]$Rollback,
+    [switch]$RestoreSiteBackup
 )
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+
+if ($RestoreSiteBackup -and -not $Rollback) {
+    throw "-RestoreSiteBackup ist nur zusammen mit -Rollback erlaubt."
+}
 
 function Get-VersionFromDir {
     param([string]$Dir)
@@ -127,14 +136,27 @@ function Invoke-Smoketest {
 # ============================================================================
 if ($Rollback) {
     Write-Host "[update] === Rollback-Modus ==="
-    $candidates = Get-ChildItem -Path (Split-Path -Parent $AppDir) -Directory -ErrorAction SilentlyContinue |
+    $candidates = @(Get-ChildItem -Path (Split-Path -Parent $AppDir) -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -like ((Split-Path -Leaf $AppDir) + "_vorher_*") } |
-        Sort-Object LastWriteTime -Descending
-    if (-not $candidates -or $candidates.Count -eq 0) {
+        Sort-Object LastWriteTime -Descending)
+    if ($candidates.Count -eq 0) {
         throw "Kein Rollback-Kandidat (<AppDir>_vorher_*) neben $AppDir gefunden."
     }
     $previous = $candidates[0].FullName
     Write-Host "[update] Rollback-Kandidat: $previous"
+
+    $previousSite = $null
+    if ($RestoreSiteBackup) {
+        $siteLeaf = Split-Path -Leaf $SiteDir
+        $siteCandidates = @(Get-ChildItem -Path (Split-Path -Parent $SiteDir) -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like ($siteLeaf + "_backup_*") } |
+            Sort-Object LastWriteTime -Descending)
+        if ($siteCandidates.Count -eq 0) {
+            throw "Keine Standort-Sicherung (${siteLeaf}_backup_*) neben $SiteDir gefunden."
+        }
+        $previousSite = $siteCandidates[0].FullName
+        Write-Host "[update] Standort-Sicherung fuer Rollback: $previousSite"
+    }
 
     if ($PSCmdlet.ShouldProcess($TaskName, "Geplanten Task stoppen und Prozess-Ende abwarten")) {
         Stop-RuntimeAndVerify
@@ -148,6 +170,19 @@ if ($Rollback) {
         }
         Rename-Item -Path $previous -NewName (Split-Path -Leaf $AppDir)
         Write-Host "[update] Vorherigen Stand wiederhergestellt nach $AppDir"
+    }
+
+    if ($RestoreSiteBackup) {
+        $siteLeaf = Split-Path -Leaf $SiteDir
+        if ($PSCmdlet.ShouldProcess($SiteDir, "Aktuellen Standortordner beiseitelegen und Standort-Sicherung wiederherstellen")) {
+            if (Test-Path $SiteDir) {
+                $failedSiteLeaf = $siteLeaf + "_fehlgeschlagen_" + (Get-Date -Format "yyyyMMdd_HHmmss")
+                Rename-Item -Path $SiteDir -NewName $failedSiteLeaf
+                Write-Host "[update] Aktuellen Standortstand beiseitegelegt: $failedSiteLeaf"
+            }
+            Rename-Item -Path $previousSite -NewName $siteLeaf
+            Write-Host "[update] Standort-Sicherung wiederhergestellt nach $SiteDir"
+        }
     }
 
     $restoredVersion = Get-VersionFromDir $AppDir
@@ -204,7 +239,19 @@ if ($PSCmdlet.ShouldProcess($TaskName, "Geplanten Task stoppen und Prozess-Ende 
     Stop-RuntimeAndVerify
 }
 
-# 3. Bisherigen App-Ordner als Rollback-Kandidat beiseitelegen
+# 3. Ruhende Sicherung des gesamten Standortordners
+$siteBackupPath = $null
+if (Test-Path $SiteDir) {
+    $siteBackupPath = "$SiteDir" + "_backup_" + (Get-Date -Format "yyyyMMdd_HHmmss")
+    if ($PSCmdlet.ShouldProcess($SiteDir, "Standortordner nach $siteBackupPath sichern")) {
+        Copy-Item -Path $SiteDir -Destination $siteBackupPath -Recurse -Force
+        Write-Host "[update] Standort-Sicherung angelegt: $siteBackupPath"
+    }
+} else {
+    Write-Warning "[update] Standortordner $SiteDir ist noch nicht vorhanden - keine Standort-Sicherung angelegt."
+}
+
+# 4. Bisherigen App-Ordner als Rollback-Kandidat beiseitelegen
 $backupLeaf = (Split-Path -Leaf $AppDir) + "_vorher_" + $currentVersion
 $backupPath = Join-Path (Split-Path -Parent $AppDir) $backupLeaf
 if (Test-Path $backupPath) {
@@ -220,28 +267,31 @@ if (Test-Path $AppDir) {
     Write-Warning "[update] Bisheriger App-Ordner $AppDir nicht vorhanden - es gibt keinen Rollback-Kandidaten."
 }
 
-# 4. Neues Paket kopieren
+# 5. Neues Paket kopieren
 if ($PSCmdlet.ShouldProcess($AppDir, "Neues Paket kopieren")) {
     New-Item -ItemType Directory -Path $AppDir -Force | Out-Null
     Copy-Item -Path (Join-Path $PackagePath '*') -Destination $AppDir -Recurse -Force
     Write-Host "[update] Neues Paket nach $AppDir kopiert."
 }
 
-# 5. Task starten (Startzeitpunkt fuer den Smoketest merken)
+# 6. Task starten (Startzeitpunkt fuer den Smoketest merken)
 $sinceTime = Get-Date
 if ($PSCmdlet.ShouldProcess($TaskName, "Geplanten Task starten")) {
     Start-ScheduledTask -TaskName $TaskName
     Write-Host "[update] Task '$TaskName' gestartet."
 }
 
-# 6. Smoketest
+# 7. Smoketest
 $ok = Invoke-Smoketest -ExpectedVersion $newVersion -SinceTime $sinceTime
 
-# 7. Ergebnis
+# 8. Ergebnis
 Write-Host ""
 if ($ok) {
     Write-Host "[update] UPDATE BESTANDEN: Mini EMS laeuft auf Version $newVersion." -ForegroundColor Green
     Write-Host "[update] Rollback-Kandidat bleibt vorerst erhalten: $backupPath"
+    if ($siteBackupPath) {
+        Write-Host "[update] Standort-Sicherung bleibt vorerst erhalten: $siteBackupPath"
+    }
     exit 0
 } else {
     Write-Host "[update] UPDATE NICHT BESTANDEN. Der Smoketest ist fehlgeschlagen." -ForegroundColor Red

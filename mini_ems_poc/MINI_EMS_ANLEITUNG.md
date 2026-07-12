@@ -1,5 +1,22 @@
 # Mini EMS PoC - Architektur, Betrieb und aktueller Stand
 
+## Aktueller Konfigurationspfad
+
+Seit dem standortunabhängigen Release ist `site.sqlite` im per `--site-dir` gewählten Standortordner die einzige
+aktive Quelle der Wahrheit. Standortparameter, Mapping-Entwürfe, Audit-Metadaten und vorherige Revisionen werden
+über die UI und transaktional in diesem Store gepflegt. Verweise auf `config.json` in späteren Pilot-/Historienabschnitten
+beschreiben den alten Betriebspfad und sind keine aktuelle Startanweisung mehr.
+
+```text
+mini_ems.py --site-dir <Standortordner> --loop
+UI: Standort -> Geräte -> Datenpunkte -> Testen -> Abschließen
+-> neue Revision in site.sqlite
+-> geplanter Neustart
+```
+
+Ein leerer Standort startet sicher in Simulation, nur auf Loopback und ohne reale Writes. Eine vorhandene
+`config.json` kann beim ersten Start einmalig migriert werden; danach wird sie nicht mehr gelesen.
+
 ## Ziel
 
 Dieses PoC ist eine kleine Python-Edge auf dem IPC. Sie uebernimmt vier Aufgaben:
@@ -28,9 +45,9 @@ Der aktuelle fachliche Scope ist:
 - CLI-Entrypoint
 - startet `--once` oder `--loop`
 
-`config.json`
-- zentrale Parametrierung
-- enthaelt Netzwerk, BACnet-Punkte, Timing, Safety, DB- und API-Pfade
+`mini_ems_runtime/site_store.py`
+- persistiert die über die UI gepflegte Standortkonfiguration
+- hält Mapping-Entwurf, Audit-Metadaten und unveränderliche Revisionen in `site.sqlite`
 
 `mini_ems_runtime/app.py`
 - setzt Runtime, API, Datenbank und Zyklus zusammen
@@ -157,17 +174,15 @@ mini_ems_poc/
 
 ## Laptop-Entwicklung mit Simulation
 
-Die Grundregel ist:
-
-- `config.json` bleibt die IPC-Konfiguration für die echte Anlage.
-- `config.local.json` ist die Laptop-Konfiguration für ungefährliche Entwicklung.
+Die Grundregel ist: Laptop und IPC verwenden getrennte Standortordner. Der Laptop-Stand startet sicher in
+Simulation; produktive Kommunikation wird erst nach geprüfter UI-Konfiguration und Neustart aktiv.
 
 Im lokalen Modus wird nicht versucht, die komplette Anlage physikalisch nachzubauen.
 Es werden nur die Eingangswerte simuliert, die Mini EMS gerade braucht.
 
 Technischer Ablauf:
 
-1. `mini_ems.py` lädt `config.local.json`.
+1. `mini_ems.py` lädt die aktive Revision aus `runtime/local/site/site.sqlite`.
 2. `runtime.bacnet_mode` steht auf `simulated`.
 3. Die App verwendet `SimulatedBacnetAdapter` statt `BacnetAdapter`.
 4. BACnet-Reads kommen aus `sim/sample_values.json`.
@@ -178,14 +193,14 @@ Technischer Ablauf:
 Start aus dem Ordner `mini_ems_poc`:
 
 ```bash
-python mini_ems.py --config config.local.json --once
-python mini_ems.py --config config.local.json --loop
+python mini_ems.py --site-dir runtime/local/site --once
+python mini_ems.py --site-dir runtime/local/site --loop
 ```
 
 `--once` führt genau einen Zyklus aus.
 `--loop` startet den dauerhaften Betrieb mit wiederholten Zyklen und lokaler API.
 
-Die lokale API läuft mit `config.local.json` auf:
+Die lokale API läuft standardmäßig auf:
 
 ```text
 http://127.0.0.1:8090
@@ -201,31 +216,30 @@ Der Sicherheitsmechanismus ist bewusst hart:
 
 ### Perspektive: Konfiguration über UI
 
-`config.json` für den IPC-Betrieb und `config.local.json` für die Laptop-Simulation bleiben die verbindlichen
-Runtime-Dateien. Die Seite **Standort einrichten** setzt davor einen einfachen, kontrollierten Ablauf:
+`site.sqlite` ist der verbindliche Runtime-Store. Die Seite **Standort einrichten** ist der kontrollierte
+Konfigurationsweg:
 
 ```text
 Standort -> Geräte -> Datenpunkte -> Testen -> Abschließen
 ```
 
 Die UI erzeugt einen Mapping-Entwurf, prüft ihn gegen dieselben Regeln wie die Runtime und übernimmt ihn erst
-nach Eingabe des lokalen Freigabecodes. Die technische JSON-Struktur bleibt unter „Erweiterte Direktbearbeitung“
-eingeklappt und ist für die normale Inbetriebnahme nicht erforderlich.
+nach Eingabe des lokalen Freigabecodes. Die technische Vorschau bleibt unter „Erweiterte Direktbearbeitung“
+eingeklappt; sie ist keine zweite Konfigurationsquelle.
 
 - Viewer sehen nur freigegebene Konfigurationszusammenfassungen und Statushinweise.
 - Operator können betriebliche Änderungen als Entwurf vorbereiten, aber keine aktive Standortkonfiguration speichern.
 - Konfigurator/Admin übernehmen geprüfte Entwürfe mit dem lokalen Freigabecode
   (`api.config_admin_token`; der technische Name bleibt nur in der Standortkonfiguration sichtbar).
 
-Vor jeder Übernahme wird die aktive Konfiguration automatisch gesichert und der Entwurf unter `mapping_drafts/`
-aufbewahrt. Ungültige Entwürfe dürfen die aktive Konfiguration nicht überschreiben. Der sichtbare
-Änderungsverlauf kommt aus `config_audit.jsonl` und enthält keine Tokens oder technischen Dateipfade. Änderungen
+Vor jeder Übernahme bleibt die bisherige SQLite-Revision unverändert erhalten; Mapping-Entwurf und Audit-Metadaten
+werden gemeinsam mit der neuen Revision gespeichert. Ungültige Entwürfe dürfen die aktive Revision nicht ersetzen. Änderungen
 an Feldern, die beim Start geladen werden, werden erst nach einem geplanten Mini-EMS-Neustart aktiv; die UI zeigt
 den Neustartbedarf bis zum tatsächlichen Runtime-Neustart an.
 
 Vor echtem IPC-Betrieb braucht jede neue oder geänderte Konfiguration mindestens diese Abnahme:
 
-1. lokale Prüfung mit `config.local.json`, simuliertem BACnet und ohne reale Writes
+1. lokale Prüfung in einem getrennten Standortordner, simuliertem BACnet und ohne reale Writes
 2. Review der geänderten Felder, Rollenfreigabe, Backup- und Rollback-Pfad
 3. IPC-Prüfung von Bind-Adresse, Secomea/VPN-Zugriff, Firewall und geplantem Task
 4. kurzer Funktionstest mit `health.json`, Logdatei und Dashboard, bevor echte Schreibfunktionen freigegeben werden
@@ -248,7 +262,7 @@ Empfohlener Ablauf:
 
    ```bash
    cd /Users/gabriel/dev/openems/mini_ems_poc
-   /Users/gabriel/dev/openems/.venv/bin/python mini_ems.py --config config.local.json --loop
+   /Users/gabriel/dev/openems/.venv/bin/python mini_ems.py --site-dir runtime/local/site --loop
    ```
 
    Erwartung: Dashboard/API laufen lokal auf `http://127.0.0.1:8090`, BACnet bleibt simuliert und
@@ -773,7 +787,7 @@ Wichtig:
 - den Installer in einer PowerShell als Administrator ausfuehren
 - der Task startet beim Systemstart
 - `run_mini_ems.cmd` nutzt im Checkout-Betrieb bevorzugt die projektlokale `.venv`
-- `run_mini_ems_release.cmd` startet im Release-Betrieb `mini_ems.exe --config C:\ProgramData\MiniEMS\config.json --loop`
+- `run_mini_ems_release.cmd` startet im Release-Betrieb `mini_ems.exe --site-dir C:\ProgramData\MiniEMS --loop`
 - wenn der Runtime-Prozess mit Fehlercode endet, startet der Wrapper ihn nach kurzer Pause neu
 
 Checkout-Task (alter/Rollback-Pfad):
@@ -795,7 +809,7 @@ powershell -ExecutionPolicy Bypass -File .\windows\install_task.ps1 `
   -Mode release `
   -TaskName MiniEmsPoCRelease `
   -AppDir "C:\Program Files\MiniEMS" `
-  -ConfigPath "C:\ProgramData\MiniEMS\config.json" `
+  -SiteDir "C:\ProgramData\MiniEMS" `
   -StartNow:$false
 ```
 

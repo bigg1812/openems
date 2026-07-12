@@ -6,9 +6,9 @@ and the Windows IPC build share one source of truth. Produces a one-dir package
 under packaging\dist\mini_ems\ (mini_ems.exe + resources + VERSION +
 SHA256SUMS + RELEASE_HINWEISE.md).
 
-config.json and all operational data (data\, logs\, runtime\) are NEVER part of
-the package. The operational path stays: external config.json + scheduled
-Windows task (windows\install_task.ps1, only referenced here, not modified).
+site.sqlite and all operational data (data\, logs\, runtime\) are NEVER part of
+the package. The runtime receives only the site directory; configuration is
+created and revised through the UI-backed site store.
 
 Prerequisites: a Python >= 3.10 interpreter with PyInstaller installed
 (pip install pyinstaller). Pass -Python to select the interpreter.

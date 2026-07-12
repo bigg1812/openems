@@ -4,10 +4,15 @@ setlocal
 set "APP_DIR=%~dp0"
 if "%APP_DIR:~-1%"=="\" set "APP_DIR=%APP_DIR:~0,-1%"
 
-set "CONFIG_PATH=%~1"
-if "%CONFIG_PATH%"=="" set "CONFIG_PATH=C:\ProgramData\MiniEMS\config.json"
+set "SITE_DIR=%~1"
+if "%SITE_DIR%"=="" set "SITE_DIR=C:\ProgramData\MiniEMS"
 
-for %%I in ("%CONFIG_PATH%") do set "SITE_DIR=%%~dpI"
+rem Upgrade-Kompatibilitaet: Der bisher registrierte Task uebergibt als erstes
+rem Argument noch C:\ProgramData\MiniEMS\config.json. Fuer genau diesen alten
+rem Aufruf wird einmalig nur der Elternordner als neuer Standortordner genutzt.
+if /I "%~x1"==".json" (
+  for %%I in ("%~1") do set "SITE_DIR=%%~dpI"
+)
 if "%SITE_DIR:~-1%"=="\" set "SITE_DIR=%SITE_DIR:~0,-1%"
 
 set "MINI_EMS_EXE=%APP_DIR%\mini_ems.exe"
@@ -21,17 +26,12 @@ if not exist "%MINI_EMS_EXE%" (
   exit /b 1
 )
 
-if not exist "%CONFIG_PATH%" (
-  echo [%DATE% %TIME%] config.json not found at "%CONFIG_PATH%" >> "%STDOUT_LOG%"
-  exit /b 1
-)
-
 cd /d "%APP_DIR%"
 
 :restart
-echo [%DATE% %TIME%] Starting Mini EMS release runtime with "%CONFIG_PATH%" >> "%STDOUT_LOG%"
+echo [%DATE% %TIME%] Starting Mini EMS release runtime with site dir "%SITE_DIR%" >> "%STDOUT_LOG%"
 "%MINI_EMS_EXE%" ^
-  --config "%CONFIG_PATH%" ^
+  --site-dir "%SITE_DIR%" ^
   --loop >> "%STDOUT_LOG%" 2>&1
 
 set "EXIT_CODE=%ERRORLEVEL%"

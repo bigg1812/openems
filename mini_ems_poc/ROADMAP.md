@@ -4,7 +4,8 @@
 
 Aktiver Fokus liegt auf dem lokalen Python-Prototyp `mini_ems_poc/`; neue Funktionen werden auf Feature-Branches
 entwickelt und nach Prüfung in `develop` zusammengeführt. Der aktuelle Stand enthält den ProtocolAdapter-Kontrakt,
-eine Plausibilitaets-Single-Source in `PointConfig` und einen Freshness/Quality-Gate (`max_age_seconds`). Die 122 Python-Tests sind unter Python 3.12 alle gruen
+eine Plausibilitaets-Single-Source in `PointConfig`, einen Freshness/Quality-Gate (`max_age_seconds`) und den
+UI-eigenen Standort-Speicher `site.sqlite`. Die aktuelle Python-Testsuite ist unter Python 3.12 grün
 (`OK`), schlagen aber unter dem Standard-`python3` (3.9) dieses Rechners wegen PEP-604-Syntax (`X | None`) fehl.
 Es gibt praktisch keine TODO/FIXME-Marker im Python-Code; offene Punkte stehen in `MINI_EMS_ANLEITUNG.md`
 ("Offene Punkte") und ergeben sich aus dem Code-Ist-Zustand.
@@ -17,7 +18,19 @@ ein sinnvoller späterer Ausbaupunkt entsteht, wird er hier oder in `PRODUCT_UX_
 gilt: als Zukunftsoption mit Nutzen, Einordnung und Risiken dokumentieren, aber nicht automatisch als nächster
 Implementierungsschritt behandeln.
 
-## Aktueller IPC-Stand (2026-07-08)
+## Nächster Release-Pfad: standortunabhängige UI-Konfiguration (2026-07-12)
+
+- Der Runtime-Start verwendet nur noch `--site-dir`; eine aktive `config.json` existiert nicht mehr.
+- `site.sqlite` ist die einzige Quelle der Wahrheit für Standortparameter, Mapping-Entwürfe und Revisionen.
+- Neue Standorte starten loopback-only, simuliert und ohne reale Writes. Der einmalige Freigabecode wird lokal
+  ausgegeben; anschließend erfolgt die vollständige Einrichtung über die UI.
+- Eine vorhandene Pilot-`config.json` wird beim ersten Start einmalig validiert, nach `site.sqlite` migriert und
+  als `.migrated.*.bak` aus dem aktiven Pfad genommen.
+- Release-Launcher und Windows-Task starten `mini_ems.exe --site-dir C:\ProgramData\MiniEMS --loop`.
+- Mapping-/Standortänderungen erzeugen transaktionale SQLite-Revisionen; `.bak`, `mapping_drafts/` und
+  `config_audit.jsonl` werden nicht mehr als getrennte Wahrheiten geführt.
+
+## Historischer IPC-Stand vor diesem Release (2026-07-08)
 
 Der echte IPC ist nicht mehr im alten Git-Checkout-Betrieb. Der belegte Standortzustand ist:
 
@@ -61,7 +74,7 @@ BACnet / Modbus / HTTP / MQTT / GLT- oder Plattform-API
 Leitentscheidungen:
 
 - Windows-IPC bleibt für den aktuellen PoC und erste Kundenpiloten gültig.
-- `config.json` bleibt der reale IPC-Pfad; `config.local.json` bleibt Laptop-/Simulationspfad.
+- `site.sqlite` ist der reale IPC-Pfad; lokale Simulation verwendet einen getrennten `--site-dir`.
 - Deployment-Flotte, Container und OTA kommen erst nach sauberem Integrationsmodell, Datenqualität und Schreibsicherheit.
 - Reads und Writes werden als unterschiedliche Risikoklassen behandelt.
 - Die Regelung soll langfristig nur noch kanonische Kanäle lesen, nicht BACnet-Objekte, Modbus-Register oder API-Felder.
@@ -73,26 +86,27 @@ Inbetriebnahmeprozess: Der Kunde bzw. Konfigurator richtet einen Standort ein, l
 erfasst oder importiert Rohpunkte, ordnet sie fachlichen Mini-EMS-Kanälen zu, testet die Werte und aktiviert erst
 danach die daraus erzeugte Runtime-Konfiguration.
 
-Technisch bleibt die Runtime-Konfiguration vorerst stabil. Davor liegt eine neue verständliche Zwischenebene:
+Die verständliche Zwischenebene ist inzwischen zugleich die dauerhafte Quelle der Wahrheit:
 
 ```text
 Mapping-Entwurf
 -> Validierung und Preview
--> Runtime-Config-Patch
--> Freigabe / Backup / Aktivierung
+-> geprüfter Standortstand
+-> transaktionale Revision in site.sqlite
+-> Aktivierung nach Neustart
 ```
 
 Der erste technische Kern ist `mini_ems_runtime/mapping_config.py` mit dem Preview-Endpunkt
-`POST /api/config/mapping/preview`. Die UI soll damit später nicht direkt `config.json` bearbeiten, sondern einen
-fachlichen Entwurf aus `devices`, `raw_points` und `mappings` erzeugen. Erst der Generator übersetzt daraus die
-heutige Mini-EMS-Konfiguration (`network`, `points`, `additional_inputs`).
+`POST /api/config/mapping/preview`. Die UI erzeugt einen fachlichen Entwurf aus `devices`, `raw_points` und
+`mappings`; der Generator übersetzt ihn in die geprüften Runtime-Bereiche (`network`, `points`,
+`additional_inputs`) der nächsten Standortrevision.
 
 Leitentscheidungen:
 
 - Einstieg ist "Standort einrichten", nicht "Konfiguration bearbeiten".
 - Fachliche Kanäle stehen vor Protokolldetails: z. B. "Netzleistung" vor "BACnet AV 300".
 - Technische Details bleiben sichtbar, aber einklappbar und sekundär.
-- `config.json` wird nicht blind überschrieben; Preview, Validierung, Backup und Audit bleiben Pflicht.
+- Preview, Validierung, vorherige Revision und Audit-Metadaten bleiben Pflicht.
 - Version 1 bleibt bewusst klein: manuelles BACnet-Mapping plus Preview; Scan, Import, Templates und Live-Test folgen danach.
 
 ## Strategische To-do-Linie: Edge-Integrationskern
@@ -518,23 +532,23 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
 
 - [x] **H2. Mini EMS als Release-Paket statt Git-Checkout ausliefern**
   - **Was:** Die Kunden-IPC bekommt kein vollständiges Repository mehr, sondern ein versioniertes Release-Paket, z. B.
-    `mini_ems.exe`, `dashboard/`, Release-Launcher, Checksums und Versionsdatei; `config.json` bleibt externe
-    Standortkonfiguration.
+    `mini_ems.exe`, `dashboard/`, Release-Launcher, Checksums und Versionsdatei; `site.sqlite` bleibt als externe
+    Standortdatenbank außerhalb des Pakets erhalten.
   - **Nutzen:** Normale Nutzer können nicht einfach den gesamten Python-Code lesen. Updates werden kontrollierter und
     professioneller als ein manueller Git-Ordner auf der IPC.
   - **Betroffen:** Packaging-Konzept, `run_mini_ems_release.cmd`, `windows/install_task.ps1`, Release-Artefakt,
     Standortkonfiguration.
   - **Aufwand:** M
   - **Risiken:** PyInstaller ist einfacher, aber leichter extrahierbar; Nuitka ist für weniger beiläufige Code-Einsicht
-    geeigneter, aber aufwendiger. `config.json` darf nicht in ein hart kodiertes Paket verschwinden.
-  - **Definition of Done:** Eine Test-IPC kann Mini EMS ohne Git-Repo starten; der Betriebspfad bleibt `config.json` plus
-    geplanter Windows-Task.
+    geeigneter, aber aufwendiger. Standortdaten dürfen nie in ein hart kodiertes Paket verschwinden.
+  - **Definition of Done:** Eine Test-IPC kann Mini EMS ohne Git-Repo mit externem `--site-dir` und geplantem
+    Windows-Task starten.
   - **Entscheidung (Nutzer, wörtlich):** *"Release-Paket, initial PyInstaller, später Nuitka-kompatibel"*.
     Umsetzung: One-Dir-Release (ausführbares Artefakt + `run_mini_ems_release.cmd` + `dashboard/` +
     `mini_ems_runtime/templates/`, optional `sim/`, plus `VERSION`, `SHA256SUMS`, `RELEASE_HINWEISE.md`) über `packaging/`
     (`mini_ems.spec`, `build_release.ps1` für Windows/IPC, `build_release.sh` für lokale Verifikation).
-    `config.json` und Betriebsdaten sind nie Teil des Pakets; der Betriebspfad bleibt externes `config.json`
-    plus geplanter Windows-Task. Die Frozen-Pfadauflösung ist bewusst generisch gehalten (Ressourcen neben
+    Standortdaten und Betriebsdaten sind nie Teil des Pakets; der Betriebspfad verwendet den externen
+    Standortordner mit `site.sqlite` plus geplantem Windows-Task. Die Frozen-Pfadauflösung ist bewusst generisch gehalten (Ressourcen neben
     dem Executable, kein `sys._MEIPASS` im Runtime-Code), damit sie ohne Umbau auch für Nuitka trägt.
   - **Stand:** Packaging-Tooling, Release-Launcher (`run_mini_ems_release.cmd`), `install_task.ps1 -Mode release`
     und die minimale Frozen-Pfadauflösung (`mini_ems_runtime/resources.py`, eine Zeile in `app.py`) liegen vor; der
@@ -730,31 +744,31 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
   - **Definition of Done:** Betriebslog und Zugriffskonzept sind für einen Pilotkunden erklärbar.
   - **Erledigt (2026-07-11):** Das bestehende strukturierte Betriebslog dokumentiert Runtime-Starts,
     Dashboard-Aufrufe ohne IP-/Personenbezug sowie bestätigte und fehlgeschlagene Anlagenübergaben.
-    `config_audit.jsonl` erfasst Mapping-Aktivierungen, direkte Standortänderungen und Bedienänderungen der
+    Der Revisionsverlauf in `site.sqlite` erfasst Mapping-Aktivierungen, direkte Standortänderungen und Bedienänderungen der
     Preissteuerung. `GET /api/config/changes` liefert daraus nur einen bereinigten Verlauf ohne Token, Dateipfade
     oder personenbezogene Daten; die UI zeigt die letzten Änderungen direkt beim Abschluss. Das Zugriffskonzept
     Viewer/Operator/Admin steht in `HOSTING_SICHERHEIT.md`; echte Benutzeridentitäten und Rollen bleiben H6.
 
-- [ ] **H9. Konfigurations-UI als geschützten Entwurfs- und Speicherpfad bauen**
-  - **Was:** Die UI ersetzt `config.json` nicht blind und schreibt nicht direkt aus einem Formular in die aktive
-    Standortkonfiguration. Ziel ist ein kontrollierter Ablauf: aktive Konfiguration lesen, erlaubte Felder als
+- [x] **H9. Konfigurations-UI als geschützten Entwurfs- und Speicherpfad bauen**
+  - **Was:** Die UI schreibt nicht direkt aus einem Formular in die aktive Standortrevision. Umgesetzt ist ein
+    kontrollierter Ablauf: aktive Konfiguration lesen, erlaubte Felder als
     Entwurf bearbeiten, denselben fachlichen und technischen Regeln wie beim Runtime-Start validieren, Entwurf
-    speichern, aktive Konfiguration vor Änderung sichern, Änderung mit Admin-Recht bzw. Token übernehmen und
+    als neue unveränderliche Revision speichern, Änderung mit Freigabecode übernehmen und
     den Vorgang auditierbar protokollieren. Änderungen, die nur beim Start geladen werden, bleiben bis zum
     geplanten Mini-EMS-Neustart als "Neustart erforderlich" markiert.
   - **Nutzen:** Betreiber bekommen eine verständliche Konfigurationsoberfläche, ohne die Schutzwirkung der
     getrennten IPC-/Laptop-Konfiguration, Validierung und geplanten Betriebsfreigabe zu verlieren.
   - **Betroffen:** HTTP-API, künftige Auth-/Token-Schicht, Config-Validierung, Backup-/Rollback-Ablage,
-    Audit-Log, `MINI_EMS_ANLEITUNG.md`, Windows-Task-Neustartprozess.
+    Revisionsverlauf, `MINI_EMS_ANLEITUNG.md`, Windows-Task-Neustartprozess.
   - **Aufwand:** M/L
-  - **Risiken:** Der erste Netzwerkzugriff bleibt read-only. Schreibende Konfigurations-Endpunkte dürfen nicht
-    über den Viewer-/Remote-Pfad erreichbar sein, brauchen Admin-Recht bzw. ein kurzlebiges Token und dürfen nie
-    direkt ins Internet freigegeben werden. Der lokale Simulationspfad (`config.local.json`, `127.0.0.1`,
-    `runtime.bacnet_mode=simulated`, `runtime.real_writes_enabled=false`) darf keinen Weg bekommen, echte
+  - **Risiken:** Der Netzwerkzugriff bleibt anlagenbezogen read-only. Ausschließlich passive Entwurfs-/Vorschaupfade
+    und token-geschützte Standortaktivierungen sind über Caddy erreichbar; Bedienaktionen und aktive Anlagenzugriffe
+    bleiben gesperrt. Der lokale Simulationspfad (`runtime.bacnet_mode=simulated`,
+    `runtime.real_writes_enabled=false`) darf keinen Weg bekommen, echte
     BACnet-Writes auszulösen. Safety-Flags und Anlagen-Schreibfreigaben bleiben lokale Admin-/IPC-Arbeit.
   - **Definition of Done:** Ungültige Entwürfe können die aktive Konfiguration nicht überschreiben; jede
-    Übernahme erzeugt ein Backup und einen Audit-Eintrag ohne Geheimnisse; Admin-/Token-Prüfung ist dokumentiert;
-    read-only Netzwerkbetrieb blockiert schreibende Endpunkte; Neustartbedarf und Rollback-Pfad sind in Betrieb
+    Übernahme erzeugt eine unveränderliche Revision ohne Geheimnisse; Freigabecode-Prüfung ist dokumentiert;
+    der geschützte Netzwerkbetrieb blockiert Bedienaktionen und aktive Anlagenzugriffe; Neustartbedarf und Rollback-Pfad sind in Betrieb
     und UI sichtbar.
 
 ## Priorisierte To-do-Liste

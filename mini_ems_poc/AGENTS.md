@@ -78,8 +78,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - `ROADMAP.md` is the technical roadmap: architecture, data quality, safety, deployment, protected customer hosting, and operational hardening.
 - `PRODUCT_UX_ROADMAP.md` is the product and UX roadmap: reporting quality, easier user flows, modern minimal UI direction, wording, roles, and demo readiness.
 - `EMS-Mapping.md` is the protocol and channel mapping reference: how external points become Mini EMS channels and how future protocol adapters should stay aligned.
-- `config.json` is the real IPC/site configuration. Treat it as plant operation.
-- `config.local.json` is the local simulation configuration. Use it for laptop development.
+- `site.sqlite` in the selected site directory is the runtime source of truth for UI configuration, mapping drafts, and revisions. Treat it as plant operation.
+- A fresh local site directory starts in safe simulation; do not add a second editable config-file path.
 - `dashboard/` contains the browser UI. Customer-facing UI text must use clear German and hide internal IDs unless the view is explicitly technical diagnostics.
 - `mini_ems_runtime/` contains runtime code. Keep business logic, protocol access, API, persistence, and reporting changes scoped to the relevant module.
 - `windows/`, `run_mini_ems.cmd`, logs, data, and runtime state belong to deployment and operation, not product UX.
@@ -100,8 +100,8 @@ scope; do not silently turn it into immediate implementation work.
 
 **The laptop is for simulation. The IPC is for real plant operation.**
 
-- Keep `config.json` as the real IPC configuration unless the user explicitly asks to change plant operation.
-- Use `config.local.json` for laptop work.
+- Keep `site.sqlite` as the only active site configuration source. Legacy `config.json` is migration input only.
+- Use `--site-dir runtime/local/site` for laptop work.
 - Local development must use `runtime.bacnet_mode=simulated` and `runtime.real_writes_enabled=false`.
 - Do not add a code path that sends real BACnet writes from `environment=local`.
 - If you need test values, edit `sim/sample_values.json` or `sim/sample_prices.json` instead of changing real BACnet points.
@@ -111,7 +111,7 @@ scope; do not silently turn it into immediate implementation work.
 **Use the packaged release task (production default), not the legacy Windows service. The Git-checkout task is a development/fallback path only.**
 
 > **Stand 2026-07-08 – Produktionspfad ist das Release-Paket hinter Caddy.** Die Pilot-IPC läuft
-> `C:\Program Files\MiniEMS\mini_ems.exe --config C:\ProgramData\MiniEMS\config.json --loop` über den
+> `C:\Program Files\MiniEMS\mini_ems.exe --site-dir C:\ProgramData\MiniEMS --loop` über den
 > geplanten Task **`MiniEmsPoCRelease`** (SYSTEM, Boot-Trigger). Mini EMS bindet lokal auf
 > `127.0.0.1:8090`; ein Caddy-Reverse-Proxy (Task `MiniEmsDashboardCaddy`) lauscht auf
 > `192.168.244.10:443` und leitet intern auf `127.0.0.1:8090` weiter; `api.read_only` ist aktiv.
@@ -124,9 +124,9 @@ scope; do not silently turn it into immediate implementation work.
 > `HOSTING_SICHERHEIT.md` Teil 4.
 
 - Do not use `sc.exe start MiniEmsPoC` as a runtime path. The `MiniEmsPoC` Windows service entry is legacy and can fail with `StartService FEHLER 1053` because `mini_ems.py` is a console process, not a native Windows service.
-- **Production start path (default): the release task.** `windows/install_task.ps1 -Mode release` plus `run_mini_ems_release.cmd` start `mini_ems.exe` from `C:\Program Files\MiniEMS` against the external `C:\ProgramData\MiniEMS\config.json`. Production binds the API to `127.0.0.1:8090` with `api.read_only: true`; the Caddy proxy exposes the dashboard/API on `https://192.168.244.10`. See `RELEASE_WORKFLOW.md` for a full new-install walkthrough and `UPDATE_WARTUNG.md` for updates.
-- **Development/fallback start path: the checkout task.** `windows/install_task.ps1` (`-Mode checkout`) plus `run_mini_ems.cmd` start `mini_ems.py` directly from the Git checkout against the checkout's `config.json`, binding to `192.168.244.10:8090` directly (no proxy, no `api.read_only`). This path stays available for development/rollback but is **not** the current production path on the pilot IPC.
-- The local simulation uses `config.local.json`, binds to `127.0.0.1:8090`, and is not reachable through Secomea.
+- **Production start path (default): the release task.** `windows/install_task.ps1 -Mode release` plus `run_mini_ems_release.cmd` start `mini_ems.exe` from `C:\Program Files\MiniEMS` with `--site-dir C:\ProgramData\MiniEMS`. UI configuration is persisted in `site.sqlite`; Caddy exposes the dashboard/API on `https://192.168.244.10`.
+- **Development/fallback start path:** `windows/install_task.ps1` (`-Mode checkout`) plus `run_mini_ems.cmd` use the same site directory and store, without a config file.
+- Local simulation uses a separate site directory, binds to `127.0.0.1:8090`, and is not reachable through Secomea.
 
 Install or repair the release task from an elevated PowerShell (production path):
 
@@ -136,7 +136,7 @@ cd C:\dev\openems\mini_ems_poc
   -Mode release `
   -TaskName MiniEmsPoCRelease `
   -AppDir "C:\Program Files\MiniEMS" `
-  -ConfigPath "C:\ProgramData\MiniEMS\config.json" `
+  -SiteDir "C:\ProgramData\MiniEMS" `
   -StartNow:$false
 ```
 
@@ -176,7 +176,7 @@ Expected state (production, release path):
 
 - `8090` listens only on `127.0.0.1` (not on `192.168.244.10`); a direct `http://192.168.244.10:8090/dashboard` request must **not** succeed anymore.
 - Exactly one listener on `192.168.244.10:443`, owned by `caddy.exe` (task `MiniEmsDashboardCaddy`).
-- The owning process command line contains `mini_ems.exe --config C:\ProgramData\MiniEMS\config.json --loop`, started by task `MiniEmsPoCRelease` — not `mini_ems.py` from the Git checkout.
+- The owning process command line contains `mini_ems.exe --site-dir C:\ProgramData\MiniEMS --loop`, started by task `MiniEmsPoCRelease`.
 - `C:\ProgramData\MiniEMS\runtime\health.json` is current and reports `status: healthy`.
 - `https://192.168.244.10/dashboard` and `/api/status` return HTTP `200`; `/api/status` reports `api_read_only: true`.
 
@@ -189,4 +189,4 @@ Get-NetTCPConnection -LocalPort 8090
 taskkill /PID <OwningProcess> /T /F
 ```
 
-For the older checkout/development path, the equivalent checks use `192.168.244.10:8090` directly (no proxy) and `C:\dev\openems\mini_ems_poc\runtime\health.json`; the owning process command line contains `mini_ems.py --config C:\dev\openems\mini_ems_poc\config.json --loop`.
+For the checkout/development path, the process command line contains `mini_ems.py --site-dir C:\ProgramData\MiniEMS --loop`.

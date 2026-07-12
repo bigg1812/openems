@@ -226,7 +226,7 @@ check("Schritte: Abschluss verständlich benannt", steps[4].label, "Abschließen
 
 const readOnlySteps = context.computeSetupSteps(makeState({ readOnly: true }));
 check("Schritte: read-only sperrt Testen", readOnlySteps[3].state, "locked");
-check("Schritte: read-only sperrt Aktivieren", readOnlySteps[4].state, "locked");
+check("Schritte: read-only lässt geschützte Aktivierung zu", readOnlySteps[4].state, "done");
 
 const noTokenSteps = context.computeSetupSteps(makeState({
   saveEnabled: false,
@@ -253,6 +253,7 @@ check("Schritte: Fehlversuch markiert Testen", context.computeSetupSteps(failedS
 
 const heroReadOnly = context.buildSetupHeroMessage(readOnlySteps, context.setupCounts(seeded.rows), makeState({ readOnly: true }));
 check("Hero: read-only Warnung", heroReadOnly.level, "warn");
+check("Hero: read-only erklärt geschützte Konfiguration", heroReadOnly.detail.includes("Freigabecode"), true);
 const heroActive = context.buildSetupHeroMessage(steps, context.setupCounts(seeded.rows), makeState({}));
 check("Hero: aktiver Stand verständlich", heroActive.headline, "Der Standort ist eingerichtet.");
 const heroNeutral = context.buildSetupHeroMessage(dirtySteps, context.setupCounts(seeded.rows), makeState({ dirty: true }));

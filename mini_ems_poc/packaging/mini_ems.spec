@@ -8,7 +8,7 @@
 #     operator can inspect/replace UI assets and the report template without a
 #     rebuild. The runtime resolves them next to the executable via
 #     mini_ems_runtime/resources.py (frozen-aware, PyInstaller *and* Nuitka).
-#   * config.json and all operational data are NEVER part of the build.
+#   * site.sqlite and all operational data are NEVER part of the build.
 #
 # SPECPATH is the directory of this spec (packaging/); the project root is its
 # parent. The build/dist working dirs live under packaging/ (see build scripts).

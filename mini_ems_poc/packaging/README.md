@@ -6,9 +6,9 @@ Release-Paket** statt als Git-Checkout auszuliefern (`ROADMAP.md`, H2).
 **Entscheidung (Nutzer, wörtlich):** *"Release-Paket, initial PyInstaller, später
 Nuitka-kompatibel"*.
 
-Der Betriebspfad bleibt unverändert: **externes `config.json` + geplanter
-Windows-Task** (`windows/install_task.ps1`, hier nur referenziert). `config.json`
-und alle Betriebsdaten sind **niemals** Teil des Pakets.
+Der Betriebspfad ist **externer Standortordner + geplanter Windows-Task**.
+Die UI-Konfiguration, Mapping-Entwürfe und Revisionen liegen in
+`C:\ProgramData\MiniEMS\site.sqlite`; Standortdaten sind niemals Teil des Pakets.
 
 ## Inhalt
 
@@ -18,7 +18,7 @@ und alle Betriebsdaten sind **niemals** Teil des Pakets.
 | `build_release.sh` | Build für macOS/Linux – lokale Verifikation |
 | `build_release.ps1` | Build für Windows – IPC-Release-Erstellung |
 | `RELEASE_HINWEISE.md` | wird ins Paket kopiert: Paket vs. Standortdaten |
-| `../run_mini_ems_release.cmd` | wird ins Paket kopiert: Launcher für `mini_ems.exe --config <ProgramData>\config.json --loop` |
+| `../run_mini_ems_release.cmd` | wird ins Paket kopiert: Launcher für `mini_ems.exe --site-dir <ProgramData>\MiniEMS --loop` |
 | `.gitignore` | ignoriert die Arbeitsverzeichnisse `build/` und `dist/` |
 
 Die PyInstaller-Arbeitsverzeichnisse (`packaging/build/`, `packaging/dist/`)
@@ -47,7 +47,7 @@ mini_ems/
 
 `dashboard/`, `mini_ems_runtime/templates/` und (für den Testlauf) `data/weather/`
 sind **Ressourcen neben dem Executable**, nicht nur eingefroren. Die Runtime löst
-sie über `mini_ems_runtime/resources.py` auf: im Git-Betrieb neben `config.json`,
+sie über `mini_ems_runtime/resources.py` auf: im Git-Betrieb am Projektstamm,
 im gepackten Betrieb neben dem Executable.
 
 ## Build ausführen
@@ -104,16 +104,15 @@ Dieser Ablauf ist Laptop-Arbeit. Auf der IPC wird erst am Ende getestet
 ## Testlauf des gepackten Artefakts
 
 ```bash
-# Einzelzyklus gegen eine Test-Config (schreibt health.json):
-packaging/dist/mini_ems/mini_ems --config <pfad>/config.local.json --once
+# Einzelzyklus mit einem frischen sicheren Standort-Speicher:
+packaging/dist/mini_ems/mini_ems --site-dir <temp-standort> --once
 
 # Kurzer Loop auf einem freien Port zum Prüfen von /api/status und /dashboard:
-packaging/dist/mini_ems/mini_ems --config <pfad>/config.local.json --loop
+packaging/dist/mini_ems/mini_ems --site-dir <temp-standort> --loop
 ```
 
-`config.json`/`config.local.json` bleiben **außerhalb** des Pakets und werden per
-`--config` übergeben. Betriebsdaten (SQLite, Logs, `runtime/`) entstehen relativ
-zur Config, nicht im Paket.
+`site.sqlite` bleibt außerhalb des Pakets und wird im per `--site-dir`
+übergebenen Standortordner angelegt. Betriebsdaten entstehen ebenfalls dort.
 
 ## Geplanten Task auf Release-Paket registrieren
 
@@ -125,7 +124,7 @@ powershell -ExecutionPolicy Bypass -File windows\install_task.ps1 `
   -Mode release `
   -TaskName MiniEmsPoCRelease `
   -AppDir "C:\Program Files\MiniEMS" `
-  -ConfigPath "C:\ProgramData\MiniEMS\config.json" `
+  -SiteDir "C:\ProgramData\MiniEMS" `
   -StartNow:$false
 ```
 
@@ -137,8 +136,7 @@ Healthcheck fahren; bei Problemen den neuen Task stoppen und den alten wieder st
 Die einzige Runtime-Änderung für das Packaging ist `mini_ems_runtime/resources.py`
 plus eine Zeile in `mini_ems_runtime/app.py`:
 
-- **Git/Entwicklung** (nicht frozen): Ressourcen liegen neben `config.json`
-  (`config.base_dir`) – Verhalten exakt wie bisher, alle 122 Tests unverändert grün.
+- **Git/Entwicklung** (nicht frozen): Ressourcen liegen am `mini_ems_poc`-Projektstamm.
 - **Frozen** (`sys.frozen` gesetzt): Ressourcen liegen neben dem Executable
   (`Path(sys.executable).parent`).
 

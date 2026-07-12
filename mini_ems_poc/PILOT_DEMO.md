@@ -168,7 +168,7 @@ Diese Demo darf keine Versprechen machen, die der reale Standort noch nicht einl
 
 | Problem | Woran erkennbar | Sofortmaßnahme |
 | --- | --- | --- |
-| Runtime läuft nicht / Dashboard lädt nicht | Browser zeigt „Verbindung unterbrochen" oder die Seite lädt dauerhaft „Anlagenstatus wird geladen." | Prüfen, ob der Mini-EMS-Prozess läuft (lokal: `python3.12 mini_ems.py --config config.local.json --loop`); danach Seite neu laden. Nicht live neu starten, während der Kunde zusieht – vorher testen. |
+| Runtime läuft nicht / Dashboard lädt nicht | Browser zeigt „Verbindung unterbrochen" oder die Seite lädt dauerhaft „Anlagenstatus wird geladen." | Prüfen, ob der Mini-EMS-Prozess läuft (lokal: `python3.12 mini_ems.py --site-dir runtime/local/site --loop`); danach Seite neu laden. Nicht live neu starten, während der Kunde zusieht – vorher testen. |
 | Keine Preisdaten / leeres Preisdiagramm | Kennzahl „Aktueller Strompreis" zeigt „-", Preisdiagramm ist leer | Vorab mit `GET /api/status` prüfen, ob `price_cache.today` gefüllt ist. Im lokalen Modus notfalls die Runtime einmal neu starten, damit die Beispielpreise aus `sim/sample_prices.json` neu geladen werden. |
 | Leerer oder wirkender „falscher" Tagesbericht | `/api/report/html` zeigt „Für diesen Tag liegen noch keine Betriebsdaten vor." | Kein Fehler, sondern korrektes Verhalten für Tage ohne Zyklen. Vor der Demo sicherstellen, dass der Bericht ohne `?date=`-Parameter (oder mit dem heutigen Datum) geöffnet wird, und dass vorher mindestens ein paar Zyklen gelaufen sind. |
 | Netzleistung dauerhaft ohne Wert | Kennzahlenkarte „Netzleistung" zeigt „-", im Tagesbericht steht „kein Messwert" | In der Laptop-Simulation ist das erwartetes Verhalten (Grid-Kanal deaktiviert, siehe Abschnitt 3). Auf der echten IPC stattdessen prüfen, ob `grid_active_power_kw`/`grid_lockout` in `config.json` aktiv und die BACnet-Verbindung zum Controller erreichbar ist. |
@@ -184,7 +184,7 @@ Kundengesprächs.
 
 ```bash
 cd /Users/gabriel/dev/openems/mini_ems_poc
-/Users/gabriel/dev/openems/.venv/bin/python3.12 mini_ems.py --config config.local.json --loop
+/Users/gabriel/dev/openems/.venv/bin/python3.12 mini_ems.py --site-dir runtime/local/site --loop
 ```
 
 Hinweise:

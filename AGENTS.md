@@ -12,7 +12,7 @@ OpenEMS is a multi-project repository. Java/OSGi bundles live in `io.openems.*` 
 - `./gradlew checkstyleAll` runs Java Checkstyle with `cnf/checkstyle.xml`.
 - `cd ui && npm test` runs Angular/Karma tests.
 - `cd ui && npm run lint` runs Angular linting plus translation-key checks.
-- `cd mini_ems_poc && python3.12 mini_ems.py --config config.local.json --once` runs one safe simulated Mini EMS cycle.
+- `cd mini_ems_poc && python3.12 mini_ems.py --site-dir runtime/local/site --once` runs one safe simulated Mini EMS cycle.
 - `python3.12 -m unittest discover -s mini_ems_poc/tests -v` runs Mini EMS Python tests.
 - **Mini EMS requires Python >= 3.10** (PEP-604 syntax such as `X | None`). The default `python3` on this machine is 3.9 and fails deep inside the import with a `TypeError` instead of the intended check. Always use `python3.12` or the repo `.venv` (`/Users/gabriel/dev/openems/.venv/bin/python`) for `mini_ems_poc`. `mini_ems.py` itself now guards this at startup and exits with a clear German error message on Python < 3.10.
 
@@ -30,6 +30,6 @@ History uses concise imperative subjects, sometimes with prefixes such as `feat:
 
 ## Security & Configuration Tips
 
-Do not commit logs, runtime databases, secrets, or plant-specific credentials. Treat `mini_ems_poc/config.json` as real IPC operation and `mini_ems_poc/config.local.json` as laptop simulation. Never add a local-development path that can send real BACnet writes.
+Do not commit logs, runtime databases, secrets, or plant-specific credentials. The active IPC/UI configuration lives in the external site store `C:\ProgramData\MiniEMS\site.sqlite`; local work uses a separate `--site-dir runtime/local/site`. Legacy `config.json` is migration input only. Never add a local-development path that can send real BACnet writes.
 
-For Mini EMS IPC restart and Secomea access, follow `mini_ems_poc/AGENTS.md` section "IPC Restart / Secomea Runbook". The supported production start path is the scheduled task (`windows/install_task.ps1` + `run_mini_ems.cmd`), not the legacy `MiniEmsPoC` Windows service.
+For Mini EMS IPC restart and Secomea access, follow `mini_ems_poc/AGENTS.md` section "IPC Restart / Secomea Runbook". The supported production start path is the scheduled release task (`windows/install_task.ps1` + `run_mini_ems_release.cmd`), not the checkout launcher or legacy `MiniEmsPoC` Windows service.

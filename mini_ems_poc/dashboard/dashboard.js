@@ -125,26 +125,6 @@ const DEFAULT_DASHBOARD = {
   charts: [],
 };
 
-const CONFIG_CHANNEL_DEFAULTS = [
-  { channel_id: "site.outdoor_temperature_c", object_type: "ai", instance: 1801, description: "Außentemperatur", plausible_min: -50, plausible_max: 60, include_in_health: true, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.buffer_1_top_temperature_c", object_type: "ai", instance: 1101, description: "Puffer 1 oben", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.buffer_1_bottom_temperature_c", object_type: "ai", instance: 1102, description: "Puffer 1 unten", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.buffer_2_top_temperature_c", object_type: "ai", instance: 1103, description: "Puffer 2 oben", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.buffer_2_bottom_temperature_c", object_type: "ai", instance: 1104, description: "Puffer 2 unten", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.heat_generation_flow_temperature_c", object_type: "ai", instance: 1107, description: "Wärmeerzeugung Vorlauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.heat_generation_return_temperature_c", object_type: "ai", instance: 1108, description: "Wärmeerzeugung Rücklauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.boiler_1_flow_temperature_c", object_type: "ai", instance: 2101, description: "Gaskessel Vorlauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.boiler_1_return_temperature_c", object_type: "ai", instance: 1201, description: "Gaskessel Rücklauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.boiler_2_flow_temperature_c", object_type: "ai", instance: 2102, description: "Pelletkessel Vorlauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.boiler_2_return_temperature_c", object_type: "ai", instance: 1202, description: "Pelletkessel Rücklauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.chp_flow_temperature_c", object_type: "ai", instance: 1203, description: "BHKW Vorlauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.chp_return_temperature_c", object_type: "ai", instance: 1204, description: "BHKW Rücklauf", plausible_min: -20, plausible_max: 120, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.chp_electric_energy_kwh", object_type: "av", instance: 48, description: "BHKW elektrische Energie", plausible_min: 0, plausible_max: 1000000000, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.chp_thermal_energy_kwh", object_type: "av", instance: 49, description: "BHKW thermische Energie", plausible_min: 0, plausible_max: 1000000000, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.pellet_thermal_energy_kwh", object_type: "av", instance: 50, description: "Pelletkessel thermische Energie", plausible_min: 0, plausible_max: 1000000000, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-  { channel_id: "site.gas_thermal_energy_kwh", object_type: "av", instance: 51, description: "Gaskessel thermische Energie", plausible_min: 0, plausible_max: 1000000000, include_in_health: false, read_interval_cycles: 1, max_age_seconds: 120 },
-];
-
 const DEFAULT_SITE_CONFIG = {
   site: {
     name: "Mini EMS Standort",
@@ -185,6 +165,7 @@ const DEFAULT_SITE_CONFIG = {
     host: "127.0.0.1",
     port: 8090,
     history_default_limit: 96,
+    read_only: true,
   },
   price_source: {
     provider: "smard",
@@ -212,10 +193,12 @@ const DEFAULT_SITE_CONFIG = {
     comm_error_safe_mode_threshold: 2,
   },
   outputs: {
-    current_price: { confirmation_mode: "ack_or_readback", criticality: "noncritical" },
-    grid_lockout: { confirmation_mode: "ack_only", criticality: "critical" },
-    spotmarket_lockout: { confirmation_mode: "ack_only", criticality: "critical" },
+    current_price: { confirmation_mode: "ack_or_readback", criticality: "noncritical", write_priority: 14, relinquish_enabled: false },
+    grid_lockout: { confirmation_mode: "ack_only", criticality: "critical", write_priority: 14, relinquish_enabled: false },
+    spotmarket_lockout: { confirmation_mode: "ack_only", criticality: "critical", write_priority: 14, relinquish_enabled: false },
+    edge_heartbeat: { confirmation_mode: "ack_only", criticality: "critical", write_priority: 14, relinquish_enabled: false },
   },
+  ddc_heartbeat: { enabled: false, object_type: "av", instance: null, controller_ip: null, controller_port: 47808, fallback_timeout_seconds: null },
   database: {
     sqlite_file: "data/local/mini_ems.local.sqlite",
   },
@@ -230,7 +213,7 @@ const DEFAULT_SITE_CONFIG = {
     level: "INFO",
     stdout: true,
   },
-  additional_inputs: CONFIG_CHANNEL_DEFAULTS.map((channel) => ({ ...channel })),
+  additional_inputs: [],
 };
 
 const appState = {
@@ -1556,6 +1539,9 @@ function populateSiteConfigForm(config) {
   setInputValue("config-controller-port", normalized.network.controller_port);
   setInputValue("config-local-ip", normalized.network.local_ip);
   setInputValue("config-local-port", normalized.network.local_port);
+  setInputValue("config-response-timeout", normalized.network.response_timeout_seconds);
+  setInputValue("config-network-retries", normalized.network.retries);
+  setInputChecked("config-api-read-only", normalized.api.read_only);
   setInputValue("config-cycle-seconds", normalized.timing.cycle_seconds);
   setInputValue("config-inter-read-delay", normalized.timing.inter_read_delay_seconds);
   setInputValue("config-watchdog-seconds", normalized.watchdog.max_cycle_age_seconds);
@@ -1574,6 +1560,20 @@ function populateSiteConfigForm(config) {
   setInputValue("config-spotmarket-min-valid", normalized.controllers.spotmarket_lockout.min_valid_quarters);
   setInputValue("config-invalid-price-sentinel", normalized.controllers.spotmarket_lockout.invalid_price_sentinel ?? "");
   setInputValue("config-safe-mode-threshold", normalized.safety.comm_error_safe_mode_threshold);
+  setInputChecked("config-fail-safe-output", normalized.safety.fail_safe_output);
+  setInputChecked("config-heartbeat-enabled", normalized.ddc_heartbeat.enabled);
+  setInputValue("config-heartbeat-instance", normalized.ddc_heartbeat.instance ?? "");
+  setInputValue("config-heartbeat-controller-ip", normalized.ddc_heartbeat.controller_ip ?? "");
+  setInputValue("config-heartbeat-controller-port", normalized.ddc_heartbeat.controller_port ?? normalized.network.controller_port);
+  setInputValue("config-heartbeat-timeout", normalized.ddc_heartbeat.fallback_timeout_seconds ?? "");
+  setInputValue("config-priority-current-price", normalized.outputs.current_price.write_priority);
+  setInputValue("config-priority-grid-lockout", normalized.outputs.grid_lockout.write_priority);
+  setInputValue("config-priority-spotmarket-lockout", normalized.outputs.spotmarket_lockout.write_priority);
+  setInputValue("config-priority-heartbeat", normalized.outputs.edge_heartbeat.write_priority);
+  setInputChecked("config-relinquish-current-price", normalized.outputs.current_price.relinquish_enabled);
+  setInputChecked("config-relinquish-grid-lockout", normalized.outputs.grid_lockout.relinquish_enabled);
+  setInputChecked("config-relinquish-spotmarket-lockout", normalized.outputs.spotmarket_lockout.relinquish_enabled);
+  setInputChecked("config-relinquish-heartbeat", normalized.outputs.edge_heartbeat.relinquish_enabled);
   renderSiteConfigChannels(normalized.additional_inputs);
   updateSiteConfigPreview();
 }
@@ -1598,7 +1598,13 @@ function normalizeSiteConfig(config) {
       spotmarket_lockout: { ...base.controllers.spotmarket_lockout, ...(raw.controllers?.spotmarket_lockout || {}) },
     },
     safety: { ...base.safety, ...(raw.safety || {}) },
-    outputs: { ...base.outputs, ...(raw.outputs || {}) },
+    outputs: {
+      current_price: { ...base.outputs.current_price, ...(raw.outputs?.current_price || {}) },
+      grid_lockout: { ...base.outputs.grid_lockout, ...(raw.outputs?.grid_lockout || {}) },
+      spotmarket_lockout: { ...base.outputs.spotmarket_lockout, ...(raw.outputs?.spotmarket_lockout || {}) },
+      edge_heartbeat: { ...base.outputs.edge_heartbeat, ...(raw.outputs?.edge_heartbeat || {}) },
+    },
+    ddc_heartbeat: { ...base.ddc_heartbeat, ...(raw.ddc_heartbeat || {}) },
     database: { ...base.database, ...(raw.database || {}) },
     logging: { ...base.logging, ...(raw.logging || {}) },
     additional_inputs: normalizeSiteConfigChannels(raw.additional_inputs || base.additional_inputs),
@@ -1682,7 +1688,7 @@ function renderSiteConfigChannels(channels) {
 }
 
 function normalizeSiteConfigChannels(channels) {
-  const source = Array.isArray(channels) && channels.length ? channels : CONFIG_CHANNEL_DEFAULTS;
+  const source = Array.isArray(channels) ? channels : [];
   const byId = new Map();
   source.forEach((channel) => {
     if (!channel || typeof channel.channel_id !== "string") {
@@ -1737,6 +1743,11 @@ function buildSiteConfigPayload() {
   const environment = selectValue("config-runtime-environment", base.runtime.environment);
   return {
     patch: {
+      site: {
+        name: textValue("config-site-name", base.site.name),
+        access_status: selectValue("config-access-status", base.site.access_status),
+        operator_note: textValue("config-operator-note", base.site.operator_note),
+      },
       runtime: {
         environment,
         bacnet_mode: selectValue("config-bacnet-mode", base.runtime.bacnet_mode),
@@ -1747,6 +1758,8 @@ function buildSiteConfigPayload() {
         controller_port: integerValue("config-controller-port", base.network.controller_port),
         local_ip: textValue("config-local-ip", base.network.local_ip),
         local_port: integerValue("config-local-port", base.network.local_port),
+        response_timeout_seconds: numericValue("config-response-timeout", base.network.response_timeout_seconds),
+        retries: integerValue("config-network-retries", base.network.retries),
       },
       timing: {
         cycle_seconds: integerValue("config-cycle-seconds", base.timing.cycle_seconds),
@@ -1759,6 +1772,7 @@ function buildSiteConfigPayload() {
         host: textValue("config-api-host", base.api.host),
         port: integerValue("config-api-port", base.api.port),
         history_default_limit: integerValue("config-history-limit", base.api.history_default_limit),
+        read_only: checkboxValue("config-api-read-only"),
       },
       price_source: {
         provider: selectValue("config-price-provider", base.price_source.provider),
@@ -1782,7 +1796,42 @@ function buildSiteConfigPayload() {
         },
       },
       safety: {
+        fail_safe_output: checkboxValue("config-fail-safe-output"),
         comm_error_safe_mode_threshold: integerValue("config-safe-mode-threshold", base.safety.comm_error_safe_mode_threshold),
+      },
+      ddc_heartbeat: {
+        enabled: checkboxValue("config-heartbeat-enabled"),
+        object_type: "av",
+        instance: optionalIntegerFromElement(document.getElementById("config-heartbeat-instance")),
+        controller_ip: optionalTextFromElement(document.getElementById("config-heartbeat-controller-ip")),
+        controller_port: optionalIntegerFromElement(document.getElementById("config-heartbeat-controller-port")),
+        fallback_timeout_seconds: optionalNumberFromElement(document.getElementById("config-heartbeat-timeout")),
+      },
+      outputs: {
+        current_price: {
+          confirmation_mode: "ack_or_readback",
+          criticality: "noncritical",
+          write_priority: integerValue("config-priority-current-price", base.outputs.current_price.write_priority),
+          relinquish_enabled: checkboxValue("config-relinquish-current-price"),
+        },
+        grid_lockout: {
+          confirmation_mode: "ack_only",
+          criticality: "critical",
+          write_priority: integerValue("config-priority-grid-lockout", base.outputs.grid_lockout.write_priority),
+          relinquish_enabled: checkboxValue("config-relinquish-grid-lockout"),
+        },
+        spotmarket_lockout: {
+          confirmation_mode: "ack_only",
+          criticality: "critical",
+          write_priority: integerValue("config-priority-spotmarket-lockout", base.outputs.spotmarket_lockout.write_priority),
+          relinquish_enabled: checkboxValue("config-relinquish-spotmarket-lockout"),
+        },
+        edge_heartbeat: {
+          confirmation_mode: "ack_only",
+          criticality: "critical",
+          write_priority: integerValue("config-priority-heartbeat", base.outputs.edge_heartbeat.write_priority),
+          relinquish_enabled: checkboxValue("config-relinquish-heartbeat"),
+        },
       },
       additional_inputs: readSiteConfigChannels(),
     },
@@ -2223,10 +2272,7 @@ function importResultToSetup(payload, existingRowIds, existingDeviceIds) {
 
 /* Beim Zuordnen sinnvolle Plausibilitäts-/Aktualitätswerte vorbelegen. */
 function applySetupChannelDefaults(row) {
-  const defaults = CONFIG_CHANNEL_DEFAULTS.find((entry) => entry.channel_id === row.channelId);
-  if (!defaults) {
-    return;
-  }
+  const defaults = defaultChannelConfig(row.channelId);
   if (row.plausibleMin === null && defaults.plausible_min !== "") {
     row.plausibleMin = setupOptionalNumber(defaults.plausible_min);
   }
@@ -2474,9 +2520,7 @@ function computeSetupSteps(state) {
     steps.push({ id: "testen", label: "Testen", state: "open", detail: "Noch nicht geprüft." });
   }
 
-  if (state.readOnly) {
-    steps.push({ id: "aktivieren", label: "Abschließen", state: "locked", detail: "Nur lokal/administrativ möglich." });
-  } else if (state.dirty && state.loaded && !state.saveEnabled) {
+  if (state.dirty && state.loaded && !state.saveEnabled) {
     steps.push({ id: "aktivieren", label: "Abschließen", state: "locked", detail: "Freigabecode fehlt auf der Anlage." });
   } else if (state.dirty) {
     steps.push({ id: "aktivieren", label: "Abschließen", state: "open", detail: "Änderungen noch nicht übernommen." });
@@ -2510,8 +2554,8 @@ function buildSetupHeroMessage(steps, counts, state) {
   if (state.readOnly) {
     return {
       level: "warn",
-      headline: "Nur-Lese-Zugriff: Inbetriebnahme hier nicht möglich.",
-      detail: "Ansehen ist möglich. Datenpunkte ändern, testen und abschließen geht nur über den lokalen bzw. administrativen Zugriff auf der Anlage.",
+      headline: "Geschützter Netzwerkzugriff ist aktiv.",
+      detail: "Konfiguration, Punktlisten-Import und Aktivierung mit Freigabecode sind möglich. Live-Discovery und aktive Punkttests bleiben gesperrt.",
     };
   }
   if (state.activation.done && state.activation.restartRequired && !state.dirty) {
@@ -2563,7 +2607,7 @@ function seedSetupFromSiteConfig(payload) {
   setupState.loadFailed = !setupState.loaded;
   let seeded = { devices: [], rows: [] };
   let pendingImportCount = 0;
-  if (setupState.loaded) {
+  if (setupState.loaded && safe.setup_required !== true) {
     seeded = buildSetupFromSiteConfig(setupState.siteConfig);
     const importedDevices = setupState.devices.filter((device) => device.origin === "import");
     const importedRows = setupState.rows.filter((row) => row.origin !== "active");
@@ -2575,7 +2619,7 @@ function seedSetupFromSiteConfig(payload) {
     ? safe.mapping_status
     : {};
   setupState.activation = {
-    done: mappingStatus.active === true || seeded.rows.some((row) => Boolean(row.channelId)),
+    done: mappingStatus.active === true,
     restartRequired: safe.restart_required === true,
     revision: mappingStatus.revision || null,
     activatedAt: mappingStatus.activated_at || null,
@@ -3029,11 +3073,11 @@ function renderSetupDevices() {
         <div class="config-point-fields setup-device-fields">
           <label>
             Geräteadresse (IP)
-            <input type="text" data-setup-device-field="host" value="${escapeHtml(inputValue(device.host))}" placeholder="z. B. 192.168.244.20" ${setupState.readOnly ? "disabled" : ""}>
+            <input type="text" data-setup-device-field="host" value="${escapeHtml(inputValue(device.host))}" placeholder="z. B. 192.168.244.20">
           </label>
           <label>
             Port
-            <input type="number" min="1" max="65535" data-setup-device-field="port" value="${escapeHtml(inputValue(device.port))}" ${setupState.readOnly ? "disabled" : ""}>
+            <input type="number" min="1" max="65535" data-setup-device-field="port" value="${escapeHtml(inputValue(device.port))}">
           </label>
         </div>
       </div>
@@ -3160,7 +3204,7 @@ function renderSetupTable() {
       sourceParts.push(`${formatNumber(row.listValue, row.unit, 2)} laut Liste`);
     }
     const resultTone = row.test ? row.test.tone : "";
-    const selectDisabled = !row.supported || setupState.readOnly ? "disabled" : "";
+    const selectDisabled = !row.supported ? "disabled" : "";
     return `
       <tr class="mapping-row" data-setup-row="${escapeHtml(row.id)}">
         <td class="mapping-main">
@@ -3194,7 +3238,7 @@ function setupDetailHtml(row) {
   if (row.protocol !== "bacnet") {
     return `<p class="config-note">Dieser Punkt wird über ein anderes Protokoll gelesen (${escapeHtml(protocolLabel(row.protocol))}). Änderungen bitte über die Direktbearbeitung unten.</p>`;
   }
-  const disabled = setupState.readOnly ? "disabled" : "";
+  const disabled = "";
   return `
     <div class="config-point-fields mapping-detail-grid">
       <label>
@@ -3305,17 +3349,23 @@ function renderSetupActionAvailability() {
   const readOnly = setupState.readOnly;
   const fileButton = document.querySelector(".setup-file-button");
   if (fileButton) {
-    fileButton.hidden = readOnly;
+    fileButton.hidden = false;
   }
-  ["setup-discovery-button", "setup-test-button", "setup-preview-button", "setup-activate-button"].forEach((id) => {
+  ["setup-discovery-button", "setup-test-button"].forEach((id) => {
     const element = document.getElementById(id);
     if (element) {
       element.hidden = readOnly;
     }
   });
+  ["setup-preview-button", "setup-activate-button"].forEach((id) => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.hidden = false;
+    }
+  });
   const tokenField = document.getElementById("setup-activate-token");
   if (tokenField) {
-    tokenField.closest(".token-field").hidden = readOnly;
+    tokenField.closest(".token-field").hidden = false;
     tokenField.disabled = (setupState.activation.done && !setupState.dirty)
       || (setupState.loaded && !setupState.saveEnabled);
   }
@@ -3339,9 +3389,6 @@ function renderSetupActivateArea() {
     if (setupState.preview.message) {
       feedback.className = `config-feedback ${setupState.preview.tone}`;
       feedback.textContent = setupState.preview.message;
-    } else if (setupState.readOnly) {
-      feedback.className = "config-feedback warn";
-      feedback.textContent = "Nur-Lese-Zugriff: Aktivierung ist nur lokal bzw. administrativ an der Anlage möglich.";
     } else if (setupState.loaded && !setupState.saveEnabled) {
       feedback.className = "config-feedback warn";
       feedback.textContent = "Gesperrt: Auf der Anlage ist kein Freigabecode eingerichtet.";

@@ -7,7 +7,7 @@ wird und was bei Netzwerk-, Controller- oder Cloud-Ausfall passiert.
 
 Grundsatz: **Der Code ist die Wahrheit.** Jede Regel in dieser Datei ist aus dem realen BACnet-Pfad
 abgeleitet (`mini_ems_runtime/config.py`, `channels.py`, `protocol.py`, `bacnet.py`,
-`read_diagnostics.py`, `cycle.py`) und zitiert die echten Config-Schlüssel aus `config.json`
+`read_diagnostics.py`, `cycle.py`) und zitiert die echten Schlüssel der aktiven UI-Standortrevision
 (IPC/Anlage) bzw. `config.local.json` (Laptop/Simulation). Weicht diese Datei vom Code ab, gilt der
 Code, und diese Datei ist zu korrigieren.
 
@@ -32,7 +32,7 @@ Container laufen können (siehe `ROADMAP.md`, Abschnitt "Strategische Ergänzung
 Der reale Datenfluss (BACnet und Modbus TCP, Vertrag protokollneutral):
 
 ```text
-config.json
+UI-Standortrevision in site.sqlite
 -> PointsConfig / AdditionalInputConfig        (config.py)
 -> ChannelRegistry / PointConfig               (channels.py)
 -> ProtocolRoutingAdapter                      (protocol.py: wählt je Punkt den Adapter über das protocol-Feld)
@@ -91,7 +91,7 @@ Wichtige Detailregeln aus dem Code:
 
 ## Was darf gelesen werden?
 
-Es gilt eine Allowlist: Nur Kanäle, die in `config.json` konfiguriert sind (Abschnitte `points` und
+Es gilt eine Allowlist: Nur Kanäle, die in der aktiven Standortrevision konfiguriert sind (Bereiche `points` und
 `additional_inputs`), existieren in der `ChannelRegistry`. Alles andere wird vom Adapter mit
 `BacnetPermissionError` abgelehnt.
 
@@ -119,7 +119,7 @@ Der Schreibpfad ist die höhere Risikoklasse und maximal eingeschränkt:
   Reservierte Schutzprioritäten `1`, `2`, `5` und `6` werden durch Config-Validierung abgelehnt.
   Bestätigung per `SimpleACK`; bei `confirmation_mode="ack_or_readback"` (nur `AV`) ersatzweise per
   Readback mit Toleranz `0.001` (`_float_values_match()`).
-- **Die Schreibpolitik steht in der Config** (`outputs.*` in `config.json`):
+- **Die Schreibpolitik steht in der UI-Standortrevision** (`outputs.*`):
   `current_price` = `ack_or_readback`/`noncritical`, `grid_lockout` und `spotmarket_lockout` =
   `ack_only`/`critical`. Ein unbestätigter kritischer Write führt in den `safe_mode`, ein
   unbestätigter nicht-kritischer Write in den Status `degraded`.

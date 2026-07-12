@@ -15,6 +15,13 @@ Repo-Datei wird vom Build nicht umgeschrieben, sondern bleibt manuelle Pflege
 
 ### Hinzugefügt
 
+- Standortunabhängiger UI-Konfigurationspfad: `site.sqlite` speichert die aktive Standortkonfiguration,
+  Mapping-Entwürfe, Audit-Metadaten und unveränderliche Revisionen transaktional. Neue Standorte starten sicher
+  in Simulation; `--site-dir` ersetzt den produktiven `--config`-Startparameter.
+- Einmalige Migration bestehender Pilotkonfigurationen: Eine vorhandene `config.json` wird validiert, nach
+  `site.sqlite` übernommen und anschließend als `.migrated.*.bak` aus dem aktiven Startpfad genommen.
+- Die erweiterte UI speichert nun auch Standortmetadaten, Netzwerk-Timeouts, Netzwerkmodus, Fail-safe,
+  DDC-Heartbeat sowie BACnet-Schreibprioritäten und Rückgaberechte.
 - Konfigurationsseite als geführtes "Standort einrichten" (UX14-16, S5/S6): Standort → Geräte → Datenpunkte →
   Testen → Abschließen mit Fortschrittskarten, Punktlisten-Upload (CSV/TSV/XLSX) und optionaler
   BACnet-Discovery-Vorschau als Einstieg in "Datenpunkte", einer fachlichen Mapping-Tabelle (Bedeutung,
@@ -25,7 +32,7 @@ Repo-Datei wird vom Build nicht umgeschrieben, sondern bleibt manuelle Pflege
   bleiben getrennt sichtbar. Das bisherige Konfigurationsformular bleibt als „Erweiterte Direktbearbeitung“
   vollständig erhalten.
 - Nachvollziehbarer Pilotbetrieb (H8): Das Betriebslog erfasst Runtime-Starts, datensparsame Dashboard-Aufrufe
-  und Anlagenübergaben. `config_audit.jsonl` erfasst Mapping-, Standort- und Preissteuerungsänderungen;
+  und Anlagenübergaben. Der Revisionsverlauf in `site.sqlite` erfasst Mapping-, Standort- und Preissteuerungsänderungen;
   `GET /api/config/changes` und die Inbetriebnahme-UI zeigen daraus einen bereinigten Verlauf ohne Token,
   interne Dateipfade oder personenbezogene Daten.
 - Softwareversion sichtbar: Die Runtime liest beim Start die `VERSION`-Datei des

@@ -19,7 +19,8 @@ Der PoC beweist vor allem die Kernfrage: Kann ein kleiner lokaler Stack in Echtz
 
 ## Was der MVP kann
 
-Aktuell macht Mini EMS PoC genau diese Dinge:
+Der Kern ist standortunabhängig; welche Geräte und BACnet-/Modbus-Punkte verwendet werden, wird über
+**Konfiguration → Standort einrichten** zugeordnet. Das bisherige Pilotprofil kann unter anderem:
 
 - liest `site.outdoor_temperature_c` von `AI:1801` am zweiten Controller
 - liest ausgewaehlte reale Waerme-, Puffer- und Energiezaehlerpunkte für Reports
@@ -30,9 +31,9 @@ Aktuell macht Mini EMS PoC genau diese Dinge:
 
 ## Laptop-Entwicklung
 
-Der IPC-Betrieb bleibt auf `config.json`. Für Entwicklung auf dem Laptop gibt es zusätzlich `config.local.json`.
-Diese lokale Konfiguration nutzt keine echte BACnet-Kommunikation, sondern liest Beispielwerte aus `sim/sample_values.json`
-und Beispielpreise aus `sim/sample_prices.json`.
+Konfiguration, Mapping-Entwürfe und Revisionen liegen in `site.sqlite` im gewählten Standortordner. Es gibt
+keine aktive `config.json` mehr. Ein neuer Standort startet sicher in Simulation und wird anschließend über die UI
+eingerichtet. Beispielwerte kommen aus `sim/sample_values.json`, Beispielpreise aus `sim/sample_prices.json`.
 
 **Python-Version:** Mini EMS benötigt Python >= 3.10 (PEP-604-Syntax wie `X | None`). Der System-`python3`
 auf macOS-Laptops ist häufig 3.9 und scheitert dann tief im Import mit einem `TypeError` statt einer klaren Meldung.
@@ -43,8 +44,8 @@ Fehlermeldung ab. Nutze den exakten Interpreter: `python3.12` bzw. die Projekt-`
 Start im Projektordner:
 
 ```bash
-python3.12 mini_ems.py --config config.local.json --once
-python3.12 mini_ems.py --config config.local.json --loop
+python3.12 mini_ems.py --site-dir runtime/local/site --once
+python3.12 mini_ems.py --site-dir runtime/local/site --loop
 ```
 
 Im lokalen Modus werden Schreibbefehle nicht an die echte Anlage gesendet. Sie werden nur als simulierte Writes bestätigt
@@ -61,13 +62,13 @@ Der Ablauf ist bewusst simpel:
 5. Der komplette Lauf wird für Diagnose und Reporting gespeichert.
 
 Damit ist das System klein genug für schnelle Iteration, aber schon real genug, um Betrieb und Logik sauber zu testen.
-Der fruehere AV300-Netzbezug war ein Testpunkt und ist in der Standardkonfiguration nicht mehr aktiv.
-Die Energiezaehler AV48 bis AV51 werden read-only von Controller 192.168.244.30 erfasst und im Reporting als BHKW-, Pellet- und Gas-Erzeugung ausgewertet.
+Konkrete Instanzen wie AV300 oder AV48 bis AV51 gehören zum migrierten Pilotstandort und nicht mehr zu den
+Produktvorgaben. Neue Standorte beginnen ohne solche Zusatzkanäle.
 
 ## Kernbausteine
 
 - `mini_ems.py` startet den Prozess im Single-Run- oder Loop-Modus
-- `config.json` enthaelt die zentrale Konfiguration
+- `mini_ems_runtime/site_store.py` speichert UI-Konfiguration, Mapping und Revisionen in `site.sqlite`
 - `mini_ems_runtime/app.py` verbindet Runtime, API und Datenhaltung
 - `mini_ems_runtime/bacnet.py` kuemmert sich um BACnet/IP
 - `mini_ems_runtime/channels.py` definiert den Kanalraum
@@ -79,9 +80,9 @@ Die Energiezaehler AV48 bis AV51 werden read-only von Controller 192.168.244.30 
 
 ## Projektgrenzen
 
-Mini EMS PoC ist absichtlich kein vollwertiges EMS.
-Es ist auch nicht gedacht als generische Plattform für beliebige Standorte.
-Der Fokus liegt auf einem klaren, kleinen MVP mit nachvollziehbarer Logik und realem Betriebskontext.
+Mini EMS PoC ist absichtlich kein vollwertiges Multi-Site-EMS. Der Edge-Kern ist für unterschiedliche Standorte
+konfigurierbar, läuft aber jeweils als eine lokale Instanz pro Standort. Der Fokus bleibt auf einem klaren MVP mit
+nachvollziehbarer Logik und realem Betriebskontext.
 Innerhalb des großen OpenEMS-Repos wird `mini_ems_poc/` wie ein eigenständiges Teilprojekt geführt.
 OpenEMS bleibt Referenz für professionelle Struktur, Begriffe und Muster; produktive Änderungen sollen aber eng auf Mini EMS begrenzt bleiben.
 
@@ -113,7 +114,7 @@ Wahrheit, die folgenden Dokumente vertiefen jeweils einen Teilaspekt.
 | [HOSTING_SICHERHEIT.md](./HOSTING_SICHERHEIT.md) | Sicherheitsgrenze und Sichtbarkeitsmatrix fürs Kundenhosting plus Minimalkonzept für erstes read-only Online-Hosting. |
 | [CHANGELOG.md](./CHANGELOG.md) | Änderungen pro Release (Keep-a-Changelog, `JJJJ.MM.n`); Build übernimmt den `[Unreleased]`-Stand ins Paket. |
 | [UPDATE_WARTUNG.md](./UPDATE_WARTUNG.md) | Update-, Healthcheck- und Rollback-Ablauf für die Kunden-IPC (H7), Skript-first plus manueller Fallback. |
-| [packaging/README.md](./packaging/README.md) | Release-Paket bauen und ausliefern (H2, initial PyInstaller, später Nuitka-kompatibel); Betriebspfad bleibt externes `config.json` plus Windows-Task. |
+| [packaging/README.md](./packaging/README.md) | Release-Paket bauen und ausliefern; Betriebspfad ist Standortordner mit `site.sqlite` plus Windows-Task. |
 | [UI_STYLEGUIDE.md](./UI_STYLEGUIDE.md) | Verbindliche Design-Referenz: Farben, Typografie, Abstände, Komponenten-Tokens aus `dashboard.css`. |
 | [PILOT_DEMO.md](./PILOT_DEMO.md) | 5-Minuten-Demoablauf für einen bezahlten Pilotkunden (UX13). |
 | [EMS-Mapping.md](./EMS-Mapping.md) | Arbeitskarte, wie OpenEMS-Vorbilder Messgeräte/Protokolle auf EMS-Kanäle abbilden und wie mini_ems_poc BACnet nutzt. |
@@ -131,8 +132,6 @@ mini_ems_poc/
 |-- ROADMAP.md
 |-- PRODUCT_UX_ROADMAP.md
 |-- CHANGELOG.md
-|-- config.json
-|-- config.local.json
 |-- mini_ems.py
 |-- dashboard_proxy.py
 |-- run_mini_ems.cmd
