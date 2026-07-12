@@ -8,6 +8,12 @@ an den heute vorhandenen Daten, Endpunkten und Dashboard-Seiten. Was noch fehlt,
 Leitbild (aus der UX-Roadmap): ruhiger, moderner Energie-Leitstand in deutscher Betreiber-Sprache –
 kein Technikmonitor, keine internen IDs, keine Protokollbegriffe in normalen Nutzeransichten.
 
+**Praxisbefund vom 12.07.2026:** Die erste Release-Abnahme auf der IPC hat gezeigt, dass verständliche
+Begriffe allein nicht reichen. Zu viele gleichgewichtete Seiten, alle fünf Einrichtungsschritte auf einmal
+und mehrere Freigabecode-Felder haben die Software trotz funktionierender Technik unnötig schwer bedienbar
+gemacht. Seitdem gilt zusätzlich: Betrieb ist die Standardoberfläche, Verwaltung wird bewusst geöffnet,
+und ein geführter Ablauf zeigt immer nur den aktuellen Schritt.
+
 ---
 
 ## 1. Reporting-Zielbild (UX1)
@@ -174,9 +180,11 @@ Diese Punkte bleiben Kandidaten für später, sind aber ausdrücklich nicht Teil
 
 ## 3. Rollenmodell (UX11)
 
-Fachliche Definition der Rollen **Viewer**, **Operator** und **Admin** – als Vorgabe für die spätere
-Login-/Hosting-Logik (technische Roadmap H4–H6). Hier wird kein Auth-Mechanismus festgelegt,
-sondern was jede Rolle sehen und tun darf.
+Fachliche Definition der Rollen **Viewer**, **Operator** und **Admin**. Der Pilot setzt davon bereits zwei
+Oberflächenstufen um: Viewer/Operator sehen zuerst den Betrieb; Admin öffnet die Verwaltung einmalig mit
+dem vorhandenen Freigabecode. Der Code wird serverseitig geprüft und nur im Arbeitsspeicher der geöffneten
+Browserseite gehalten. Persönliche Konten, Rechte pro Benutzer und eine eigenständige Operator-Anmeldung
+bleiben Teil der späteren Login-/Hosting-Logik (technische Roadmap H6).
 
 ### 3.1 Prinzipien
 
@@ -206,9 +214,9 @@ sondern was jede Rolle sehen und tun darf.
 | Dashboard (Übersicht, KPIs, Preisdiagramm, Wetter, Preisfenster) | sichtbar | sichtbar | sichtbar |
 | Analyse (Datenpunkte, Historie, gespeicherte Ansichten) | sichtbar | sichtbar | sichtbar |
 | Berichte (Vorschau, HTML/PDF/CSV-Abruf) | sichtbar | sichtbar | sichtbar |
-| System – Zustand (Signale, letzte Läufe, Statusmeldungen) | sichtbar | sichtbar | sichtbar |
+| Technik und Status (Signale, Diagnose, letzte Läufe) | nicht in der Standardnavigation | geplant | sichtbar |
 | System – Diagnose (Preisprüfung, technische Details) | nicht sichtbar | sichtbar | sichtbar |
-| Konfigurations-/Wartungsbereich (heute: Dateien auf der IPC; später: Admin-Ansicht) | nicht sichtbar | nicht sichtbar | sichtbar |
+| Standort einrichten / technische Einstellungen | nicht sichtbar | nicht sichtbar | sichtbar nach Freigabecode |
 
 ### 3.4 Aktionen je Rolle
 
@@ -244,11 +252,12 @@ Begründung der beiden Grenzfälle:
 
 ### 3.6 Abgleich mit der Sicherheitslinie (ROADMAP.md)
 
-- **H5 (Read-only Netzwerkmodus) = Viewer:** Der erste geschützte Netzwerkzugriff entspricht exakt
-  der Viewer-Rolle: Dashboard, Analyse, Berichte, Systemzustand – ohne Diagnose- und ohne
-  Einstellaktionen. Schreibende Endpunkte bleiben über diesen Pfad blockiert.
+- **H5 (geschützter Netzwerkmodus):** Viewer sehen Dashboard, Analyse und Berichte ohne aktive
+  Anlagenzugriffe. Ein Admin kann denselben HTTPS-Zugang nach serverseitiger Prüfung des Freigabecodes
+  für Konfigurations-Import, Vorschau und Aktivierung nutzen. Aktive Discovery, Live-Diagnose und
+  betriebliche Anlagenaktionen bleiben gesperrt.
 - **H6 (Login und Rollenlogik):** Dieses Rollenmodell ist die fachliche Vorlage für H6;
-  die technische Umsetzung (Reverse Proxy, Auth-Schicht) bleibt dort.
+  persönliche Konten, Operator-Rechte und Sitzungsverwaltung bleiben dort.
 - **H1/H3 (Sichtbarkeitsgrenze):** Nur Admin sieht Runtime-Dateien, Standortkonfiguration und Logs –
   passend zur Festlegung, dass normale Benutzer das UI öffnen, aber keine Systemdateien durchsuchen.
 - **Schreibpfad zur Anlage:** Echte Anlagen-Schreibvorgänge und Safety-Flags bleiben außerhalb

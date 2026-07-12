@@ -76,15 +76,15 @@ const PAGES = {
   dashboard: "Übersicht",
   analyse: "Analyse",
   berichte: "Berichte",
-  konfiguration: "Konfiguration",
-  system: "Systemstatus",
+  konfiguration: "Standort einrichten",
+  system: "Technik und Status",
 };
 
 const PAGE_SUBTITLES = {
   analyse: "Messwerte und Datenqualität über frei wählbare Zeiträume prüfen.",
   berichte: "Tagesbericht anzeigen, herunterladen oder einen eigenen Bericht zusammenstellen.",
   konfiguration: "Standort Schritt für Schritt einrichten: Datenpunkte aufnehmen, zuordnen, testen und sicher abschließen.",
-  system: "Systemzustand, Kommunikation und letzte Läufe kontrollieren.",
+  system: "Technische Diagnose und Softwarezustand für Service und Inbetriebnahme.",
 };
 
 /* Priorisierte Reihenfolge (UX4): erst Wirtschaftlichkeit (Preis, Preissteuerung),
@@ -120,7 +120,7 @@ const DASHBOARD_WIDGETS = [
 ];
 
 const DEFAULT_DASHBOARD = {
-  kpis: ["price", "spotmarket", "grid_power", "grid_lockout"],
+  kpis: ["price", "spotmarket", "grid_power"],
   widgets: { price: true, weather: true, windows: true },
   charts: [],
 };
@@ -227,6 +227,7 @@ const appState = {
   priceStats: null,
   dashboard: { ...DEFAULT_DASHBOARD },
   siteConfig: { config: null, dirty: false },
+  access: { level: "viewer", adminToken: "", apiReadOnly: true },
   /* Standardweg Berichte (UX3): gewählter Berichtstag für den Tagesbericht. */
   reportDay: { mode: "today", date: "" },
 };
@@ -300,6 +301,20 @@ function bindUi() {
     button.addEventListener("click", () => applyTheme(button.dataset.themeValue));
   });
   document.getElementById("dashboard-config-button").addEventListener("click", openDashboardConfig);
+  document.getElementById("dashboard-more").addEventListener("toggle", (event) => {
+    if (event.currentTarget.open) {
+      redrawDashboardCharts();
+    }
+  });
+  document.getElementById("admin-access-button").addEventListener("click", handleAdminAccessButton);
+  document.getElementById("admin-access-form").addEventListener("submit", verifyAdminAccess);
+  document.getElementById("admin-access-close").addEventListener("click", closeAdminAccessModal);
+  document.getElementById("admin-access-cancel").addEventListener("click", closeAdminAccessModal);
+  document.getElementById("admin-access-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) {
+      closeAdminAccessModal();
+    }
+  });
   document.getElementById("chart-add-button").addEventListener("click", addModalChart);
   document.getElementById("dashboard-config-close").addEventListener("click", closeDashboardConfig);
   document.getElementById("dashboard-config-save").addEventListener("click", saveDashboardConfig);
@@ -327,6 +342,13 @@ function currentPageFromHash() {
 }
 
 function showPage(page) {
+  if ((page === "konfiguration" || page === "system") && appState.access.level !== "admin") {
+    openAdminAccessModal();
+    page = "dashboard";
+    if (location.hash !== "#/dashboard") {
+      history.replaceState(null, "", "#/dashboard");
+    }
+  }
   document.querySelectorAll(".page").forEach((element) => {
     element.classList.toggle("active", element.dataset.page === page);
   });
@@ -342,6 +364,109 @@ function showPage(page) {
   if (page === "konfiguration") {
     updateSiteConfigPreview();
     renderSetupPage();
+  }
+  updateAccessUi();
+}
+
+function handleAdminAccessButton() {
+  if (appState.access.level === "admin") {
+    closeAdminSession();
+    return;
+  }
+  openAdminAccessModal();
+}
+
+function openAdminAccessModal() {
+  const modal = document.getElementById("admin-access-modal");
+  if (!modal) {
+    return;
+  }
+  modal.hidden = false;
+  setAdminAccessFeedback("Noch nicht freigegeben.", "neutral");
+  window.setTimeout(() => document.getElementById("admin-access-token")?.focus(), 0);
+}
+
+function closeAdminAccessModal() {
+  const modal = document.getElementById("admin-access-modal");
+  if (modal) {
+    modal.hidden = true;
+  }
+  const input = document.getElementById("admin-access-token");
+  if (input) {
+    input.value = "";
+  }
+}
+
+function closeAdminSession() {
+  appState.access.adminToken = "";
+  appState.access.level = appState.access.apiReadOnly ? "viewer" : "operator";
+  updateAccessUi();
+  if (["konfiguration", "system"].includes(currentPageFromHash())) {
+    location.hash = "#/dashboard";
+  }
+}
+
+async function verifyAdminAccess(event) {
+  event.preventDefault();
+  const input = document.getElementById("admin-access-token");
+  const token = input?.value.trim() || "";
+  if (!token) {
+    setAdminAccessFeedback("Bitte den Freigabecode eingeben.", "warn");
+    input?.focus();
+    return;
+  }
+  const button = document.getElementById("admin-access-submit");
+  button.disabled = true;
+  setAdminAccessFeedback("Freigabecode wird geprüft …", "neutral");
+  try {
+    const response = await postJson("/api/auth/admin/verify", {}, { token });
+    if (response.authenticated !== true) {
+      throw new Error("Die Verwaltung konnte nicht geöffnet werden.");
+    }
+    appState.access.adminToken = token;
+    appState.access.level = "admin";
+    closeAdminAccessModal();
+    updateAccessUi();
+    location.hash = "#/konfiguration";
+  } catch (error) {
+    setAdminAccessFeedback(error.message, "warn");
+    input?.select();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function setAdminAccessFeedback(message, tone) {
+  const target = document.getElementById("admin-access-feedback");
+  if (target) {
+    target.className = `config-feedback ${tone}`;
+    target.textContent = message;
+  }
+}
+
+function updateAccessUi(payload = appState.statusPayload) {
+  if (payload && typeof payload === "object") {
+    appState.access.apiReadOnly = payload.api_read_only === true;
+    if (appState.access.level !== "admin") {
+      appState.access.level = appState.access.apiReadOnly ? "viewer" : "operator";
+    }
+  }
+  const isAdmin = appState.access.level === "admin";
+  const labels = {
+    viewer: "Nur ansehen",
+    operator: "Betrieb",
+    admin: "Verwaltung",
+  };
+  setText("access-mode-badge", labels[appState.access.level] || "Zugriff");
+  setText("admin-access-label", isAdmin ? "Verwaltung schließen" : "Verwaltung öffnen");
+  const links = document.getElementById("admin-nav-links");
+  if (links) {
+    links.hidden = !isAdmin;
+  }
+  const button = document.getElementById("admin-access-button");
+  if (button) {
+    button.setAttribute("aria-expanded", isAdmin ? "true" : "false");
+    button.classList.toggle("active", isAdmin);
   }
 }
 
@@ -394,6 +519,7 @@ async function refreshDashboard() {
     appState.reportStudio = reportStudio;
     appState.availableChannels = normalizeChannels(reportStudio?.config?.available_channels);
 
+    updateAccessUi(statusPayload);
     renderStatus(statusPayload);
     renderSignals(statusPayload);
     renderWindows(statusPayload.spotmarket_plan || {});
@@ -1516,7 +1642,7 @@ async function loadSiteConfigFromBackend() {
     const config = normalizeSiteConfig(payload.config || payload);
     appState.siteConfig.config = config;
     populateSiteConfigForm(config);
-    setText("site-config-source", payload.save_enabled ? "Backend-Konfiguration" : "Backend-Konfiguration ohne Speichertoken");
+    setText("site-config-source", payload.save_enabled ? "Änderungen freigegeben" : "Nur Anzeige");
     setSiteConfigFeedback("Konfiguration vom Backend geladen.", "neutral");
   } catch (error) {
     setText("site-config-source", "Prototypvorlage");
@@ -1896,10 +2022,10 @@ async function saveSiteConfig() {
     setSiteConfigFeedback("Bitte die markierten Felder korrigieren.", "warn");
     return;
   }
-  const token = document.getElementById("site-config-token").value.trim();
+  const token = appState.access.adminToken;
   if (!token) {
-    setSiteConfigFeedback("Bitte zuerst den Freigabecode eintragen. Ohne Freigabe wird nichts gespeichert.", "warn");
-    document.getElementById("site-config-token").focus();
+    setSiteConfigFeedback("Die Verwaltung ist nicht freigegeben. Bitte den Verwaltungsbereich erneut öffnen.", "warn");
+    openAdminAccessModal();
     return;
   }
   const button = document.getElementById("site-config-save");
@@ -2062,6 +2188,7 @@ const setupState = {
   siteConfig: null,
   saveEnabled: false,
   readOnly: false,
+  activeStep: "standort",
   devices: [],
   rows: [],
   filters: { status: "alle", group: "alle", sort: "gruppe" },
@@ -2551,13 +2678,6 @@ function setupEnvironmentLabel(environment) {
 
 /* Hauptbotschaft der Seite: "Ist dieser Standort bereit?" (UX14). */
 function buildSetupHeroMessage(steps, counts, state) {
-  if (state.readOnly) {
-    return {
-      level: "warn",
-      headline: "Geschützter Netzwerkzugriff ist aktiv.",
-      detail: "Konfiguration, Punktlisten-Import und Aktivierung mit Freigabecode sind möglich. Live-Discovery und aktive Punkttests bleiben gesperrt.",
-    };
-  }
   if (state.activation.done && state.activation.restartRequired && !state.dirty) {
     return {
       level: "ok",
@@ -2570,6 +2690,13 @@ function buildSetupHeroMessage(steps, counts, state) {
       level: "ok",
       headline: "Der Standort ist eingerichtet.",
       detail: "Die aktuelle Zuordnung ist aktiv. Änderungen werden erst nach einer erneuten Freigabe übernommen.",
+    };
+  }
+  if (state.readOnly) {
+    return {
+      level: "neutral",
+      headline: "Der Standort kann über den geschützten Zugriff eingerichtet werden.",
+      detail: "Punktlisten zuordnen und Änderungen übernehmen ist möglich. Nur die aktive Anlagensuche und Live-Prüfung bleiben gesperrt.",
     };
   }
   const doneCount = steps.filter((step) => step.state === "done").length;
@@ -2910,13 +3037,10 @@ async function runSetupActivation() {
     setSetupActivateFeedback("Es sind keine offenen Änderungen vorhanden.", "ok");
     return;
   }
-  const tokenInput = document.getElementById("setup-activate-token");
-  const token = tokenInput ? tokenInput.value.trim() : "";
+  const token = appState.access.adminToken;
   if (!token) {
-    setSetupActivateFeedback("Bitte zuerst den Freigabecode eintragen. Ohne Freigabe wird nichts übernommen.", "warn");
-    if (tokenInput) {
-      tokenInput.focus();
-    }
+    setSetupActivateFeedback("Die Verwaltung ist nicht freigegeben. Bitte den Verwaltungsbereich erneut öffnen.", "warn");
+    openAdminAccessModal();
     return;
   }
   const draft = await runSetupPreview();
@@ -2943,9 +3067,6 @@ async function runSetupActivation() {
         "Einrichtung abgeschlossen. Der vorherige Stand wurde automatisch gesichert und die Änderung protokolliert. Bitte Mini EMS einmal neu starten.",
         "ok",
       );
-      if (tokenInput) {
-        tokenInput.value = "";
-      }
       await loadSetupChangeHistory();
     } else {
       const errors = Array.isArray(response.errors) ? response.errors.map(String) : [];
@@ -2978,6 +3099,7 @@ function renderSetupPage() {
   renderSetupCounts(counts);
   renderSetupActionAvailability();
   renderSetupActivateArea();
+  renderActiveSetupStep();
 }
 
 function renderSetupTableAndSteps() {
@@ -3011,7 +3133,7 @@ function renderSetupSteps(steps) {
   const stateClasses = { done: "done", open: "", error: "alert", locked: "warn" };
   target.innerHTML = steps.map((step, index) => `
     <li>
-      <button type="button" class="setup-step ${stateClasses[step.state] || ""}" data-setup-step="${escapeHtml(step.id)}">
+      <button type="button" class="setup-step ${stateClasses[step.state] || ""} ${step.id === setupState.activeStep ? "active" : ""}" data-setup-step="${escapeHtml(step.id)}" aria-current="${step.id === setupState.activeStep ? "step" : "false"}">
         <span class="micro-label">Schritt ${index + 1} · ${escapeHtml(stateWords[step.state] || "offen")}</span>
         <strong>${escapeHtml(step.label)}</strong>
         <small>${escapeHtml(step.detail)}</small>
@@ -3020,12 +3142,40 @@ function renderSetupSteps(steps) {
   `).join("");
   target.querySelectorAll("button[data-setup-step]").forEach((button) => {
     button.addEventListener("click", () => {
-      const panel = document.getElementById(`setup-panel-${button.dataset.setupStep}`);
-      if (panel) {
-        panel.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
+      setupState.activeStep = button.dataset.setupStep;
+      renderSetupPage();
     });
   });
+}
+
+function renderActiveSetupStep() {
+  const activeIndex = Math.max(0, SETUP_STEPS.findIndex((step) => step.id === setupState.activeStep));
+  const activeId = SETUP_STEPS[activeIndex].id;
+  setupState.activeStep = activeId;
+  SETUP_STEPS.forEach((step) => {
+    const panel = document.getElementById(`setup-panel-${step.id}`);
+    if (panel) {
+      panel.hidden = step.id !== activeId;
+    }
+  });
+  setText("setup-step-position", `Schritt ${activeIndex + 1} von ${SETUP_STEPS.length}`);
+  const back = document.getElementById("setup-step-back");
+  const next = document.getElementById("setup-step-next");
+  if (back) {
+    back.disabled = activeIndex === 0;
+  }
+  if (next) {
+    next.hidden = activeIndex === SETUP_STEPS.length - 1;
+    next.textContent = activeIndex === SETUP_STEPS.length - 2 ? "Zum Abschluss" : "Weiter";
+  }
+}
+
+function moveSetupStep(direction) {
+  const current = Math.max(0, SETUP_STEPS.findIndex((step) => step.id === setupState.activeStep));
+  const nextIndex = Math.min(SETUP_STEPS.length - 1, Math.max(0, current + direction));
+  setupState.activeStep = SETUP_STEPS[nextIndex].id;
+  renderSetupPage();
+  document.getElementById("setup-steps")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderSetupStandort() {
@@ -3048,7 +3198,7 @@ function renderSetupStandort() {
     reportTile("Betriebsumgebung", setupEnvironmentLabel(runtime.environment)),
     reportTile("Anlagenkommunikation", modeLabels[String(runtime.bacnet_mode || "").toLowerCase()] || "-"),
     reportTile("Zielgerät Anlage", network.controller_ip ? `${network.controller_ip}:${network.controller_port ?? ""}` : "-"),
-    reportTile("Dashboard/API", api.host ? `${api.host}:${api.port ?? ""}` : "-"),
+    reportTile("Dashboard", api.host ? `${api.host}:${api.port ?? ""}` : "-"),
   ].join("");
 }
 
@@ -3351,26 +3501,19 @@ function renderSetupActionAvailability() {
   if (fileButton) {
     fileButton.hidden = false;
   }
-  ["setup-discovery-button", "setup-test-button"].forEach((id) => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.hidden = readOnly;
+  for (const id of ["setup-discovery-button", "setup-test-button"]) {
+    const control = document.getElementById(id);
+    if (control) {
+      control.hidden = readOnly;
     }
-  });
-  ["setup-preview-button", "setup-activate-button"].forEach((id) => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.hidden = false;
-    }
-  });
-  const tokenField = document.getElementById("setup-activate-token");
-  if (tokenField) {
-    tokenField.closest(".token-field").hidden = false;
-    tokenField.disabled = (setupState.activation.done && !setupState.dirty)
-      || (setupState.loaded && !setupState.saveEnabled);
+  }
+  const previewButton = document.getElementById("setup-preview-button");
+  if (previewButton) {
+    previewButton.hidden = true;
   }
   const activateButton = document.getElementById("setup-activate-button");
   if (activateButton && !setupState.test.running) {
+    activateButton.hidden = false;
     activateButton.disabled = (setupState.activation.done && !setupState.dirty)
       || (setupState.loaded && !setupState.saveEnabled);
   }
@@ -3400,7 +3543,7 @@ function renderSetupActivateArea() {
       feedback.textContent = "Die angezeigte Zuordnung ist aktiv. Es sind keine offenen Änderungen vorhanden.";
     } else {
       feedback.className = "config-feedback neutral";
-      feedback.textContent = "Mit „Einrichtung abschließen“ wird zuerst geprüft und erst danach mit Freigabecode übernommen.";
+      feedback.textContent = "Mit „Änderungen übernehmen“ werden Prüfung, Sicherung und Freigabe automatisch nacheinander ausgeführt.";
     }
   }
   const pre = document.getElementById("setup-patch-preview");
@@ -3419,7 +3562,7 @@ function renderSetupCompletionStatus() {
   }
   let tone = "neutral";
   let title = "Noch nicht abgeschlossen";
-  let detail = "Ordnen Sie die Datenpunkte zu und schließen Sie die Einrichtung anschließend mit dem Freigabecode ab.";
+  let detail = "Ordnen Sie die Datenpunkte zu und übernehmen Sie die Einrichtung anschließend mit einem Klick.";
   if (setupState.dirty) {
     tone = "warn";
     title = "Entwurf mit offenen Änderungen";
@@ -3525,6 +3668,8 @@ function bindSetupUi() {
   });
   document.getElementById("setup-preview-button").addEventListener("click", runSetupPreview);
   document.getElementById("setup-activate-button").addEventListener("click", runSetupActivation);
+  document.getElementById("setup-step-back").addEventListener("click", () => moveSetupStep(-1));
+  document.getElementById("setup-step-next").addEventListener("click", () => moveSetupStep(1));
   document.querySelectorAll("#setup-status-filter button[data-status-filter]").forEach((button) => {
     button.addEventListener("click", () => {
       setupState.filters.status = button.dataset.statusFilter;

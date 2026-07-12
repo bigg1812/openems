@@ -5,7 +5,7 @@ Setzt die Endpunkt-Einstufung aus HOSTING_SICHERHEIT.md Abschnitt 2.1 durch:
 - api.read_only Default False -> Verhalten unveraendert (Bestandssuite deckt das ab;
   hier zusaetzlich explizit geprueft, dass POST- und diagnostics/read-Pfade nicht 403 sind).
 - api.read_only True -> Anlagenaktionen und GET /api/diagnostics/read liefern
-  403. Der UI-Konfigurationspfad bleibt erreichbar; Speichern/Aktivieren
+  403. Der UI-Konfigurationspfad bleibt erreichbar; Speichern und Aktivieren
   verlangen weiterhin den Freigabecode.
 - Die Config-Editor-Pipeline, die seit Commit e5417edd2 hinzugekommen ist
   (POST /api/config/pointlist/import, POST /api/config/discovery/bacnet/preview,
@@ -68,6 +68,8 @@ API_ENDPOINTS = [
     ("GET", "/api/diagnostics/read", True),
     # Anlagen-/Bedienaktionen bleiben gesperrt
     ("POST", "/api/config/spotmarket-lockout", True),
+    # Verwaltungszugang und Konfigurationsfluss bleiben erreichbar.
+    ("POST", "/api/auth/admin/verify", False),
     ("POST", "/api/config/site/validate", False),
     ("POST", "/api/config/site/save", False),
     ("POST", "/api/config/mapping/preview", False),
@@ -83,7 +85,11 @@ BLOCKED_ENDPOINTS = [(m, p) for (m, p, blocked) in API_ENDPOINTS if blocked]
 # (Wetterdienst / PDF-Renderer); fuer die offline/deterministische Erreichbarkeits-
 # Stichprobe ausgenommen. Ihre Read-only-Einstufung (Freigabe) aendert sich dadurch nicht.
 _LIVE_DEPENDENT_PATHS = frozenset({"/api/weather", "/api/report/pdf"})
-_TOKEN_PROTECTED_PATHS = frozenset({"/api/config/site/save", "/api/config/mapping/activate"})
+_TOKEN_PROTECTED_PATHS = frozenset({
+    "/api/auth/admin/verify",
+    "/api/config/site/save",
+    "/api/config/mapping/activate",
+})
 NON_BLOCKED_ENDPOINTS = [
     (m, p)
     for (m, p, blocked) in API_ENDPOINTS
@@ -263,6 +269,24 @@ class ReadOnlyAllowsProtectedUiConfigurationTest(ReadOnlyApiTestBase):
         self.assertEqual(status, 200, "{0} should reach its token-protected handler".format(path))
         payload = json.loads(raw.decode("utf-8"))
         self.assertNotEqual(payload.get("error"), "read_only_mode")
+
+    def test_admin_verify_accepts_valid_token(self) -> None:
+        status, raw = self._request(
+            "POST",
+            "/api/auth/admin/verify",
+            headers={"X-Mini-Ems-Admin-Token": self.admin_token},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(raw.decode("utf-8"))["authenticated"])
+
+    def test_admin_verify_rejects_invalid_token(self) -> None:
+        status, raw = self._request(
+            "POST",
+            "/api/auth/admin/verify",
+            headers={"X-Mini-Ems-Admin-Token": "wrong"},
+        )
+        self.assertEqual(status, 403)
+        self.assertFalse(json.loads(raw.decode("utf-8"))["authenticated"])
 
     def test_mapping_activate_reaches_handler_with_valid_admin_token(self) -> None:
         self._assert_reaches_handler_with_admin_token("/api/config/mapping/activate")

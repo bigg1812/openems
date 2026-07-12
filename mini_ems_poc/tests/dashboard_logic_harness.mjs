@@ -252,8 +252,7 @@ failedState.rows[0].test = { tone: "alert", text: "Keine Antwort von der Anlage.
 check("Schritte: Fehlversuch markiert Testen", context.computeSetupSteps(failedState)[3].state, "error");
 
 const heroReadOnly = context.buildSetupHeroMessage(readOnlySteps, context.setupCounts(seeded.rows), makeState({ readOnly: true }));
-check("Hero: read-only Warnung", heroReadOnly.level, "warn");
-check("Hero: read-only erklärt geschützte Konfiguration", heroReadOnly.detail.includes("Freigabecode"), true);
+check("Hero: eingerichteter Standort bleibt im read-only Zugriff grün", heroReadOnly.level, "ok");
 const heroActive = context.buildSetupHeroMessage(steps, context.setupCounts(seeded.rows), makeState({}));
 check("Hero: aktiver Stand verständlich", heroActive.headline, "Der Standort ist eingerichtet.");
 const heroNeutral = context.buildSetupHeroMessage(dirtySteps, context.setupCounts(seeded.rows), makeState({ dirty: true }));

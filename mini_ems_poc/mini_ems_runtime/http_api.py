@@ -212,6 +212,16 @@ class MiniEmsApiServer:
                 if self._deny_in_read_only("POST", parsed.path):
                     return
                 try:
+                    if parsed.path == "/api/auth/admin/verify":
+                        try:
+                            api_server.verify_admin_access(self._admin_token())
+                            self._send_json({"authenticated": True, "role": "admin"})
+                        except PermissionError as error:
+                            self._send_json(
+                                {"authenticated": False, "message": str(error)},
+                                status=HTTPStatus.FORBIDDEN,
+                            )
+                        return
                     if parsed.path == "/api/config/spotmarket-lockout":
                         payload = self._read_json_body()
                         self._send_json(api_server.update_spotmarket_lockout_settings(payload))
@@ -282,8 +292,8 @@ class MiniEmsApiServer:
 
                 Deny-by-default: Im read-only Netzwerkmodus werden nicht freigegebene
                 POST-Methoden abgelehnt. Der UI-Konfigurationspfad bleibt verfügbar;
-                seine aktivierenden Endpunkte erzwingen danach weiterhin den
-                Freigabecode. Zusaetzlich wird der aktive
+                seine aktivierenden Endpunkte erzwingen weiterhin den Freigabecode.
+                Zusaetzlich wird der aktive
                 Anlagen-Read GET /api/diagnostics/read explizit gesperrt (er loest
                 trotz GET einen Live-Lesezugriff aus, siehe HOSTING_SICHERHEIT.md
                 Abschnitt 2.1). Rueckgabe True bedeutet: Antwort wurde gesendet,
@@ -767,6 +777,9 @@ class MiniEmsApiServer:
         if admin_token is None or not hmac.compare_digest(str(admin_token), str(expected_token)):
             raise PermissionError("Der Freigabecode ist nicht gültig.")
 
+    def verify_admin_access(self, admin_token: Optional[str]) -> None:
+        self._require_admin_token(admin_token, "Admin access")
+
     def _config_fingerprint(self) -> Optional[str]:
         return self.site_store.active_fingerprint() if self.site_store is not None else None
 
@@ -884,6 +897,7 @@ _READ_ONLY_BLOCKED_GET_PATHS = frozenset({"/api/diagnostics/read"})
 # zusaetzlich den lokalen Freigabecode. Discovery bleibt als aktiver Anlagenread
 # gesperrt; Punktlisten-Import und Vorschau arbeiten nur auf dem Request-Inhalt.
 _READ_ONLY_CONFIG_POST_PATHS = frozenset({
+    "/api/auth/admin/verify",
     "/api/config/site/validate",
     "/api/config/site/save",
     "/api/config/mapping/preview",
