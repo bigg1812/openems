@@ -10,7 +10,7 @@ Geprueft wird:
      (last_cycle_at bleibt als Rueckwaertskompatibilitaet akzeptiert),
      runtime_status = live, status = healthy. Es wird bis -TimeoutSeconds
      gewartet, damit mindestens ein Zyklus nach dem Neustart laufen kann.
-  2. /api/status ist erreichbar und meldet die erwartete app_version sowie
+  2. /api/health ist ohne Benutzeranmeldung erreichbar und meldet die erwartete app_version sowie
      optional den explizit erwarteten api_read_only-Wert.
   3. logs\mini_ems.log enthaelt seit -SinceTime keine neuen ERROR-Zeilen.
 
@@ -25,7 +25,7 @@ param(
     [string]$SiteDir = "C:\ProgramData\MiniEMS",
     [int]$TimeoutSeconds = 120,
     [datetime]$SinceTime = (Get-Date),
-    [string]$StatusUrl = "http://127.0.0.1:8090/api/status",
+    [string]$StatusUrl = "http://127.0.0.1:8090/api/health",
 
     # Optionaler erwarteter api_read_only-Wert. Ohne Angabe wird nur Erreichbarkeit geprüft.
     [object]$ExpectReadOnly = $null
@@ -94,7 +94,7 @@ if ($healthOk) {
     $errors.Add("Health nicht bestanden: $lastReason")
 }
 
-# --- 2. /api/status erreichbar, app_version + api_read_only pruefen ----------
+# --- 2. /api/health erreichbar, app_version + api_read_only pruefen ----------
 $expectReadOnlyBool = $null
 if ($null -ne $ExpectReadOnly) {
     $expectReadOnlyBool = [bool]$ExpectReadOnly
@@ -104,7 +104,7 @@ try {
     $statusResponse = Invoke-RestMethod -Uri $StatusUrl -TimeoutSec 15 -UseBasicParsing
 } catch {
     $statusResponse = $null
-    $errors.Add("/api/status nicht erreichbar unter $StatusUrl ($($_.Exception.Message))")
+    $errors.Add("Health-API nicht erreichbar unter $StatusUrl ($($_.Exception.Message))")
 }
 
 if ($statusResponse) {

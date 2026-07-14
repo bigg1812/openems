@@ -80,7 +80,7 @@ Der automatische Smoketest reicht für die technische Freigabe. Zusätzlich kurz
 
 ```powershell
 Get-ScheduledTask -TaskName MiniEmsPoCRelease
-Invoke-RestMethod http://127.0.0.1:8090/api/status
+Invoke-RestMethod http://127.0.0.1:8090/api/health
 Get-Item "C:\ProgramData\MiniEMS\site.sqlite"
 ```
 
@@ -92,11 +92,12 @@ https://192.168.244.10/dashboard
 
 Erwartet:
 
-- Übersicht lädt und zeigt aktuelle Daten.
-- `/api/status` meldet die neue `app_version.version`.
+- Dashboard verlangt eine Anmeldung; nach Login lädt die Übersicht aktuelle Daten.
+- `/api/health` meldet die neue `app_version.version`.
 - `api_read_only` ist auf der produktiven IPC `true`.
-- „Verwaltung öffnen“ akzeptiert den Freigabecode über denselben HTTPS-Link.
-- Standortdaten und bisherige Revisionen sind weiterhin vorhanden.
+- Beim ersten H6-Update legt der bisherige Freigabecode einmalig das erste Admin-Konto an; danach funktioniert
+  die persönliche Anmeldung über denselben HTTPS-Link.
+- Standortdaten, `identity.sqlite` und bisherige Revisionen bleiben bei späteren Updates erhalten.
 
 Der Smoketest kann bei Bedarf einzeln wiederholt werden:
 
@@ -134,9 +135,11 @@ Der aktuelle Standortordner wird nicht gelöscht, sondern als `MiniEMS_fehlgesch
 Danach wird die jüngste `MiniEMS_backup_*`-Sicherung zurückbenannt. Diese Option nur verwenden, wenn wirklich
 auf eine alte `config.json`-Version zurückgegangen wird oder eine Standortmigration nachweislich beschädigt ist.
 
-## Freigabecode erneuern
+## Admin-Zugang lokal wiederherstellen
 
-Bei Verlust des Freigabecodes lokal auf der IPC:
+Bei einem noch nicht eingerichteten Standort erzeugt der Befehl einen neuen einmaligen Freigabecode. Sobald
+Konten existieren, setzt derselbe Befehl lokal ein temporäres Passwort für das erste aktive Admin-Konto und
+beendet dessen bestehende Sitzungen:
 
 ```powershell
 Stop-ScheduledTask -TaskName MiniEmsPoCRelease
@@ -148,8 +151,8 @@ Stop-ScheduledTask -TaskName MiniEmsPoCRelease
 Start-ScheduledTask -TaskName MiniEmsPoCRelease
 ```
 
-Der neue Code wird einmal in der PowerShell ausgegeben. Er wird nicht in Dashboard, Log oder API-Antwort
-offengelegt.
+Code bzw. temporäres Passwort werden einmal in PowerShell ausgegeben. Nach der Anmeldung unter „Konten und
+Rollen“ sofort ein eigenes Passwort setzen. Der Wert wird nicht über Dashboard, Log oder API offengelegt.
 
 ## Aufräumen nach erfolgreicher Abnahme
 

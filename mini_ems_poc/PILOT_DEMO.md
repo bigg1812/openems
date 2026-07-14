@@ -130,20 +130,18 @@ Diese Demo darf keine Versprechen machen, die der reale Standort noch nicht einl
 - **Die Demo zeigt echte oder realistische Simulationsdaten, keine geschönten Fantasiewerte.**
   Im lokalen Modus stammen die Werte aus `sim/sample_values.json` und
   `sim/sample_prices.json` – das wird auf Nachfrage offen benannt, nicht verschleiert.
-- **Schreibzugriffe auf die Anlage sind in der Demo nie live.** Im lokalen Modus ist
+- **Schreibzugriffe auf die Anlage sind in der Betreiber-Demo nie live.** Im lokalen Modus ist
   `real_writes_enabled=false` erzwungen; auf der IPC bleiben Schreibfreigaben ausschließlich
-  lokal-administrativer Betrieb (siehe `HOSTING_SICHERHEIT.md`, 1.2).
+  bewusst freigegebene Admin-Inbetriebnahme (siehe `HOSTING_SICHERHEIT.md`, 1.2).
 - **Der Netzwerkzugriff bleibt read-only und auf Kundennetz/VPN/Secomea beschränkt.** Es gibt
   keine offene Portfreigabe ins Internet und keine Vermischung von Simulations- und
-  IPC-Pfad (`config.local.json` vs. `config.json`).
-- **Login und Rollentrennung sind Konzept, noch keine technische Umsetzung.** Das
-  Rollenmodell (Viewer/Operator/Admin) ist fachlich in `PRODUCT_UX_KONZEPT.md`, Abschnitt 3
-  festgelegt, aber es gibt heute noch keine echte Login-Schicht vor dem Dashboard (siehe
-  `ROADMAP.md`, H6). In der Demo wird das offen so benannt, falls danach gefragt wird –
-  nicht als „schon fertig" dargestellt.
+  IPC-Pfad (getrennte `--site-dir`-Verzeichnisse und Standortdatenbanken).
+- **Login und Rollentrennung sind umgesetzt.** Persönliche Viewer-/Admin-Konten schützen das Dashboard;
+  Viewer sehen Betrieb, Analyse und Berichte, Admins zusätzlich Standort, Technik und Konten. Eine
+  Operator-Zwischenrolle ist bewusst noch nicht Teil dieses Releases.
 - **Die Mapping-/Inbetriebnahme-Ansicht („Standort einrichten") ist gebaut, aber nicht Teil der
   5-Minuten-Demo.** Die Konfigurationsseite führt inzwischen als geführter Ablauf Standort → Geräte →
-  Datenpunkte → Testen → Abschließen mit fachlicher Mapping-Tabelle und „Alle Punkte testen"
+  Datenpunkte → Testen → Schreibzugriffe → Abschließen mit fachlicher Mapping-Tabelle und „Alle Punkte testen"
   (`PRODUCT_UX_ROADMAP.md`, UX14–UX16, erledigt). Das bleibt trotzdem außerhalb der eigentlichen
   Betreiber-Vorführung: Die Demo zeigt Betrieb und Reporting, nicht die Inbetriebnahme-Strecke, weil
   sich Standort einrichten an Konfiguratoren richtet, nicht an den Standortbetreiber. UX17
@@ -151,8 +149,8 @@ Diese Demo darf keine Versprechen machen, die der reale Standort noch nicht einl
   optionale Abschnitt 6 für Konfiguratoren, der jetzt sowohl den UI- als auch den API-Weg nennt.
 - **Netzleistung („Grid") kann in der Simulation ohne Wert bleiben.** Die Kennzahlenkarte zeigt
   dann „-", der Tagesbericht „kein Messwert". Der Grid-Lockout-Kanal ist in der mitgelieferten
-  Laptop-Simulation bewusst deaktiviert (`controllers.grid_lockout.enabled = false`, siehe
-  `config.local.json`); auf der echten IPC ist der Netzleistungs-Messwert aktiv. Falls
+  Laptop-Simulation bewusst deaktiviert (`controllers.grid_lockout.enabled = false` in der lokalen
+  `site.sqlite`-Revision); auf der echten IPC ist der Netzleistungs-Messwert aktiv. Falls
   Netzleistung in der Demo leer bleibt, wird das ehrlich als Simulationslücke benannt, nicht
   kaschiert.
 - **Der PDF-Export ist optional und fällt kontrolliert auf HTML zurück.** Der Button „PDF
@@ -171,7 +169,7 @@ Diese Demo darf keine Versprechen machen, die der reale Standort noch nicht einl
 | Runtime läuft nicht / Dashboard lädt nicht | Browser zeigt „Verbindung unterbrochen" oder die Seite lädt dauerhaft „Anlagenstatus wird geladen." | Prüfen, ob der Mini-EMS-Prozess läuft (lokal: `python3.12 mini_ems.py --site-dir runtime/local/site --loop`); danach Seite neu laden. Nicht live neu starten, während der Kunde zusieht – vorher testen. |
 | Keine Preisdaten / leeres Preisdiagramm | Kennzahl „Aktueller Strompreis" zeigt „-", Preisdiagramm ist leer | Vorab mit `GET /api/status` prüfen, ob `price_cache.today` gefüllt ist. Im lokalen Modus notfalls die Runtime einmal neu starten, damit die Beispielpreise aus `sim/sample_prices.json` neu geladen werden. |
 | Leerer oder wirkender „falscher" Tagesbericht | `/api/report/html` zeigt „Für diesen Tag liegen noch keine Betriebsdaten vor." | Kein Fehler, sondern korrektes Verhalten für Tage ohne Zyklen. Vor der Demo sicherstellen, dass der Bericht ohne `?date=`-Parameter (oder mit dem heutigen Datum) geöffnet wird, und dass vorher mindestens ein paar Zyklen gelaufen sind. |
-| Netzleistung dauerhaft ohne Wert | Kennzahlenkarte „Netzleistung" zeigt „-", im Tagesbericht steht „kein Messwert" | In der Laptop-Simulation ist das erwartetes Verhalten (Grid-Kanal deaktiviert, siehe Abschnitt 3). Auf der echten IPC stattdessen prüfen, ob `grid_active_power_kw`/`grid_lockout` in `config.json` aktiv und die BACnet-Verbindung zum Controller erreichbar ist. |
+| Netzleistung dauerhaft ohne Wert | Kennzahlenkarte „Netzleistung" zeigt „-", im Tagesbericht steht „kein Messwert" | In der Laptop-Simulation ist das erwartetes Verhalten (Grid-Kanal deaktiviert, siehe Abschnitt 3). Auf der echten IPC als Admin die aktive Standortrevision und die BACnet-Verbindung zum Controller prüfen. |
 
 ---
 
@@ -190,9 +188,8 @@ cd /Users/gabriel/dev/openems/mini_ems_poc
 Hinweise:
 
 - Python-Version muss >= 3.10 sein; die Projekt-`.venv` (`python3.12`) ist der geprüfte Pfad.
-- `config.local.json` bindet die API lokal auf `http://127.0.0.1:8090` und erzwingt
-  `bacnet_mode=simulated` sowie `real_writes_enabled=false` – sicher für eine Vorführung ohne
-  echte Anlage.
+- Der lokale `--site-dir runtime/local/site` bindet die API auf `http://127.0.0.1:8090` und startet
+  mit `bacnet_mode=simulated` sowie `real_writes_enabled=false` – sicher für eine Vorführung ohne echte Anlage.
 - Vor der Demo mindestens 3–5 Minuten laufen lassen, damit mehrere Zyklen und ein sichtbarer
   Verlauf im Diagramm entstehen. Für den Tagesbericht reicht bereits ein Zyklus, wirkt aber
   überzeugender mit mehreren.
@@ -236,7 +233,7 @@ eigentliche Vorführung ausdrücklich danach gefragt wird, z. B. „Wie kommen d
 eigentlich rein?" – nicht als Teil des Betreiber-Gesprächs.
 
 - **Was heute existiert:** Die Konfigurationsseite führt als „Standort einrichten" geführt durch
-  Standort → Geräte → Datenpunkte → Testen → Abschließen (`PRODUCT_UX_ROADMAP.md`, UX14–UX16,
+  Standort → Geräte → Datenpunkte → Testen → Schreibzugriffe → Abschließen (`PRODUCT_UX_ROADMAP.md`, UX14–UX16,
   erledigt). Einstieg in „Datenpunkte" ist ein Punktlisten-Upload (CSV/TSV/XLSX) im UI, der intern
   `POST /api/config/pointlist/import` aufruft und daraus Rohpunkt-Kandidaten sowie einen
   Mapping-Entwurf erzeugt (`mini_ems_runtime/pointlist_import.py`); eine BACnet-Discovery-Vorschau
@@ -247,8 +244,8 @@ eigentlich rein?" – nicht als Teil des Betreiber-Gesprächs.
   nacheinander in Inbetriebnahme-Sprache.
 - **Was es (noch) nicht ist:** Der vollständig geführte Prüfprozess für Import und Discovery
   (Quelle wählen, Spalten erkennen, Kandidaten gruppieren, Schreibpunkte separat freigeben) ist
-  weiterhin offen – das ist `PRODUCT_UX_ROADMAP.md`, UX17. Ohne lokalen Freigabecode bleibt
-  „Einrichtung abschließen" im UI sichtbar, aber als gesperrt erklärt.
+  weiterhin offen – das ist `PRODUCT_UX_ROADMAP.md`, UX17. Ohne Admin-Sitzung ist die
+  Standort-Einrichtung nicht erreichbar; Aktivieren und BACnet-Freigaben werden zusätzlich serverseitig geprüft.
 - **Was daraus wird:** Import und Discovery erzeugen ausschließlich Kandidaten für einen
   Mapping-Entwurf, nie aktive Mini-EMS-Kanäle. Aktivierung bleibt an den bestehenden,
   validierten Pfad `POST /api/config/mapping/preview` bzw. `activate` gebunden (Backup, Audit,

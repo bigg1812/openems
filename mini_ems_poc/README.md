@@ -58,12 +58,17 @@ Punktliste in `config.json`.
 Der gewünschte Weg ist:
 
 ```text
-Standort -> Geräte -> Datenpunkte -> Testen -> Abschließen
+Standort -> Geräte -> Datenpunkte -> Testen -> Schreibzugriffe -> Abschließen
 ```
 
 Die UI importiert eine Datenpunktliste oder später eine read-only Discovery, erzeugt
 daraus einen Mapping-Entwurf, validiert ihn und übernimmt ihn erst nach Freigabe.
 Vor der Übernahme werden Backup, gespeicherter Entwurf und Audit-Eintrag angelegt.
+
+Der Zugriff ist lokal kontobasiert: Viewer lesen Dashboard, Analyse und Berichte; Admins verwalten Standort,
+Konten und separat freigegebene BACnet-Inbetriebnahmepunkte. Ein Schreibtest ist auf zehn Sekunden begrenzt und
+gibt seine BACnet-Priorität automatisch zurück. `api.read_only` kann Anlagenaktionen unabhängig von der Rolle
+vollständig sperren.
 
 Mini EMS PoC ist absichtlich kein vollwertiges Multi-Site-EMS. Der Edge-Kern ist für unterschiedliche Standorte
 konfigurierbar, läuft aber jeweils als eine lokale Instanz pro Standort. Der Fokus bleibt auf einem klaren MVP mit
@@ -71,8 +76,9 @@ nachvollziehbarer Logik und realem Betriebskontext.
 Innerhalb des großen OpenEMS-Repos wird `mini_ems_poc/` wie ein eigenständiges Teilprojekt geführt.
 OpenEMS bleibt Referenz für professionelle Struktur, Begriffe und Muster; produktive Änderungen sollen aber eng auf Mini EMS begrenzt bleiben.
 
-Konfiguration, Mapping-Entwürfe und Revisionen liegen ausschließlich in `site.sqlite`
-im gewählten Standortordner. Eine aktive `config.json` gibt es nicht mehr. Ein neuer
+Konfiguration, Mapping-Entwürfe und Revisionen liegen in `site.sqlite`; Konten, Sitzungen, Security-Audit und
+BACnet-Schreibfreigaben getrennt in `identity.sqlite` im gewählten Standortordner. Eine aktive `config.json`
+gibt es nicht mehr. Ein neuer
 Standort startet sicher in Simulation und wird anschließend über die UI eingerichtet.
 
 ## Lokale Entwicklung

@@ -22,8 +22,8 @@ Implementierungsschritt behandeln.
 
 - Der Runtime-Start verwendet nur noch `--site-dir`; eine aktive `config.json` existiert nicht mehr.
 - `site.sqlite` ist die einzige Quelle der Wahrheit für Standortparameter, Mapping-Entwürfe und Revisionen.
-- Neue Standorte starten loopback-only, simuliert und ohne reale Writes. Der einmalige Freigabecode wird lokal
-  ausgegeben; anschließend erfolgt die vollständige Einrichtung über die UI.
+- Neue Standorte starten loopback-only, simuliert und ohne reale Writes. Der einmalige Freigabecode legt lokal
+  das erste Admin-Konto an; anschließend erfolgt die vollständige Einrichtung über die UI.
 - Eine vorhandene Pilot-`config.json` wird beim ersten Start einmalig validiert, nach `site.sqlite` migriert und
   als `.migrated.*.bak` aus dem aktiven Pfad genommen.
 - Release-Launcher und Windows-Task starten `mini_ems.exe --site-dir C:\ProgramData\MiniEMS --loop`.
@@ -189,11 +189,9 @@ Leitentscheidungen:
     Anlagen-Schreibfreigaben dürfen nicht im Mapping-Entwurf landen.
   - **Definition of Done:** Ungültige Entwürfe können nicht aktiviert werden; jede Aktivierung erzeugt Backup und
     Audit-Eintrag; UI zeigt aktiven Stand, Entwurf, Validierungsstatus und Neustartbedarf getrennt.
-  - **Erledigt (2026-07-11):** Schritt 5 heißt in der UI bewusst „Abschließen“: Ein Klick prüft den Entwurf erneut,
-    verlangt den lokalen Freigabecode und aktiviert erst danach. Der bisherige Stand wird automatisch gesichert,
-    der Mapping-Entwurf unter `mapping_drafts/` erhalten und die Freigabe in `config_audit.jsonl` protokolliert.
-    Aktiver Stand, offener Entwurf und ausstehender Neustart bleiben auch nach einem Browser-Neuladen unterscheidbar;
-    nach einem Runtime-Neustart verschwindet der Neustarthinweis automatisch.
+  - **Erledigt (aktualisiert 2026-07-14):** „Abschließen“ prüft den Entwurf erneut und aktiviert nur in einer
+    Admin-Sitzung. Der bisherige Stand und der Mapping-Entwurf bleiben als SQLite-Revision erhalten; aktiver Stand,
+    offener Entwurf und ausstehender Neustart sind auch nach Browser-Neuladen unterscheidbar.
 
 ## Strategische To-do-Linie: Professioneller Protokoll- und Cloud-Ausbau
 
@@ -514,6 +512,11 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     Anlagen braucht jeder Lease-Typ klare Grenzen, Abbruchbedingungen und Betreiberfreigabe.
   - **Definition of Done:** Schreibende Optimierungen laufen nur als befristete, lokal prüfbare Aufträge; abgelaufene
     oder ungültige Aufträge werden nicht weitergeschrieben und erzeugen einen nachvollziehbaren Fallback-Status.
+  - **Stand (2026-07-14): Inbetriebnahme-Lease umgesetzt, prädiktive Leases bleiben offen.** Admins können einen
+    zuvor separat freigegebenen `EMS_`-BV/AV für genau zehn Sekunden testen. Die lokale Runtime persistiert den
+    Lease vor dem Write, prüft den wirksamen Wert, relinquished automatisch und bereinigt unfertige Leases nach
+    Neustart. Laufzeit, Gültigkeitsbedingungen und Fallbacks für spätere Optimierungsaufträge sind noch nicht
+    generalisiert; deshalb bleibt S16 insgesamt offen.
 
 ## Strategische To-do-Linie: Geschütztes Kundenhosting
 
@@ -526,8 +529,8 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
   - **Aufwand:** S
   - **Risiken:** Keine Sicherheitsversprechen formulieren, die auf einer kundeneigenen IPC mit Admin-Zugriff nicht haltbar sind.
   - **Definition of Done:** Es ist dokumentiert, wer UI, Runtime-Dateien, Standortkonfiguration, Logs und Betriebsdaten sehen darf.
-  - **Erledigt:** Zielbild, Sichtbarkeits-/Änderungsmatrix (normaler Windows-Nutzer, Viewer, Operator, Admin – konsistent
-    zum UX-Rollenmodell) und die ehrliche Risiko-Abgrenzung stehen in `HOSTING_SICHERHEIT.md`, Teil 1; querverwiesen aus
+  - **Erledigt:** Zielbild, Sichtbarkeits-/Änderungsmatrix (ohne Anmeldung, Viewer, Admin) und die ehrliche
+    Risiko-Abgrenzung stehen in `HOSTING_SICHERHEIT.md`, Teil 1; querverwiesen aus
     `README.md` und `MINI_EMS_ANLEITUNG.md`.
 
 - [x] **H2. Mini EMS als Release-Paket statt Git-Checkout ausliefern**
@@ -622,14 +625,15 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
 
 - [ ] **H4. API intern binden, UI über geschützten Zugriff bereitstellen**
   - **Was:** Die Mini-EMS-API nur an `127.0.0.1` oder eine definierte IPC-Netzwerkadresse binden. Davor optional einen
-    lokalen Reverse Proxy setzen, der HTTPS, Login und Zugriffsbeschränkung übernimmt.
+    lokalen Reverse Proxy setzen, der HTTPS und Zugriffsbeschränkung übernimmt. Login/Rollen prüft Mini EMS selbst.
   - **Nutzen:** Die technische API wird nicht direkt im Netzwerk ausgestellt. Das UI wird kontrolliert erreichbar.
-  - **Betroffen:** `config.json` `api.host`, Windows-Firewall, Reverse-Proxy-Konzept, Secomea/VPN-Regeln.
+  - **Betroffen:** aktive Standortrevision (`api.host`), Windows-Firewall, Reverse-Proxy-Konzept, Secomea/VPN-Regeln.
   - **Aufwand:** M
   - **Risiken:** Keine direkte Internet-Portfreigabe auf `8090`; keine Vermischung von lokalem Simulationspfad und echter IPC.
   - **Definition of Done:** Zugriff funktioniert nur aus freigegebenem Kundennetz/VPN; die bestehende Anlagen-API ist nicht
     öffentlich erreichbar.
-  - **Stand (2026-07-07):** Umsetzungsreifes Feinkonzept liegt vor in `HOSTING_SICHERHEIT.md`, Teil 4, plus
+  - **Historischer Entwurfsstand (2026-07-07, durch die folgenden IPC-Nachweise und H6 überholt):** Das damalige
+    Feinkonzept liegt in `HOSTING_SICHERHEIT.md`, Teil 4, plus
     kopierfertige Vorlagen unter `proxy/`. Enthalten: Bindungs-Matrix (wann `127.0.0.1` = nur lokal + Proxy
     davor, wann konkrete EMS-LAN-IP `192.168.244.10` = Secomea-Pfad heute, warum nie `0.0.0.0`, Zusammenspiel
     mit `api.read_only` je Szenario), Reverse-Proxy-Empfehlung **Caddy** (eine Binary, automatisches internes
@@ -704,14 +708,22 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     `https://192.168.244.10` erreichbar. Offen bleibt auch hier nur der zweite-Rechner-Nachweis aus dem
     Kundennetz/VPN.
 
-- [ ] **H6. UI-Zugriff mit Login und einfacher Rollenlogik absichern**
-  - **Was:** Mindestens Passwortschutz für das UI; später Rollen wie `viewer`, `operator`, `admin`. Für den ersten Schritt
-    reicht ein kleiner, sauber dokumentierter Zugriffsschutz vor dem Dashboard.
+- [x] **H6. UI-Zugriff mit Login und einfacher Rollenlogik absichern**
+  - **Was:** Persönliche lokale Konten mit den ersten Rollen `viewer` und `admin`; Operator bleibt eine spätere
+    Erweiterung.
   - **Nutzen:** Das UI ist nicht nur weniger sichtbar, sondern tatsächlich zugangsbeschränkt.
   - **Betroffen:** Reverse Proxy oder kleine Auth-Schicht, Nutzer-/Passwortverwaltung, Betreiberfreigabe.
   - **Aufwand:** M
   - **Risiken:** Passwörter dürfen nicht in Git oder im ausgelieferten Standardpaket landen; Erstpasswort/Rotation klären.
-  - **Definition of Done:** Ohne Zugangsdaten ist das UI nicht erreichbar; Viewer können nur lesen.
+  - **Definition of Done:** Ohne Anmeldung sind nur Login-Oberfläche und minimale Health-API erreichbar; Viewer
+    können nur lesen, Admin-Funktionen werden serverseitig geprüft.
+  - **Erledigt (2026-07-14, lokale Simulation):** `identity.sqlite` trennt Benutzer, scrypt-Passworthashes,
+    serverseitige Sitzungen und Security-Audit von `site.sqlite`. Cookies sind `HttpOnly`, `SameSite=Strict` und
+    auf der IPC `Secure`; Sessions haben Idle- und absolute Laufzeit. Viewer erhalten ausschließlich Dashboard,
+    Historie und Reports. Admins verwalten Konten, Standort und explizite BACnet-Inbetriebnahmefreigaben. Der letzte
+    aktive Admin kann nicht deaktiviert oder herabgestuft werden; der lokale Recovery-Befehl setzt bei bestehenden
+    Konten ein temporäres Passwort und widerruft Sitzungen. HTTP-, Rollen- und Read-only-Tests sind grün. Offen ist
+    nur die Release-Abnahme dieser neuen Version auf der realen IPC.
 
 - [x] **H7. Update- und Wartungsprozess definieren**
   - **Was:** Updates laufen über versionierte Pakete, Checksums und ein kurzes Install-/Rollback-Verfahren. Keine manuellen
@@ -729,7 +741,7 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     H7-Standardablauf um (SHA256SUMS prüfen → Task stoppen + Prozess-Ende verifizieren → App-Ordner nach
     `<AppDir>_vorher_<version>` umbenennen als Rollback-Kandidat → neues Paket kopieren → Task starten →
     Smoketest); `-Rollback` schiebt den vorherigen Stand zurück. `windows/smoketest_release.ps1` prüft frische
-    `health.json`, `/api/status` inkl. erwarteter `app_version`/`api_read_only` und das Log auf neue
+    `health.json`, die öffentliche Minimal-API `/api/health` inkl. erwarteter `app_version`/`api_read_only` und das Log auf neue
     ERROR-Zeilen (Exit-Code 0/1). Standortdaten (`SiteDir`) werden nie angefasst. `UPDATE_WARTUNG.md` ist auf
     Skript-first umgestellt, die manuellen Schritte bleiben als Fallback-Referenz.
   - **IPC-Abnahme (2026-07-12, Betreiberbestätigung):** Das neue Release wurde auf der realen IPC installiert
@@ -751,44 +763,45 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     Der Revisionsverlauf in `site.sqlite` erfasst Mapping-Aktivierungen, direkte Standortänderungen und Bedienänderungen der
     Preissteuerung. `GET /api/config/changes` liefert daraus nur einen bereinigten Verlauf ohne Token, Dateipfade
     oder personenbezogene Daten; die UI zeigt die letzten Änderungen direkt beim Abschluss. Das Zugriffskonzept
-    Viewer/Operator/Admin steht in `HOSTING_SICHERHEIT.md`; echte Benutzeridentitäten und Rollen bleiben H6.
+    Viewer/Admin steht in `HOSTING_SICHERHEIT.md`; Benutzeridentitäten und Security-Ereignisse liegen getrennt in
+    `identity.sqlite`.
 
 - [x] **H9. Konfigurations-UI als geschützten Entwurfs- und Speicherpfad bauen**
   - **Was:** Die UI schreibt nicht direkt aus einem Formular in die aktive Standortrevision. Umgesetzt ist ein
     kontrollierter Ablauf: aktive Konfiguration lesen, erlaubte Felder als
     Entwurf bearbeiten, denselben fachlichen und technischen Regeln wie beim Runtime-Start validieren, Entwurf
-    als neue unveränderliche Revision speichern, Änderung mit Freigabecode übernehmen und
+    als neue unveränderliche Revision speichern, Änderung mit Admin-Recht übernehmen und
     den Vorgang auditierbar protokollieren. Änderungen, die nur beim Start geladen werden, bleiben bis zum
     geplanten Mini-EMS-Neustart als "Neustart erforderlich" markiert.
   - **Nutzen:** Betreiber bekommen eine verständliche Konfigurationsoberfläche, ohne die Schutzwirkung der
     getrennten IPC-/Laptop-Konfiguration, Validierung und geplanten Betriebsfreigabe zu verlieren.
-  - **Betroffen:** HTTP-API, künftige Auth-/Token-Schicht, Config-Validierung, Backup-/Rollback-Ablage,
+  - **Betroffen:** HTTP-API, Auth-/Sitzungsschicht, Config-Validierung, Backup-/Rollback-Ablage,
     Revisionsverlauf, `MINI_EMS_ANLEITUNG.md`, Windows-Task-Neustartprozess.
   - **Aufwand:** M/L
   - **Risiken:** Der Netzwerkzugriff bleibt anlagenbezogen read-only. Ausschließlich passive Entwurfs-/Vorschaupfade
-    und token-geschützte Standortaktivierungen sind über Caddy erreichbar; Bedienaktionen und aktive Anlagenzugriffe
+    und Admin-geschützte Standortaktivierungen sind über Caddy erreichbar; Bedienaktionen und aktive Anlagenzugriffe
     bleiben gesperrt. Der lokale Simulationspfad (`runtime.bacnet_mode=simulated`,
     `runtime.real_writes_enabled=false`) darf keinen Weg bekommen, echte
     BACnet-Writes auszulösen. Safety-Flags und Anlagen-Schreibfreigaben bleiben lokale Admin-/IPC-Arbeit.
   - **Definition of Done:** Ungültige Entwürfe können die aktive Konfiguration nicht überschreiben; jede
-    Übernahme erzeugt eine unveränderliche Revision ohne Geheimnisse; Freigabecode-Prüfung ist dokumentiert;
+    Übernahme erzeugt eine unveränderliche Revision ohne Geheimnisse; Admin-Prüfung ist dokumentiert;
     der geschützte Netzwerkbetrieb blockiert Bedienaktionen und aktive Anlagenzugriffe; Neustartbedarf und Rollback-Pfad sind in Betrieb
     und UI sichtbar.
 
 ## Priorisierte To-do-Liste
 
 - [x] **1. Freshness-Gate scharf schalten (Config statt totem Code)**
-  - **Was:** In `config.json` und `config.local.json` fuer die Temperatur-/Zaehler-Inputs sinnvolle
-    `max_age_seconds`-Werte setzen (aktuell 0 von 17 `additional_inputs` gesetzt -> Gate ist implementiert, aber inaktiv).
+  - **Was:** In den getrennten lokalen/IPC-Standortrevisionen sinnvolle `max_age_seconds`-Werte für die
+    Temperatur-/Zähler-Inputs setzen. Die Werte liegen heute in der jeweiligen `site.sqlite`, nicht in aktiven JSON-Dateien.
   - **Nutzen:** Der bereits gebaute Quality-Gate (`stale`/`bad`) wirkt erst, wenn `max_age_seconds` konfiguriert ist.
     Ohne Werte bleibt jeder Wert dauerhaft `good`, auch wenn der Controller eingefroren ist. Hoher Betriebsnutzen.
-  - **Betroffen:** `config.json`, `config.local.json` (Schema/Logik unveraendert: `config.py`, `channels.py`,
+  - **Betroffen:** Standortrevisionen und Default-Konfiguration (Schema/Logik unverändert: `config.py`, `channels.py`,
     `read_diagnostics.py`, `cycle.py`).
   - **Aufwand:** S
   - **Risiken:** Zu strenge Werte loesen unnoetige `warning`/`stale`-Meldungen aus; Werte am realen Lese-Intervall
     (`read_interval_cycles` x Zykluszeit) ausrichten. KEINE Aenderung an `runtime.*`-Safety-Flags.
-  - **Definition of Done:** `config.local.json` (und konsistent `config.json`) setzen `max_age_seconds` fuer alle
-    relevanten `additional_inputs`; `config.py`-Validierung (`> 0`) bleibt erfuellt; Tests bleiben gruen
+  - **Definition of Done:** Lokale und IPC-Revision setzen `max_age_seconds` für alle relevanten
+    `additional_inputs`; `config.py`-Validierung (`> 0`) bleibt erfüllt; Tests bleiben grün
     (`python3.12 -m unittest discover -s mini_ems_poc/tests -v`).
 
 - [x] **2. Quality/Freshness im Dashboard sichtbar machen**
@@ -802,7 +815,7 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
     keine internen IDs/Protokollbegriffe,
     echte Umlaute. Backend-Vertrag (`build_health_additional_inputs`) nicht aufweichen.
   - **Definition of Done:** Bei `quality == "stale"`/`"bad"` zeigt die betroffene Kachel sichtbar einen Hinweis in klarer
-    deutscher Geschaeftssprache; "good" bleibt unauffaellig; lokaler Smoke-Test gegen `config.local.json` zeigt das Verhalten.
+    deutscher Geschäftssprache; "good" bleibt unauffällig; lokaler Smoke-Test gegen einen eigenen Simulations-`--site-dir` zeigt das Verhalten.
 
 - [ ] **3. Erstes sicheres Online-Hosting für Mini EMS vorbereiten**
   - **Was:** Einen ersten Hosting-Pfad für das Mini-EMS-UI definieren und prototypisch umsetzen, damit echte IPC-Daten
@@ -852,24 +865,21 @@ MSR/DDC verstanden werden, nicht nur als `WriteProperty` aus dem Edge-Code.
   - **Was:** In `MINI_EMS_ANLEITUNG.md` die Pfade fuer SQLite/Log konsistent machen: Doku nennt `data/runtime/mini_ems.sqlite`
     und `logs/mini_ems.log`, die lokale Konfiguration nutzt `data/local/...` bzw. `data/runtime/...` je nach Umgebung.
   - **Nutzen:** Vermeidet falsche Pfadannahmen bei Betrieb/Debugging; rein redaktionell, kein Code-Risiko.
-  - **Betroffen:** `MINI_EMS_ANLEITUNG.md` (lesend `config.json`, `config.local.json`).
+  - **Betroffen:** `MINI_EMS_ANLEITUNG.md` (lesend lokale und IPC-Standortrevisionen).
   - **Aufwand:** S
   - **Risiken:** Keine (Doku-only). Echte Umlaute verwenden (`AGENTS.md` Abschnitt "German UI Language").
-  - **Definition of Done:** Jede in der Anleitung genannte Datei-/DB-Pfadangabe entspricht den tatsaechlichen Werten in
-    `config.json`/`config.local.json` (getrennt nach IPC und lokal).
+  - **Definition of Done:** Jede in der Anleitung genannte Datei-/DB-Pfadangabe entspricht den tatsächlichen Werten
+    der getrennten `--site-dir`-Pfade für IPC und lokale Simulation.
 
 ## Empfohlener nächster Schritt
 
-**Mapping- und Freigabekern abgeschlossen; nächste Laptop-Linie ist S9 Edge-to-Cloud read-only.** S1-S4 haben
-den Edge-Integrationskern und ein erstes Modbus-Referenzmodell etabliert, S7/S8 den sicheren Import-/Discovery-
-Pfad. UX14-16 und S5/S6 bilden nun einen einzigen Ablauf: Standort → Geräte → Datenpunkte → Testen →
-Abschließen, mit erneutem Preview, lokalem Freigabecode, automatischem Backup, erhaltenem Entwurf,
-Audit-Verlauf und eindeutigem Neustartstatus. H8 macht denselben Vorgang für den Betreiber nachvollziehbar.
-Damit ist die fachliche Zuordnung stabil genug, um als Nächstes S9 als transportneutralen read-only
-Outbox-/Cloud-Export aufzubauen. Der IPC bleibt dabei Edge-Gateway; der erste Cloud-Schritt enthält keine
-Remote-Befehle und keinen direkten Anlagenzugriff.
+**Nächster Schritt: neues H6/UX12-Release auf der Pilot-IPC abnehmen.** Der Laptop-Stand enthält persönliche
+Viewer-/Admin-Konten sowie den sechsstufigen Ablauf Standort → Geräte → Datenpunkte → Testen → Schreibzugriffe →
+Abschließen. Auf der IPC sind Erst-Admin, Viewer-Login, Rollenwechsel, read-only Schutz und ein freigegebener
+ungefährlicher BACnet-Testpunkt zu prüfen. Erst danach folgt S9 als transportneutraler read-only
+Outbox-/Cloud-Export; der erste Cloud-Schritt enthält weiterhin keine Remote-Befehle.
 
-**Standort-Schritte als Block: H4/H5-Zweitrechner-Nachweis + To-do 3, danach H6.** Auf der Pilot-IPC am
+**Standort-Schritte als Block: H4/H5-Zweitrechner-Nachweis und H6-Release-Abnahme.** Auf der Pilot-IPC am
 2026-07-07 deutlich vorangebracht und am 2026-07-08 für H4/H5 IPC-seitig umgeschaltet.
 **H2: erledigt** – Release-Paket (`mini_ems.exe`) läuft über Task `MiniEmsPoCRelease`, per `SHA256SUMS` verifiziert,
 Alt-Autostarts entschärft; Version ist zusätzlich zur Laufzeit sichtbar (Stand 2026-07-09). **H3: erledigt** –
@@ -877,14 +887,13 @@ Alt-Autostarts entschärft; Version ist zusätzlich zur Laufzeit sichtbar (Stand
 unter den Rechten stabil; Rest ist ein formaler Klick-Test unter einem Nicht-Admin-Konto. **H4: IPC-seitig
 umgeschaltet** – API bindet nur noch auf `127.0.0.1:8090`, Caddy läuft als Task `MiniEmsDashboardCaddy` auf
 `https://192.168.244.10`, 8090 ist aus dem LAN nicht mehr erreichbar und die H4-Firewallregeln sind aktiv.
-**H5:** `api.read_only` ist auf der Pilot-IPC aktiv; Diagnose-Read und POST-Konfigurationspfade liefern HTTP 403.
+**H5:** `api.read_only` ist auf der Pilot-IPC aktiv; aktive Diagnose-/Discovery- und Bedienpfade liefern HTTP 403,
+während passive Konfigurationsentwürfe für Admins erreichbar bleiben.
 Offen bleibt bei H4 und H5 derselbe reale Nachweis von einem zweiten Rechner am Standort über
 Kundennetz/VPN/Secomea. **To-do 3:** Minimalkonzept (Secomea/VPN bzw. Export mit Login) liegt in
 `HOSTING_SICHERHEIT.md`, Teil 2, vor; der zweite-Rechner-Nachweis fehlt noch (identischer Standort-Schritt
-wie bei H4/H5). **H6 (Login/Rollen): Auswahlentscheidung offen.** Es ist noch nicht festgelegt, ob der
-erste Zugriffsschutz über den vorbereiteten `basic_auth`-Block in `proxy/Caddyfile` läuft oder über eine
-eigene Login-Schicht; das folgt nach dem Zweitrechner-Nachweis. H8 ist abgeschlossen; H9 bleibt für die
-spätere rollenbasierte Erweiterung der gesamten Konfigurationsoberfläche offen.
+wie bei H4/H5). **H6 (Login/Rollen): lokal umgesetzt**, mit eigener Sitzungsschicht hinter Caddy; offen ist nur
+die reale IPC-Abnahme. H8 und H9 sind abgeschlossen.
 
 **Danach: S9 klein beginnen; S10-S12, S16 und die große Cloud-Data-Pipeline bleiben geparkt.** S9 startet nur
 mit stabiler Payload, lokaler Outbox und einem simulierten read-only Empfänger. Broker-, TSDB-, Mandanten-,

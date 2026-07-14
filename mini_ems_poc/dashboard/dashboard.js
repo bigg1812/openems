@@ -77,6 +77,7 @@ const PAGES = {
   analyse: "Analyse",
   berichte: "Berichte",
   konfiguration: "Standort einrichten",
+  zugriff: "Konten und Rollen",
   system: "Technik und Status",
 };
 
@@ -84,6 +85,7 @@ const PAGE_SUBTITLES = {
   analyse: "Messwerte und Datenqualität über frei wählbare Zeiträume prüfen.",
   berichte: "Tagesbericht anzeigen, herunterladen oder einen eigenen Bericht zusammenstellen.",
   konfiguration: "Standort Schritt für Schritt einrichten: Datenpunkte aufnehmen, zuordnen, testen und sicher abschließen.",
+  zugriff: "Persönliche Konten und klare Rechte für den Zugriff auf den Standort.",
   system: "Technische Diagnose und Softwarezustand für Service und Inbetriebnahme.",
 };
 
@@ -227,7 +229,7 @@ const appState = {
   priceStats: null,
   dashboard: { ...DEFAULT_DASHBOARD },
   siteConfig: { config: null, dirty: false },
-  access: { level: "viewer", adminToken: "", apiReadOnly: true },
+  access: { authenticated: false, initialized: false, level: null, user: null, users: [], permissions: [], apiReadOnly: true },
   /* Standardweg Berichte (UX3): gewählter Berichtstag für den Tagesbericht. */
   reportDay: { mode: "today", date: "" },
 };
@@ -248,18 +250,22 @@ let dashboardCharts = [];
 const dashboardChartData = new Map();
 let modalChartDraft = [];
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   initTheme();
   appState.dashboard = loadDashboardConfig();
   appState.savedViews = loadSavedViews();
   bindUi();
-  initSiteConfigPage();
+  initSiteConfigPage({ load: false });
   initRouter();
   setReportDefaults();
   renderViewSelect();
   applyView(VIEW_PRESETS[0]);
-  refreshDashboard();
-  window.setInterval(refreshDashboard, REFRESH_INTERVAL_MS);
+  await initializeAccess();
+  window.setInterval(() => {
+    if (appState.access.authenticated) {
+      refreshDashboard();
+    }
+  }, REFRESH_INTERVAL_MS);
 });
 
 function bindUi() {
@@ -307,6 +313,7 @@ function bindUi() {
     }
   });
   document.getElementById("admin-access-button").addEventListener("click", handleAdminAccessButton);
+  document.getElementById("logout-button").addEventListener("click", closeAdminSession);
   document.getElementById("admin-access-form").addEventListener("submit", verifyAdminAccess);
   document.getElementById("admin-access-close").addEventListener("click", closeAdminAccessModal);
   document.getElementById("admin-access-cancel").addEventListener("click", closeAdminAccessModal);
@@ -328,6 +335,24 @@ function bindUi() {
   document.getElementById("site-config-save").addEventListener("click", saveSiteConfig);
   document.getElementById("site-config-form").addEventListener("input", handleSiteConfigChange);
   document.getElementById("site-config-form").addEventListener("change", handleSiteConfigChange);
+  document.getElementById("user-create-open").addEventListener("click", openUserCreateModal);
+  document.getElementById("user-create-form").addEventListener("submit", createUserAccount);
+  document.getElementById("user-create-close").addEventListener("click", closeUserCreateModal);
+  document.getElementById("user-create-cancel").addEventListener("click", closeUserCreateModal);
+  document.getElementById("user-create-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) {
+      closeUserCreateModal();
+    }
+  });
+  document.getElementById("user-password-form").addEventListener("submit", saveUserPassword);
+  document.getElementById("user-password-close").addEventListener("click", closeUserPasswordModal);
+  document.getElementById("user-password-cancel").addEventListener("click", closeUserPasswordModal);
+  document.getElementById("user-password-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) {
+      closeUserPasswordModal();
+    }
+  });
+  document.getElementById("write-approval-form").addEventListener("submit", approveWritePoint);
   bindSetupUi();
 }
 
@@ -342,8 +367,13 @@ function currentPageFromHash() {
 }
 
 function showPage(page) {
-  if ((page === "konfiguration" || page === "system") && appState.access.level !== "admin") {
-    openAdminAccessModal();
+  if (!appState.access.authenticated) {
+    openAdminAccessModal({ required: true });
+    page = "dashboard";
+    if (location.hash !== "#/dashboard") {
+      history.replaceState(null, "", "#/dashboard");
+    }
+  } else if (["konfiguration", "system", "zugriff"].includes(page) && appState.access.level !== "admin") {
     page = "dashboard";
     if (location.hash !== "#/dashboard") {
       history.replaceState(null, "", "#/dashboard");
@@ -365,72 +395,150 @@ function showPage(page) {
     updateSiteConfigPreview();
     renderSetupPage();
   }
+  if (page === "zugriff") {
+    loadUsers();
+  }
   updateAccessUi();
 }
 
 function handleAdminAccessButton() {
-  if (appState.access.level === "admin") {
-    closeAdminSession();
+  if (appState.access.authenticated) {
+    if (appState.access.level === "admin") {
+      location.hash = "#/zugriff";
+    }
     return;
   }
   openAdminAccessModal();
 }
 
-function openAdminAccessModal() {
+async function initializeAccess() {
+  try {
+    const response = await fetch("/api/auth/status", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Serverstatus ${response.status}`);
+    }
+    applyAuthPayload(await response.json());
+  } catch (error) {
+    setAdminAccessFeedback(`Anmeldung konnte nicht geladen werden: ${error.message}`, "warn");
+    openAdminAccessModal({ required: true });
+    return;
+  }
+  if (!appState.access.authenticated) {
+    openAdminAccessModal({ required: true });
+    return;
+  }
+  closeAdminAccessModal();
+  await refreshDashboard();
+  if (appState.access.level === "admin") {
+    await loadAdminWorkspace();
+  }
+}
+
+function applyAuthPayload(payload) {
+  const user = payload && payload.user && typeof payload.user === "object" ? payload.user : null;
+  appState.access.initialized = payload?.initialized === true;
+  appState.access.authenticated = payload?.authenticated === true && user !== null;
+  appState.access.user = appState.access.authenticated ? user : null;
+  appState.access.level = appState.access.authenticated ? String(user.role || "viewer") : null;
+  appState.access.permissions = Array.isArray(payload?.permissions) ? payload.permissions.map(String) : [];
+  updateAccessUi();
+}
+
+async function loadAdminWorkspace() {
+  await Promise.all([
+    loadSiteConfigFromBackend(),
+    loadSetupChangeHistory(),
+    loadWritePoints(),
+  ]);
+}
+
+function openAdminAccessModal(options = {}) {
   const modal = document.getElementById("admin-access-modal");
   if (!modal) {
     return;
   }
   modal.hidden = false;
-  setAdminAccessFeedback("Noch nicht freigegeben.", "neutral");
-  window.setTimeout(() => document.getElementById("admin-access-token")?.focus(), 0);
+  modal.dataset.required = options.required === true ? "true" : "false";
+  const bootstrap = !appState.access.initialized;
+  document.getElementById("auth-login-fields").hidden = bootstrap;
+  document.getElementById("auth-bootstrap-fields").hidden = !bootstrap;
+  document.querySelectorAll("#auth-login-fields input").forEach((input) => {
+    input.disabled = bootstrap;
+  });
+  document.querySelectorAll("#auth-bootstrap-fields input").forEach((input) => {
+    input.disabled = !bootstrap;
+  });
+  document.getElementById("admin-access-close").hidden = options.required === true;
+  document.getElementById("admin-access-cancel").hidden = options.required === true;
+  setText("admin-access-title", bootstrap ? "Zugang einrichten" : "Anmelden");
+  setText(
+    "admin-access-hint",
+    bootstrap
+      ? "Einmalig den ersten Administrator für diesen Standort anlegen."
+      : "Mit dem persönlichen Konto am Standort anmelden.",
+  );
+  setText("admin-access-submit", bootstrap ? "Admin anlegen" : "Anmelden");
+  setAdminAccessFeedback(bootstrap ? "Der bisherige Freigabecode wird nur für diesen ersten Schritt benötigt." : "Bitte anmelden.", "neutral");
+  window.setTimeout(() => document.getElementById(bootstrap ? "auth-bootstrap-code" : "auth-username")?.focus(), 0);
 }
 
 function closeAdminAccessModal() {
   const modal = document.getElementById("admin-access-modal");
+  if (modal?.dataset.required === "true" && !appState.access.authenticated) {
+    return;
+  }
   if (modal) {
     modal.hidden = true;
+    modal.dataset.required = "false";
   }
-  const input = document.getElementById("admin-access-token");
-  if (input) {
-    input.value = "";
-  }
+  ["auth-password", "auth-bootstrap-code", "auth-bootstrap-password"].forEach((id) => {
+    const input = document.getElementById(id);
+    if (input) input.value = "";
+  });
 }
 
-function closeAdminSession() {
-  appState.access.adminToken = "";
-  appState.access.level = appState.access.apiReadOnly ? "viewer" : "operator";
-  updateAccessUi();
-  if (["konfiguration", "system"].includes(currentPageFromHash())) {
-    location.hash = "#/dashboard";
+async function closeAdminSession() {
+  try {
+    await postJson("/api/auth/logout", {});
+  } catch {
+    /* Lokalen Zustand auch bei einem bereits abgelaufenen Server-Token schließen. */
   }
+  applyAuthPayload({ initialized: true, authenticated: false, user: null, permissions: [] });
+  location.hash = "#/dashboard";
+  openAdminAccessModal({ required: true });
 }
 
 async function verifyAdminAccess(event) {
   event.preventDefault();
-  const input = document.getElementById("admin-access-token");
-  const token = input?.value.trim() || "";
-  if (!token) {
-    setAdminAccessFeedback("Bitte den Freigabecode eingeben.", "warn");
-    input?.focus();
-    return;
-  }
+  const bootstrap = !appState.access.initialized;
   const button = document.getElementById("admin-access-submit");
   button.disabled = true;
-  setAdminAccessFeedback("Freigabecode wird geprüft …", "neutral");
+  setAdminAccessFeedback(bootstrap ? "Admin wird sicher eingerichtet …" : "Anmeldung wird geprüft …", "neutral");
   try {
-    const response = await postJson("/api/auth/admin/verify", {}, { token });
+    const response = bootstrap
+      ? await postJson("/api/auth/bootstrap", {
+        bootstrap_code: document.getElementById("auth-bootstrap-code").value,
+        display_name: document.getElementById("auth-display-name").value,
+        username: document.getElementById("auth-bootstrap-username").value,
+        password: document.getElementById("auth-bootstrap-password").value,
+      })
+      : await postJson("/api/auth/login", {
+        username: document.getElementById("auth-username").value,
+        password: document.getElementById("auth-password").value,
+      });
     if (response.authenticated !== true) {
-      throw new Error("Die Verwaltung konnte nicht geöffnet werden.");
+      throw new Error("Die Anmeldung konnte nicht abgeschlossen werden.");
     }
-    appState.access.adminToken = token;
-    appState.access.level = "admin";
+    applyAuthPayload(response);
     closeAdminAccessModal();
-    updateAccessUi();
-    location.hash = "#/konfiguration";
+    location.hash = "#/dashboard";
+    await refreshDashboard();
+    if (appState.access.level === "admin") {
+      await loadAdminWorkspace();
+    }
   } catch (error) {
     setAdminAccessFeedback(error.message, "warn");
-    input?.select();
+    document.getElementById(bootstrap ? "auth-bootstrap-code" : "auth-password")?.select();
   } finally {
     button.disabled = false;
   }
@@ -447,26 +555,236 @@ function setAdminAccessFeedback(message, tone) {
 function updateAccessUi(payload = appState.statusPayload) {
   if (payload && typeof payload === "object") {
     appState.access.apiReadOnly = payload.api_read_only === true;
-    if (appState.access.level !== "admin") {
-      appState.access.level = appState.access.apiReadOnly ? "viewer" : "operator";
-    }
   }
   const isAdmin = appState.access.level === "admin";
   const labels = {
-    viewer: "Nur ansehen",
-    operator: "Betrieb",
-    admin: "Verwaltung",
+    viewer: "Viewer",
+    admin: "Admin",
   };
-  setText("access-mode-badge", labels[appState.access.level] || "Zugriff");
-  setText("admin-access-label", "Verwaltung");
+  const displayName = appState.access.user?.display_name || appState.access.user?.username || "";
+  setText("access-mode-badge", appState.access.authenticated ? labels[appState.access.level] || "Zugriff" : "Nicht angemeldet");
+  setText("admin-access-role", appState.access.authenticated ? labels[appState.access.level] || "Zugang" : "Zugang");
+  setText("admin-access-label", appState.access.authenticated ? displayName : "Anmelden");
   const links = document.getElementById("admin-nav-links");
   if (links) {
     links.hidden = !isAdmin;
   }
+  const logout = document.getElementById("logout-button");
+  if (logout) {
+    logout.hidden = !appState.access.authenticated;
+  }
+  setText("admin-access-symbol", appState.access.authenticated ? "✓" : "›");
   const button = document.getElementById("admin-access-button");
   if (button) {
     button.setAttribute("aria-expanded", isAdmin ? "true" : "false");
     button.classList.toggle("active", isAdmin);
+    button.title = appState.access.authenticated
+      ? `Angemeldet als ${displayName}`
+      : "Anmelden";
+  }
+}
+
+async function loadUsers() {
+  const target = document.getElementById("user-list");
+  if (appState.access.level !== "admin") {
+    if (target) {
+      target.innerHTML = '<div class="empty-state compact">Diese Ansicht ist nur für Administratoren verfügbar.</div>';
+    }
+    return;
+  }
+  try {
+    const payload = await fetchJson("/api/auth/users");
+    appState.access.users = Array.isArray(payload.users) ? payload.users : [];
+    renderUsers();
+  } catch (error) {
+    if (target) {
+      target.innerHTML = `<div class="config-feedback warn">${escapeHtml(error.message)}</div>`;
+    }
+  }
+}
+
+function renderUsers() {
+  const target = document.getElementById("user-list");
+  if (!target) {
+    return;
+  }
+  if (!appState.access.users.length) {
+    target.innerHTML = '<div class="empty-state compact">Noch keine Konten vorhanden.</div>';
+    return;
+  }
+  target.innerHTML = appState.access.users.map((user) => {
+    const isCurrent = user.id === appState.access.user?.id;
+    const initials = String(user.display_name || user.username || "?")
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("") || "?";
+    const status = user.enabled ? (isCurrent ? "Aktuelle Sitzung" : "Aktiv") : "Deaktiviert";
+    return `
+      <div class="user-row ${user.enabled ? "" : "disabled"}" data-user-id="${escapeHtml(user.id)}">
+        <div class="user-avatar" aria-hidden="true">${escapeHtml(initials)}</div>
+        <div class="user-identity">
+          <strong>${escapeHtml(user.display_name || user.username)}</strong>
+          <small>@${escapeHtml(user.username)} · ${escapeHtml(status)}</small>
+        </div>
+        <label class="user-role-control">
+          <span class="visually-hidden">Rolle für ${escapeHtml(user.display_name || user.username)}</span>
+          <select data-user-role ${isCurrent ? "disabled" : ""}>
+            <option value="viewer" ${selectedAttribute(user.role === "viewer")}>Viewer</option>
+            <option value="admin" ${selectedAttribute(user.role === "admin")}>Admin</option>
+          </select>
+        </label>
+        <label class="toggle-control" title="${isCurrent ? "Das aktuell verwendete Konto bleibt aktiv." : "Konto aktivieren oder deaktivieren"}">
+          <input type="checkbox" data-user-enabled ${checkedAttribute(user.enabled)} ${isCurrent ? "disabled" : ""}>
+          <span aria-hidden="true"></span>
+          <span class="visually-hidden">Konto ${user.enabled ? "deaktivieren" : "aktivieren"}</span>
+        </label>
+        <button class="link-button user-password-button" type="button" data-user-password>Passwort</button>
+      </div>
+    `;
+  }).join("");
+  target.querySelectorAll("select[data-user-role]").forEach((select) => {
+    select.addEventListener("change", async () => {
+      const userId = select.closest("[data-user-id]")?.dataset.userId;
+      await updateUserAccount(userId, { role: select.value });
+    });
+  });
+  target.querySelectorAll("input[data-user-enabled]").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const userId = input.closest("[data-user-id]")?.dataset.userId;
+      await updateUserAccount(userId, { enabled: input.checked });
+    });
+  });
+  target.querySelectorAll("button[data-user-password]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openUserPasswordModal(button.closest("[data-user-id]")?.dataset.userId);
+    });
+  });
+}
+
+async function updateUserAccount(userId, patch) {
+  if (!userId) {
+    return;
+  }
+  try {
+    await postJson("/api/auth/users/update", { user_id: userId, ...patch });
+    setUserListFeedback("Konto aktualisiert.", "ok");
+  } catch (error) {
+    setUserListFeedback(error.message, "warn");
+  }
+  await loadUsers();
+}
+
+function setUserListFeedback(message, tone) {
+  const target = document.getElementById("user-list-feedback");
+  if (target) {
+    target.hidden = !message;
+    target.className = `config-feedback ${tone || "neutral"}`;
+    target.textContent = message || "";
+  }
+}
+
+function openUserCreateModal() {
+  const modal = document.getElementById("user-create-modal");
+  if (!modal || appState.access.level !== "admin") {
+    return;
+  }
+  document.getElementById("user-create-form").reset();
+  setText("user-create-feedback", "Das Konto ist nach dem Anlegen sofort nutzbar.");
+  document.getElementById("user-create-feedback").className = "config-feedback neutral";
+  modal.hidden = false;
+  window.setTimeout(() => document.getElementById("user-create-display-name")?.focus(), 0);
+}
+
+function closeUserCreateModal() {
+  const modal = document.getElementById("user-create-modal");
+  if (modal) {
+    modal.hidden = true;
+  }
+}
+
+async function createUserAccount(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!form.reportValidity()) {
+    return;
+  }
+  const button = document.getElementById("user-create-submit");
+  const feedback = document.getElementById("user-create-feedback");
+  button.disabled = true;
+  feedback.className = "config-feedback neutral";
+  feedback.textContent = "Konto wird angelegt …";
+  try {
+    await postJson("/api/auth/users/create", {
+      display_name: document.getElementById("user-create-display-name").value,
+      username: document.getElementById("user-create-username").value,
+      role: document.getElementById("user-create-role").value,
+      password: document.getElementById("user-create-password").value,
+    });
+    closeUserCreateModal();
+    await loadUsers();
+  } catch (error) {
+    feedback.className = "config-feedback warn";
+    feedback.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function openUserPasswordModal(userId) {
+  const user = appState.access.users.find((entry) => entry.id === userId);
+  const modal = document.getElementById("user-password-modal");
+  if (!user || !modal) {
+    return;
+  }
+  modal.dataset.userId = user.id;
+  setText("user-password-target", `Neues Passwort für ${user.display_name || user.username}.`);
+  document.getElementById("user-password-username").value = user.username || "";
+  document.getElementById("user-password-value").value = "";
+  const feedback = document.getElementById("user-password-feedback");
+  feedback.className = "config-feedback neutral";
+  feedback.textContent = "Bestehende Sitzungen dieses Kontos werden beendet.";
+  modal.hidden = false;
+  window.setTimeout(() => document.getElementById("user-password-value")?.focus(), 0);
+}
+
+function closeUserPasswordModal() {
+  const modal = document.getElementById("user-password-modal");
+  if (modal) {
+    modal.hidden = true;
+    delete modal.dataset.userId;
+  }
+}
+
+async function saveUserPassword(event) {
+  event.preventDefault();
+  const modal = document.getElementById("user-password-modal");
+  const userId = modal.dataset.userId;
+  const isCurrent = userId === appState.access.user?.id;
+  const button = document.getElementById("user-password-submit");
+  const feedback = document.getElementById("user-password-feedback");
+  button.disabled = true;
+  feedback.className = "config-feedback neutral";
+  feedback.textContent = "Passwort wird gespeichert …";
+  try {
+    await postJson("/api/auth/users/update", {
+      user_id: userId,
+      password: document.getElementById("user-password-value").value,
+    });
+    closeUserPasswordModal();
+    if (isCurrent) {
+      applyAuthPayload({ initialized: true, authenticated: false, user: null, permissions: [] });
+      openAdminAccessModal({ required: true });
+      setAdminAccessFeedback("Passwort gespeichert. Bitte mit dem neuen Passwort anmelden.", "ok");
+    } else {
+      await loadUsers();
+    }
+  } catch (error) {
+    feedback.className = "config-feedback warn";
+    feedback.textContent = error.message;
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -505,6 +823,9 @@ function applyTheme(theme, options = {}) {
 let dashboardLoaded = false;
 
 async function refreshDashboard() {
+  if (!appState.access.authenticated) {
+    return;
+  }
   const button = document.getElementById("refresh-button");
   button.disabled = true;
   setLoadingIndicator(true);
@@ -560,6 +881,11 @@ function setLoadingIndicator(active) {
 
 async function fetchJson(path) {
   const response = await fetch(path, { cache: "no-store" });
+  if (response.status === 401) {
+    applyAuthPayload({ initialized: true, authenticated: false, user: null, permissions: [] });
+    openAdminAccessModal({ required: true });
+    throw new Error("Die Sitzung ist abgelaufen. Bitte erneut anmelden.");
+  }
   if (!response.ok) {
     throw new Error(`${path} returned ${response.status}`);
   }
@@ -1614,13 +1940,15 @@ function resetDashboardConfig() {
   renderDashboardCharts();
 }
 
-function initSiteConfigPage() {
+function initSiteConfigPage(options = {}) {
   appState.siteConfig.config = cloneSiteConfig(DEFAULT_SITE_CONFIG);
   populateSiteConfigForm(appState.siteConfig.config);
   setText("site-config-source", "Prototypvorlage");
   setSiteConfigFeedback("Noch nicht geprüft.", "neutral");
-  loadSiteConfigFromBackend();
-  loadSetupChangeHistory();
+  if (options.load !== false) {
+    loadSiteConfigFromBackend();
+    loadSetupChangeHistory();
+  }
 }
 
 async function loadSiteConfigFromBackend() {
@@ -2022,10 +2350,8 @@ async function saveSiteConfig() {
     setSiteConfigFeedback("Bitte die markierten Felder korrigieren.", "warn");
     return;
   }
-  const token = appState.access.adminToken;
-  if (!token) {
-    setSiteConfigFeedback("Die Verwaltung ist nicht freigegeben. Bitte den Verwaltungsbereich erneut öffnen.", "warn");
-    openAdminAccessModal();
+  if (appState.access.level !== "admin") {
+    setSiteConfigFeedback("Diese Änderung ist nur für Administratoren verfügbar.", "warn");
     return;
   }
   const button = document.getElementById("site-config-save");
@@ -2033,7 +2359,7 @@ async function saveSiteConfig() {
   setSiteConfigFeedback("Konfiguration wird gespeichert...", "neutral");
   try {
     const payload = buildSiteConfigPayload();
-    const response = await postJson("/api/config/site/save", payload, { token });
+    const response = await postJson("/api/config/site/save", payload);
     appState.siteConfig.dirty = false;
     await loadSiteConfigFromBackend();
     setText("site-config-source", "Vom Backend gespeichert");
@@ -2046,11 +2372,8 @@ async function saveSiteConfig() {
   }
 }
 
-async function postJson(path, payload, options = {}) {
+async function postJson(path, payload) {
   const headers = { "Content-Type": "application/json" };
-  if (options.token) {
-    headers["X-Mini-Ems-Admin-Token"] = options.token;
-  }
   const response = await fetch(path, {
     method: "POST",
     headers,
@@ -2058,6 +2381,10 @@ async function postJson(path, payload, options = {}) {
   });
   const text = await response.text();
   if (!response.ok) {
+    if (response.status === 401) {
+      applyAuthPayload({ initialized: true, authenticated: false, user: null, permissions: [] });
+      openAdminAccessModal({ required: true });
+    }
     if (response.status === 404) {
       throw new Error(`Der Backend-Endpunkt ${path} ist noch nicht vorhanden. Die Eingaben bleiben erhalten; es wurde nichts an der Anlage geändert.`);
     }
@@ -2134,7 +2461,7 @@ function setSiteConfigFeedback(message, state = "neutral") {
 
 /* ============================================================
    Standort einrichten (UX14/UX15/UX16): geführte Inbetriebnahme.
-   Standort -> Geräte -> Datenpunkte -> Testen -> Abschließen.
+   Standort -> Geräte -> Datenpunkte -> Testen -> Schreibzugriffe -> Abschließen.
    Die Tabelle zeigt die fachliche Bedeutung zuerst; Technikdetails
    liegen im einklappbaren Technikbereich je Zeile.
    ============================================================ */
@@ -2144,6 +2471,7 @@ const SETUP_STEPS = [
   { id: "geraete", label: "Geräte" },
   { id: "punkte", label: "Datenpunkte" },
   { id: "testen", label: "Testen" },
+  { id: "schreiben", label: "Schreibzugriffe" },
   { id: "aktivieren", label: "Abschließen" },
 ];
 
@@ -2197,6 +2525,7 @@ const setupState = {
   activation: { done: false, restartRequired: false, revision: null, activatedAt: null },
   dirty: false,
   changes: [],
+  write: { loaded: false, points: [], testsAvailable: false, mode: "simulation" },
 };
 
 /* ---------- Zustandsableitung (rein, ohne DOM) ---------- */
@@ -2605,6 +2934,7 @@ function translateSetupReadFailure(httpStatus, message) {
 function computeSetupSteps(state) {
   const counts = setupCounts(state.rows);
   const steps = [];
+  const writeState = state.write || { loaded: false, points: [], testsAvailable: false };
 
   let standort = { state: "open", detail: "Konfiguration wird geladen." };
   if (state.loaded) {
@@ -2647,8 +2977,19 @@ function computeSetupSteps(state) {
     steps.push({ id: "testen", label: "Testen", state: "open", detail: "Noch nicht geprüft." });
   }
 
+  const approvedWrites = (writeState.points || []).filter((point) => point.enabled).length;
+  if (!writeState.loaded) {
+    steps.push({ id: "schreiben", label: "Schreibzugriffe", state: "open", detail: "Freigaben werden geladen." });
+  } else if (approvedWrites && writeState.testsAvailable) {
+    steps.push({ id: "schreiben", label: "Schreibzugriffe", state: "done", detail: `${approvedWrites} freigegeben.` });
+  } else if (approvedWrites) {
+    steps.push({ id: "schreiben", label: "Schreibzugriffe", state: "locked", detail: `${approvedWrites} vorbereitet, Test gesperrt.` });
+  } else {
+    steps.push({ id: "schreiben", label: "Schreibzugriffe", state: "open", detail: "Optional für Inbetriebnahme." });
+  }
+
   if (state.dirty && state.loaded && !state.saveEnabled) {
-    steps.push({ id: "aktivieren", label: "Abschließen", state: "locked", detail: "Freigabecode fehlt auf der Anlage." });
+    steps.push({ id: "aktivieren", label: "Abschließen", state: "locked", detail: "Admin-Zugang fehlt auf der Anlage." });
   } else if (state.dirty) {
     steps.push({ id: "aktivieren", label: "Abschließen", state: "open", detail: "Änderungen noch nicht übernommen." });
   } else if (state.activation.done) {
@@ -2659,7 +3000,7 @@ function computeSetupSteps(state) {
       detail: state.activation.restartRequired ? "Abgeschlossen, Neustart erforderlich." : "Aktive Zuordnung.",
     });
   } else if (state.loaded && !state.saveEnabled) {
-    steps.push({ id: "aktivieren", label: "Abschließen", state: "locked", detail: "Kein Freigabecode auf der Anlage eingerichtet." });
+    steps.push({ id: "aktivieren", label: "Abschließen", state: "locked", detail: "Kein Admin-Zugang auf der Anlage eingerichtet." });
   } else if (state.preview.valid === true) {
     steps.push({ id: "aktivieren", label: "Abschließen", state: "open", detail: "Geprüft, bereit zum Abschließen." });
   } else if (state.preview.valid === false) {
@@ -3037,10 +3378,8 @@ async function runSetupActivation() {
     setSetupActivateFeedback("Es sind keine offenen Änderungen vorhanden.", "ok");
     return;
   }
-  const token = appState.access.adminToken;
-  if (!token) {
-    setSetupActivateFeedback("Die Verwaltung ist nicht freigegeben. Bitte den Verwaltungsbereich erneut öffnen.", "warn");
-    openAdminAccessModal();
+  if (appState.access.level !== "admin") {
+    setSetupActivateFeedback("Diese Änderung ist nur für Administratoren verfügbar.", "warn");
     return;
   }
   const draft = await runSetupPreview();
@@ -3053,7 +3392,7 @@ async function runSetupActivation() {
   }
   setSetupActivateFeedback("Einrichtung wird abgeschlossen …", "neutral");
   try {
-    const response = await postJson("/api/config/mapping/activate", draft, { token });
+    const response = await postJson("/api/config/mapping/activate", draft);
     if (response.activated === true) {
       setupState.activation = {
         done: true,
@@ -3098,8 +3437,319 @@ function renderSetupPage() {
   renderSetupTable();
   renderSetupCounts(counts);
   renderSetupActionAvailability();
+  renderWriteCommissioning();
   renderSetupActivateArea();
   renderActiveSetupStep();
+}
+
+let writeRefreshTimer = null;
+
+async function loadWritePoints() {
+  if (appState.access.level !== "admin") {
+    setupState.write = { loaded: false, points: [], testsAvailable: false, mode: "simulation" };
+    return;
+  }
+  try {
+    const payload = await fetchJson("/api/bacnet/write-points");
+    setupState.write = {
+      loaded: true,
+      points: Array.isArray(payload.points) ? payload.points : [],
+      testsAvailable: payload.write_tests_available === true,
+      mode: String(payload.mode || "simulation"),
+      testSeconds: Number(payload.write_test_seconds) || 10,
+    };
+    renderWriteCommissioning();
+    renderSetupSteps(computeSetupSteps(setupState));
+  } catch (error) {
+    setupState.write.loaded = false;
+    setWriteApprovalFeedback(error.message, "warn");
+    renderWriteCommissioning();
+  }
+}
+
+function renderWriteCommissioning() {
+  const list = document.getElementById("approved-write-list");
+  const badge = document.getElementById("write-protection-badge");
+  const guard = document.getElementById("write-guard-message");
+  if (!list || !badge || !guard) {
+    return;
+  }
+  if (!setupState.write.loaded) {
+    badge.className = "access-badge";
+    badge.textContent = "Schutzstatus wird geladen";
+    guard.className = "write-guard-message";
+    guard.textContent = "Freigaben werden geladen.";
+    list.innerHTML = '<div class="empty-state compact">Freigaben werden geladen.</div>';
+    return;
+  }
+
+  const testReady = setupState.write.testsAvailable;
+  const modeLabel = setupState.write.mode === "anlage" ? "Anlage" : "Simulation";
+  badge.className = `access-badge ${testReady ? "ok" : "warn"}`;
+  badge.textContent = testReady ? `${modeLabel} · Testbereit` : "Anlagenaktionen gesperrt";
+  guard.className = `write-guard-message ${testReady ? "ok" : "warn"}`;
+  guard.innerHTML = testReady
+    ? `<strong>Schreibtests sind freigegeben.</strong><span>Jeder Test belegt BACnet-Priorität 14 für ${setupState.write.testSeconds || 10} Sekunden und gibt sie danach automatisch zurück.</span>`
+    : "<strong>Freigeben ist möglich, Schreiben bleibt aus.</strong><span>Der API-Schreibschutz ist aktiv. Für einen echten Test muss ein Admin ihn in den Betriebseinstellungen bewusst aufheben und Mini EMS neu starten.</span>";
+
+  if (!setupState.write.points.length) {
+    list.innerHTML = '<div class="empty-state compact">Noch keine BACnet-Schreibpunkte freigegeben.</div>';
+    scheduleWriteCountdown();
+    return;
+  }
+  list.innerHTML = setupState.write.points.map((point) => writePointHtml(point, testReady)).join("");
+  bindWritePointEvents(list);
+  scheduleWriteCountdown();
+}
+
+function writePointHtml(point, testReady) {
+  const lease = point.last_test && typeof point.last_test === "object" ? point.last_test : null;
+  const active = lease && ["writing", "active"].includes(String(lease.status));
+  const enabled = point.enabled === true;
+  const target = `${String(point.object_type || "").toUpperCase()} ${point.instance} · ${point.controller_ip}:${point.controller_port}`;
+  const status = writeLeaseStatusHtml(lease);
+  let controls = "";
+  if (!enabled) {
+    controls = `<button class="button" type="button" data-write-restore>Erneut freigeben</button>`;
+  } else if (point.object_type === "bv") {
+    controls = `
+      <div class="write-binary-control" role="group" aria-label="Testwert für ${escapeHtml(point.name)}">
+        <button class="button" type="button" data-write-test data-write-value="false" ${!testReady || active ? "disabled" : ""}>Aus testen</button>
+        <button class="button primary" type="button" data-write-test data-write-value="true" ${!testReady || active ? "disabled" : ""}>Ein testen</button>
+      </div>
+    `;
+  } else {
+    controls = `
+      <div class="write-analog-control">
+        <input type="number" step="any" data-write-av-value aria-label="Testwert für ${escapeHtml(point.name)}" placeholder="Wert">
+        <button class="button primary" type="button" data-write-test ${!testReady || active ? "disabled" : ""}>Wert testen</button>
+      </div>
+    `;
+  }
+  return `
+    <article class="approved-write-point ${enabled ? "" : "disabled"}" data-write-point-id="${escapeHtml(point.id)}">
+      <div class="write-point-main">
+        <span class="write-point-icon" aria-hidden="true">${point.object_type === "bv" ? "01" : "AV"}</span>
+        <div>
+          <strong>${escapeHtml(point.name)}</strong>
+          <small>${escapeHtml(target)} · Priorität ${escapeHtml(point.write_priority)}</small>
+        </div>
+      </div>
+      <div class="write-point-state">
+        ${status}
+      </div>
+      <div class="write-point-actions">
+        ${controls}
+        ${active ? `<button class="link-button danger" type="button" data-write-release data-lease-id="${escapeHtml(lease.id)}">Jetzt zurückgeben</button>` : ""}
+        ${enabled ? '<button class="link-button danger" type="button" data-write-revoke>Freigabe aufheben</button>' : ""}
+      </div>
+    </article>
+  `;
+}
+
+function writeLeaseStatusHtml(lease) {
+  if (!lease) {
+    return '<span class="write-state neutral">Noch nicht getestet</span>';
+  }
+  const status = String(lease.status || "");
+  if (["writing", "active"].includes(status)) {
+    if (lease.effective_value === null || lease.effective_value === undefined) {
+      return `
+        <span class="write-state neutral">Write bestätigt</span>
+        <small data-write-countdown data-expires-at="${escapeHtml(lease.expires_at)}">${escapeHtml(writeCountdownText(lease.expires_at))}</small>
+      `;
+    }
+    const effective = writeValuesMatch(lease.desired_value, lease.effective_value);
+    return `
+      <span class="write-state ${effective ? "ok" : "warn"}">${effective ? "Wert wirksam" : "Höhere Priorität aktiv"}</span>
+      <small data-write-countdown data-expires-at="${escapeHtml(lease.expires_at)}">${escapeHtml(writeCountdownText(lease.expires_at))}</small>
+    `;
+  }
+  if (status === "released") {
+    return `<span class="write-state ok">Automatisch zurückgegeben</span><small>Letzter Test: ${escapeHtml(writeValueLabel(lease.desired_value))}</small>`;
+  }
+  if (status === "release_failed") {
+    return `<span class="write-state error">Rückgabe nicht bestätigt</span><small>${escapeHtml(lease.error || "Bitte Anlage prüfen.")}</small>`;
+  }
+  if (status === "failed") {
+    return `<span class="write-state error">Test fehlgeschlagen</span><small>${escapeHtml(lease.error || "Keine Bestätigung erhalten.")}</small>`;
+  }
+  return `<span class="write-state neutral">${escapeHtml(status || "Unbekannt")}</span>`;
+}
+
+function writeValuesMatch(desired, effective) {
+  if (effective === null || effective === undefined) {
+    return false;
+  }
+  if (typeof desired === "boolean") {
+    return Boolean(effective) === desired;
+  }
+  return Number.isFinite(Number(desired)) && Number.isFinite(Number(effective))
+    && Math.abs(Number(desired) - Number(effective)) <= 0.000001;
+}
+
+function writeValueLabel(value) {
+  if (typeof value === "boolean") {
+    return value ? "Ein" : "Aus";
+  }
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString("de-DE", { maximumFractionDigits: 4 }) : "-";
+}
+
+function writeCountdownText(expiresAt) {
+  const remaining = Math.max(0, Math.ceil((Number(expiresAt) * 1000 - Date.now()) / 1000));
+  return remaining > 0 ? `Automatische Rückgabe in ${remaining} s` : "Rückgabe läuft …";
+}
+
+function scheduleWriteCountdown() {
+  window.clearTimeout(writeRefreshTimer);
+  const countdowns = [...document.querySelectorAll("[data-write-countdown]")];
+  if (!countdowns.length) {
+    return;
+  }
+  let expired = false;
+  countdowns.forEach((element) => {
+    element.textContent = writeCountdownText(element.dataset.expiresAt);
+    expired = expired || Number(element.dataset.expiresAt) * 1000 <= Date.now();
+  });
+  writeRefreshTimer = window.setTimeout(() => {
+    if (expired) {
+      loadWritePoints().then(() => {
+        const finishedLease = setupState.write.points
+          .map((point) => point.last_test)
+          .find((lease) => lease && ["released", "release_failed"].includes(String(lease.status)));
+        if (finishedLease?.status === "released") {
+          setWriteApprovalFeedback("Der Test ist beendet. Die BACnet-Priorität wurde automatisch zurückgegeben.", "ok");
+        } else if (finishedLease?.status === "release_failed") {
+          setWriteApprovalFeedback("Die automatische Rückgabe konnte nicht bestätigt werden. Bitte Anlage prüfen.", "warn");
+        }
+      });
+    } else {
+      scheduleWriteCountdown();
+    }
+  }, expired ? 1200 : 1000);
+}
+
+function bindWritePointEvents(list) {
+  list.querySelectorAll("button[data-write-test]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = button.closest("[data-write-point-id]");
+      const point = setupState.write.points.find((entry) => entry.id === row?.dataset.writePointId);
+      if (!point) {
+        return;
+      }
+      let value;
+      if (point.object_type === "bv") {
+        value = button.dataset.writeValue === "true";
+      } else {
+        const raw = row.querySelector("[data-write-av-value]")?.value;
+        value = Number(raw);
+        if (raw === "" || !Number.isFinite(value)) {
+          setWriteApprovalFeedback("Bitte einen gültigen AV-Testwert eingeben.", "warn");
+          return;
+        }
+      }
+      await startWriteTest(point.id, value);
+    });
+  });
+  list.querySelectorAll("button[data-write-release]").forEach((button) => {
+    button.addEventListener("click", () => releaseWriteTest(button.dataset.leaseId));
+  });
+  list.querySelectorAll("button[data-write-revoke]").forEach((button) => {
+    button.addEventListener("click", () => revokeWritePoint(button.closest("[data-write-point-id]")?.dataset.writePointId));
+  });
+  list.querySelectorAll("button[data-write-restore]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const point = setupState.write.points.find((entry) => entry.id === button.closest("[data-write-point-id]")?.dataset.writePointId);
+      if (point) {
+        prefillWriteApproval(point);
+      }
+    });
+  });
+}
+
+async function approveWritePoint(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!form.reportValidity()) {
+    return;
+  }
+  const button = document.getElementById("write-point-approve");
+  button.disabled = true;
+  setWriteApprovalFeedback("Freigabe wird gespeichert …", "neutral");
+  try {
+    await postJson("/api/bacnet/write-points/approve", {
+      name: document.getElementById("write-point-name").value,
+      controller_ip: document.getElementById("write-point-controller-ip").value,
+      controller_port: 47808,
+      object_type: document.getElementById("write-point-object-type").value,
+      instance: Number(document.getElementById("write-point-instance").value),
+      write_priority: 14,
+    });
+    form.reset();
+    setWriteApprovalFeedback("Der Punkt ist freigegeben. Vor dem Test bleibt der Anlagen-Schreibschutz maßgeblich.", "ok");
+    await loadWritePoints();
+  } catch (error) {
+    setWriteApprovalFeedback(error.message, "warn");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function prefillWriteApproval(point) {
+  document.getElementById("write-point-name").value = point.name || "";
+  document.getElementById("write-point-controller-ip").value = point.controller_ip || "";
+  document.getElementById("write-point-object-type").value = point.object_type || "bv";
+  document.getElementById("write-point-instance").value = inputValue(point.instance);
+  document.getElementById("write-point-name")?.focus();
+}
+
+async function startWriteTest(pointId, value) {
+  setWriteApprovalFeedback("Schreibtest wird gestartet …", "neutral");
+  try {
+    const response = await postJson("/api/bacnet/write-test/start", { point_id: pointId, value });
+    setWriteApprovalFeedback(response.message || "Schreibtest aktiv. Die Rückgabe erfolgt automatisch.", response.effective === false ? "warn" : "ok");
+    await loadWritePoints();
+  } catch (error) {
+    setWriteApprovalFeedback(error.message, "warn");
+    await loadWritePoints();
+  }
+}
+
+async function releaseWriteTest(leaseId) {
+  if (!leaseId) {
+    return;
+  }
+  setWriteApprovalFeedback("BACnet-Priorität wird zurückgegeben …", "neutral");
+  try {
+    await postJson("/api/bacnet/write-test/release", { lease_id: leaseId });
+    setWriteApprovalFeedback("Die BACnet-Priorität wurde zurückgegeben.", "ok");
+  } catch (error) {
+    setWriteApprovalFeedback(error.message, "warn");
+  }
+  await loadWritePoints();
+}
+
+async function revokeWritePoint(pointId) {
+  if (!pointId) {
+    return;
+  }
+  setWriteApprovalFeedback("Freigabe wird aufgehoben …", "neutral");
+  try {
+    await postJson("/api/bacnet/write-points/revoke", { point_id: pointId });
+    setWriteApprovalFeedback("Die Freigabe wurde aufgehoben.", "ok");
+  } catch (error) {
+    setWriteApprovalFeedback(error.message, "warn");
+  }
+  await loadWritePoints();
+}
+
+function setWriteApprovalFeedback(message, tone = "neutral") {
+  const target = document.getElementById("write-approval-feedback");
+  if (target) {
+    target.className = `config-feedback ${tone}`;
+    target.textContent = message;
+  }
 }
 
 function renderSetupTableAndSteps() {
@@ -3389,6 +4039,7 @@ function setupDetailHtml(row) {
     return `<p class="config-note">Dieser Punkt wird über ein anderes Protokoll gelesen (${escapeHtml(protocolLabel(row.protocol))}). Änderungen bitte über die Direktbearbeitung unten.</p>`;
   }
   const disabled = "";
+  const writeCandidate = ["av", "bv"].includes(row.objectType) && setupRowStatus(row) === "write";
   return `
     <div class="config-point-fields mapping-detail-grid">
       <label>
@@ -3430,7 +4081,19 @@ function setupDetailHtml(row) {
       </label>
     </div>
     <p class="config-note">Quelle: ${escapeHtml(row.sourceLabel || "-")}${row.comment ? ` · ${escapeHtml(row.comment)}` : ""} · Bezeichnung laut Liste: ${escapeHtml(row.name)}</p>
+    ${writeCandidate ? '<button type="button" class="button" data-setup-prepare-write>Als Schreibtest vorbereiten</button>' : ""}
   `;
+}
+
+function setupEmsWriteName(row) {
+  const suffix = String(row.name || row.channelId || `${row.objectType}_${row.instance}`)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9_.-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 72);
+  return `EMS_${suffix || "TESTPUNKT"}`;
 }
 
 function bindSetupTableEvents(body) {
@@ -3456,6 +4119,27 @@ function bindSetupTableEvents(body) {
       }
       markSetupDraftChanged();
       renderSetupPage();
+    });
+  });
+  body.querySelectorAll("button[data-setup-prepare-write]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const row = setupRowById(button.closest("[data-setup-detail]")?.dataset.setupDetail);
+      const device = row ? setupState.devices.find((entry) => entry.id === row.deviceId) : null;
+      if (!row || !device?.host) {
+        setWriteApprovalFeedback("Bitte zuerst die Geräteadresse eintragen.", "warn");
+        setupState.activeStep = "geraete";
+        renderSetupPage();
+        return;
+      }
+      prefillWriteApproval({
+        name: setupEmsWriteName(row),
+        controller_ip: device.host,
+        object_type: row.objectType,
+        instance: row.instance,
+      });
+      setupState.activeStep = "schreiben";
+      renderSetupPage();
+      document.getElementById("setup-panel-schreiben")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
   body.querySelectorAll("[data-setup-field]").forEach((input) => {
@@ -3534,7 +4218,7 @@ function renderSetupActivateArea() {
       feedback.textContent = setupState.preview.message;
     } else if (setupState.loaded && !setupState.saveEnabled) {
       feedback.className = "config-feedback warn";
-      feedback.textContent = "Gesperrt: Auf der Anlage ist kein Freigabecode eingerichtet.";
+      feedback.textContent = "Gesperrt: Auf der Anlage ist noch kein Admin-Konto eingerichtet.";
     } else if (setupState.activation.done && setupState.activation.restartRequired && !setupState.dirty) {
       feedback.className = "config-feedback ok";
       feedback.textContent = "Einrichtung abgeschlossen. Bitte Mini EMS einmal neu starten, damit die neue Zuordnung verwendet wird.";

@@ -114,15 +114,16 @@ Leitentscheidungen:
     Gesamtkomplexität: fünf gleichgewichtete Hauptseiten, alle Einrichtungsschritte gleichzeitig und
     mehrere technische Freigabepfade.
   - **Umsetzung:** Standardnavigation enthält nur Übersicht, Analyse und Berichte. Standort-Einrichtung und
-    Technik liegen in einer separat zu öffnenden Verwaltung. Der Freigabecode wird einmal serverseitig
-    geprüft und nur für die laufende Browserseite gehalten. Die Startseite zeigt drei Kernwerte; Wetter und
-    individuelle Diagramme sind eingeklappt. Die Einrichtung zeigt immer genau einen von fünf Schritten,
+    Technik liegen in einer separat zu öffnenden Verwaltung. Persönliche Viewer-/Admin-Konten schützen die
+    Sitzung. Die Startseite zeigt drei Kernwerte; Wetter und individuelle Diagramme sind eingeklappt. Die
+    Einrichtung zeigt immer genau einen von sechs Schritten,
     prüft beim Abschluss automatisch und verwendet nur einen primären Übernehmen-Button.
-  - **Sicherheitsgrenze:** Im geschützten Netzwerkmodus sind Import, Vorschau und token-geschützte Aktivierung
+  - **Sicherheitsgrenze:** Im geschützten Netzwerkmodus sind Import, Vorschau und Admin-geschützte Aktivierung
     über denselben HTTPS-Link möglich. Live-Discovery, aktive Punkttests und betriebliche Anlagenaktionen
-    bleiben gesperrt. Persönliche Benutzerkonten und die Operator-Rolle sind weiterhin H6.
+    bleiben gesperrt. Viewer lesen; Admins konfigurieren und verwalten Punktfreigaben. Eine Operator-Rolle ist
+    weiterhin eine spätere Erweiterung.
   - **Definition of Done:** Eine fachfremde Testperson findet Anlagenzustand und Bericht ohne Einweisung,
-    öffnet mit Freigabecode die Verwaltung und durchläuft den Einrichtungsassistenten ohne PowerShell oder
+    meldet sich als Admin an und durchläuft den Einrichtungsassistenten ohne PowerShell oder
     alternative URL. Danach reale IPC-Abnahme über Caddy in Desktop- und Mobilbreite.
   - **IPC-Abnahme (2026-07-12, Betreiberbestätigung):** Das neue Release läuft fehlerfrei, die bestehende
     Konfiguration blieb erhalten und der Verwaltungszugang mit Freigabecode funktionierte. Offen bleibt nur
@@ -172,12 +173,12 @@ Leitentscheidungen:
     technische Details, Schreibrechte und Safety-Grenzen müssen erreichbar und verständlich bleiben.
   - **Definition of Done:** Ein neuer Konfigurator versteht ohne Erklärung, welche Schritte bis zur Aktivierung
     fehlen; die Seite zeigt Fortschritt, offene Prüfungen und nächsten sinnvollen Schritt.
-  - **Umsetzung:** Fünf klickbare Schrittkarten (erledigt/offen/bitte klären/gesperrt), aber immer nur ein
+  - **Umsetzung:** Sechs klickbare Schrittkarten (erledigt/offen/bitte klären/gesperrt), aber immer nur ein
     sichtbares Arbeitspanel mit Zurück/Weiter-Navigation; Einstieg
     in „Datenpunkte“ per Punktlisten-Upload (CSV/TSV/XLSX → `POST /api/config/pointlist/import`) als Standardweg
     und Discovery-Vorschau als sekundärer Weg mit ehrlichem Hinweis, wenn BACpypes3 fehlt. Rollenlogik sichtbar:
-    ohne konfigurierten Freigabecode ist „Abschließen“ sichtbar, aber als gesperrt erklärt. Im geschützten
-    Netzwerkmodus (`api_read_only`) bleiben Punktlisten-Import, Zuordnung und token-geschützte Aktivierung
+    ohne Admin-Konto ist „Abschließen“ sichtbar, aber als gesperrt erklärt. Im geschützten
+    Netzwerkmodus (`api_read_only`) bleiben Punktlisten-Import, Zuordnung und Admin-geschützte Aktivierung
     möglich; nur aktive Discovery und Punkttests sind ausgeblendet. Das bestehende Konfigurationsformular
     bleibt vollständig unter „Technische Einstellungen“ erhalten.
     `GET /api/config/site` liefert dafür zusätzlich die aktiven Kernadressen (`points`).
@@ -394,7 +395,7 @@ Leitentscheidungen:
   - **Risiken:** Rollen nicht zu früh technisch überbauen; zuerst UX- und Sicherheitsgrenzen klären.
   - **Definition of Done:** Für jede Rolle ist dokumentiert, welche Seiten, Aktionen und Daten sichtbar sind.
 
-- [ ] **UX12. Rollenbasierte Konfigurationsseite als Freigabeprozess gestalten**
+- [x] **UX12. Rollenbasierte Konfigurationsseite als Freigabeprozess gestalten**
   - **Was:** Eine spätere Konfigurationsseite nicht als freien JSON-Editor denken, sondern als geführten
     Entwurfs-, Prüf- und Freigabeprozess:
     - **Viewer:** sieht nur freigegebene, aktive Konfigurationszusammenfassungen, letzte Änderung, Status und
@@ -413,6 +414,10 @@ Leitentscheidungen:
   - **Definition of Done:** Für jede Rolle ist klar sichtbar, ob sie nur liest, einen Entwurf vorbereitet oder eine
     geprüfte Konfiguration aktiv speichert; aktive Konfiguration, Entwurf, Validierungsfehler, Backup und
     Neustartbedarf sind fachlich unterscheidbar.
+  - **Erledigt (2026-07-14):** Viewer und Admin sind technisch und visuell getrennt. Viewer sehen nur Betrieb,
+    Analyse und Berichte. Admins erhalten den sechsstufigen Einrichtungsfluss, Kontenverwaltung und einen eigenen
+    BACnet-Schreibschritt: `EMS_`-Punkt freigeben, zehn Sekunden testen, Wirksamkeit sehen und automatisch
+    zurückgeben. Die ursprünglich skizzierte Operator-Zwischenrolle ist bewusst noch nicht Teil dieses Releases.
 
 - [x] **UX13. Ersten Demo-Flow für bezahlten Pilot bauen** — erledigt, siehe `PILOT_DEMO.md`.
   - **Was:** Einen klaren Vorführpfad definieren: Dashboard öffnen, Zustand verstehen, Tagesreport erzeugen,
@@ -431,17 +436,16 @@ Leitentscheidungen:
 
 ## Empfohlener nächster Schritt
 
-**Als Nächstes UX23 auf der echten IPC abnehmen.** Die Release-Rückmeldung hat gezeigt, dass die einzeln
-erledigten UX-Aufgaben zusammen noch keine einfache Gesamtbedienung ergeben haben. Die lokal vereinfachte
-Navigation, einmalige Verwaltungsfreigabe und schrittweise Einrichtung müssen deshalb zuerst über Caddy mit
-einer fachfremden Testperson geprüft werden. Danach folgt H6 für persönliche Konten und die echte
-Operator-Rolle; der Freigabecode bleibt bis dahin der Pilotzugang für Admin-Arbeit.
+**Als Nächstes H6/UX12 als neues Release auf der echten IPC abnehmen.** Anmeldung, Viewer-/Admin-Trennung,
+Kontenverwaltung und der neue BACnet-Inbetriebnahmeschritt sind lokal umgesetzt. Nach Installation über den
+bestehenden Updatepfad folgt UX23 mit einer fachfremden Testperson über Caddy. Die Operator-Rolle ist bewusst
+kein Teil dieses ersten Rollen-Releases.
 
 **Standort-Schritte laufen parallel, außerhalb dieser Roadmap.** H2 (Release-Paket) und H3 (ACL-Härtung)
 sind auf der Pilot-IPC erledigt. Offen bleibt bei H4 (API intern binden/Proxy) und H5 (Read-only
 Netzwerkmodus) derselbe reale Nachweis von einem zweiten Rechner am Standort über Kundennetz/VPN/Secomea,
-ebenso bei To-do 3 (Online-Hosting-Nachweis). H6 (Login/Rollen) ist als Auswahlentscheidung noch offen.
-Diese Punkte aus `ROADMAP.md` sind reine Standort-/Betriebsnachweise bzw. Betriebsentscheidungen ohne
+ebenso bei To-do 3 (Online-Hosting-Nachweis). Für H6 steht nur die reale IPC-Release-Abnahme aus.
+Diese Punkte aus `ROADMAP.md` sind Standort-/Betriebsnachweise bzw. Betriebsentscheidungen ohne
 offenen UX-Bedarf und werden dort geführt.
 
 **Nächste Produktlinie:** S9 startet technisch mit einem kleinen read-only Edge-to-Cloud-Pfad. UX18 wird erst

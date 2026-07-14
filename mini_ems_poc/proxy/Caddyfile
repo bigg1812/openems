@@ -63,17 +63,8 @@ https://<ems-ipc.kunde.local> {
 	# vertrauen (siehe README.md, Abschnitt "Zertifikat auf dem Client").
 	tls internal
 
-	# --- Optionaler Login-Block – VORBEREITUNG FUER H6, NOCH INAKTIV ---
-	# NICHT aktivieren, solange H6 nicht freigegeben ist. Diese Stufe (H4)
-	# liefert TLS + kanalisierten Zugriff, aber noch KEINEN Login.
-	# Passwort-Hash erzeugen (NICHT im Repo ablegen):
-	#     caddy hash-password
-	# und den ausgegebenen bcrypt-Hash unten einsetzen.
-	#
-	# basic_auth {
-	#	# <benutzername> <bcrypt-hash-aus-caddy-hash-password>
-	#	viewer <bcrypt-hash-hier-einsetzen>
-	# }
+	# Login und Rollen prueft Mini EMS selbst. Caddy liefert hier bewusst nur
+	# TLS und den kontrollierten Reverse-Proxy-Einstieg; keine zweite Passwortschicht.
 
 	# --- Reverse Proxy auf die lokal gebundene Mini-EMS-API -----------
 	# 8090 ist NUR auf 127.0.0.1 gebunden (UI-Standortrevision: api.host=127.0.0.1),

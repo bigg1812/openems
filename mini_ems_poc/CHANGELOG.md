@@ -15,6 +15,13 @@ Repo-Datei wird vom Build nicht umgeschrieben, sondern bleibt manuelle Pflege
 
 ### Hinzugefügt
 
+- Persönliche lokale Viewer-/Admin-Konten mit scrypt-Passworthashes, serverseitigen Sitzungen, Login-Schutz,
+  Kontenverwaltung und getrenntem Security-Audit in `identity.sqlite`. Viewer lesen Betrieb, Historie und
+  Berichte; Admins konfigurieren. Der lokale Recovery-Befehl setzt bei bestehenden Konten ein temporäres
+  Admin-Passwort und widerruft alte Sitzungen.
+- Explizite BACnet-Inbetriebnahmefreigaben für eindeutig benannte `EMS_`-BV/AV-Punkte. Admin-Schreibtests
+  laufen zehn Sekunden auf Priorität 14, zeigen den wirksamen Wert und relinquishen automatisch; unfertige
+  Leases werden nach Neustart bereinigt. Modbus bleibt read-only.
 - Standortunabhängiger UI-Konfigurationspfad: `site.sqlite` speichert die aktive Standortkonfiguration,
   Mapping-Entwürfe, Audit-Metadaten und unveränderliche Revisionen transaktional. Neue Standorte starten sicher
   in Simulation; `--site-dir` ersetzt den produktiven `--config`-Startparameter.
@@ -23,11 +30,11 @@ Repo-Datei wird vom Build nicht umgeschrieben, sondern bleibt manuelle Pflege
 - Die erweiterte UI speichert nun auch Standortmetadaten, Netzwerk-Timeouts, Netzwerkmodus, Fail-safe,
   DDC-Heartbeat sowie BACnet-Schreibprioritäten und Rückgaberechte.
 - Konfigurationsseite als geführtes "Standort einrichten" (UX14-16, S5/S6): Standort → Geräte → Datenpunkte →
-  Testen → Abschließen mit Fortschrittskarten, Punktlisten-Upload (CSV/TSV/XLSX) und optionaler
+  Testen → Schreibzugriffe → Abschließen mit Fortschrittskarten, Punktlisten-Upload (CSV/TSV/XLSX) und optionaler
   BACnet-Discovery-Vorschau als Einstieg in "Datenpunkte", einer fachlichen Mapping-Tabelle (Bedeutung,
   Quelle, Live-Wert, Status statt technischer Rohpunkte) und "Alle Punkte testen" für einen sequenziellen
   Live-Check aller Zuordnungen in Inbetriebnahme-Sprache. „Einrichtung abschließen“ prüft erneut und übernimmt
-  nur mit lokalem Freigabecode über `POST /api/config/mapping/activate`; Backup, gespeicherter Entwurf,
+  nur in einer Admin-Sitzung über `POST /api/config/mapping/activate`; Backup, gespeicherter Entwurf,
   Audit-Eintrag und Neustarthinweis entstehen automatisch. Aktiver Stand, offener Entwurf und Neustartbedarf
   bleiben getrennt sichtbar. Das bisherige Konfigurationsformular bleibt als „Erweiterte Direktbearbeitung“
   vollständig erhalten.
@@ -48,7 +55,7 @@ Repo-Datei wird vom Build nicht umgeschrieben, sondern bleibt manuelle Pflege
   um; `-Rollback` schiebt den vorherigen App-Ordner zurück. Standortdaten
   (`SiteDir`) werden nie angefasst.
 - Smoketest nach dem Update: `windows/smoketest_release.ps1` prüft frische
-  `health.json` (`timestamp`, `runtime_status`), `/api/status` inkl.
+  `health.json` (`timestamp`, `runtime_status`), die minimale `/api/health`-Antwort inkl.
   erwarteter `app_version` und `api_read_only`, sowie das Log auf neue
   `ERROR`-Zeilen. Exit-Code 0/1 mit deutschen Meldungen.
 - Reale IPC-Abnahme des Release-Wechsels am 12.07.2026 durch den Betreiber bestätigt:

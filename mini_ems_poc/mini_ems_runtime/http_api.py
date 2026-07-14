@@ -1,5 +1,4 @@
 import copy
-import hmac
 import json
 import logging
 import math
@@ -7,6 +6,7 @@ import os
 import threading
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Dict, Optional
@@ -15,7 +15,9 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 from .bacnet_discovery import preview_bacnet_discovery_payload
+from .commissioning import CommissioningService
 from .config import ApiConfig, validate_raw_config
+from .identity import IdentityStore, IdentityUser, ROLE_ADMIN
 from .logging_utils import log_event
 from .mapping_config import build_mapping_config_patch
 from .pointlist_import import import_pointlist_payload
@@ -41,6 +43,9 @@ class MiniEmsApiServer:
         spotmarket_plan_writer: Optional[SpotmarketPlanWriter] = None,
         price_source_resolution: str = "quarterhour",
         app_version: Optional[Dict[str, object]] = None,
+        identity_store: Optional[IdentityStore] = None,
+        secure_cookies: bool = False,
+        commissioning_service: Optional[CommissioningService] = None,
     ):
         self.api_config = api_config
         self.runtime_db = runtime_db
@@ -52,6 +57,11 @@ class MiniEmsApiServer:
         self.logger = logger
         self.read_diagnostics = read_diagnostics
         self.site_store = site_store
+        self.identity_store = identity_store or (
+            IdentityStore(site_store.site_dir) if site_store is not None else None
+        )
+        self.secure_cookies = bool(secure_cookies)
+        self.commissioning_service = commissioning_service
         self._runtime_config_fingerprint = self._config_fingerprint()
         self.spotmarket_plan_writer = spotmarket_plan_writer
         self.price_source_resolution = str(price_source_resolution).lower()
@@ -97,8 +107,6 @@ class MiniEmsApiServer:
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:
                 parsed = urlparse(self.path)
-                if self._deny_in_read_only("GET", parsed.path):
-                    return
                 query = parse_qs(parsed.query)
                 try:
                     if parsed.path in ("/", "/dashboard", "/index.html"):
@@ -111,8 +119,34 @@ class MiniEmsApiServer:
                     if parsed.path == "/dashboard.js":
                         self._send_file(api_server.dashboard_dir / "dashboard.js", "application/javascript; charset=utf-8")
                         return
+                    if parsed.path == "/theme-init.js":
+                        self._send_file(api_server.dashboard_dir / "theme-init.js", "application/javascript; charset=utf-8")
+                        return
                     if parsed.path.startswith("/vendor/"):
                         self._send_vendor_asset(parsed.path[len("/vendor/"):])
+                        return
+                    if parsed.path == "/api/auth/status":
+                        self._send_json(api_server.auth_status_payload(self._session_token()))
+                        return
+                    if parsed.path == "/api/health":
+                        self._send_json(api_server.health_payload())
+                        return
+                    user = self._require_authenticated()
+                    if user is None:
+                        return
+                    if parsed.path in _ADMIN_GET_PATHS and user.role != ROLE_ADMIN:
+                        self._send_forbidden("Diese Funktion ist nur für Administratoren verfügbar.")
+                        return
+                    if self._deny_in_read_only("GET", parsed.path):
+                        return
+                    if parsed.path == "/api/auth/users":
+                        self._send_json(api_server.users_payload())
+                        return
+                    if parsed.path == "/api/auth/events":
+                        self._send_json(api_server.security_events_payload())
+                        return
+                    if parsed.path == "/api/bacnet/write-points":
+                        self._send_json(api_server._require_commissioning_service().points_payload())
                         return
                     if parsed.path == "/api/status":
                         self._send_json(api_server._get_status_payload())
@@ -209,18 +243,78 @@ class MiniEmsApiServer:
 
             def do_POST(self) -> None:
                 parsed = urlparse(self.path)
-                if self._deny_in_read_only("POST", parsed.path):
-                    return
                 try:
-                    if parsed.path == "/api/auth/admin/verify":
+                    if parsed.path == "/api/auth/bootstrap":
+                        payload = self._read_json_body()
                         try:
-                            api_server.verify_admin_access(self._admin_token())
-                            self._send_json({"authenticated": True, "role": "admin"})
+                            session = api_server.bootstrap_identity(payload)
+                            self._send_authenticated(session)
                         except PermissionError as error:
                             self._send_json(
                                 {"authenticated": False, "message": str(error)},
                                 status=HTTPStatus.FORBIDDEN,
                             )
+                        return
+                    if parsed.path == "/api/auth/login":
+                        payload = self._read_json_body()
+                        try:
+                            session = api_server.login(payload)
+                            self._send_authenticated(session)
+                        except PermissionError as error:
+                            self._send_json(
+                                {"authenticated": False, "message": str(error)},
+                                status=HTTPStatus.UNAUTHORIZED,
+                            )
+                        return
+                    if parsed.path == "/api/auth/logout":
+                        api_server.logout(self._session_token())
+                        self._send_json(
+                            {"authenticated": False},
+                            headers={"Set-Cookie": self._expired_session_cookie()},
+                        )
+                        return
+
+                    user = self._require_authenticated()
+                    if user is None:
+                        return
+                    if parsed.path not in _VIEWER_POST_PATHS and user.role != ROLE_ADMIN:
+                        self._send_forbidden("Diese Funktion ist nur für Administratoren verfügbar.")
+                        return
+                    if self._deny_in_read_only("POST", parsed.path):
+                        return
+                    if parsed.path == "/api/auth/users/create":
+                        payload = self._read_json_body()
+                        self._send_json(api_server.create_user_payload(payload, user))
+                        return
+                    if parsed.path == "/api/auth/users/update":
+                        payload = self._read_json_body()
+                        self._send_json(api_server.update_user_payload(payload, user))
+                        return
+                    if parsed.path == "/api/bacnet/write-points/approve":
+                        payload = self._read_json_body()
+                        self._send_json(api_server._require_commissioning_service().approve(payload, user))
+                        return
+                    if parsed.path == "/api/bacnet/write-points/revoke":
+                        payload = self._read_json_body()
+                        self._send_json(
+                            api_server._require_commissioning_service().revoke(
+                                str(payload.get("point_id") or ""),
+                                user,
+                            )
+                        )
+                        return
+                    if parsed.path == "/api/bacnet/write-test/start":
+                        payload = self._read_json_body()
+                        self._send_json(api_server._require_commissioning_service().start_test(payload, user))
+                        return
+                    if parsed.path == "/api/bacnet/write-test/release":
+                        payload = self._read_json_body()
+                        self._send_json(
+                            api_server._require_commissioning_service().release_test(
+                                str(payload.get("lease_id") or ""),
+                                user,
+                            )
+                        )
                         return
                     if parsed.path == "/api/config/spotmarket-lockout":
                         payload = self._read_json_body()
@@ -232,13 +326,7 @@ class MiniEmsApiServer:
                         return
                     if parsed.path == "/api/config/site/save":
                         payload = self._read_json_body()
-                        try:
-                            self._send_json(api_server.save_site_config_payload(payload, self._admin_token()))
-                        except PermissionError as error:
-                            self._send_json(
-                                {"saved": False, "message": str(error)},
-                                status=HTTPStatus.FORBIDDEN,
-                            )
+                        self._send_json(api_server.save_site_config_payload(payload, user))
                         return
                     if parsed.path == "/api/config/mapping/preview":
                         payload = self._read_json_body()
@@ -254,13 +342,7 @@ class MiniEmsApiServer:
                         return
                     if parsed.path == "/api/config/mapping/activate":
                         payload = self._read_json_body()
-                        try:
-                            self._send_json(api_server.activate_mapping_config_payload(payload, self._admin_token()))
-                        except PermissionError as error:
-                            self._send_json(
-                                {"activated": False, "message": str(error)},
-                                status=HTTPStatus.FORBIDDEN,
-                            )
+                        self._send_json(api_server.activate_mapping_config_payload(payload, user))
                         return
                     if parsed.path == "/api/report/preview":
                         payload = self._read_json_body()
@@ -270,6 +352,12 @@ class MiniEmsApiServer:
                     self._send_json(
                         {"error": "invalid_request", "message": str(error)},
                         status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                except PermissionError as error:
+                    self._send_json(
+                        {"error": "forbidden", "message": str(error)},
+                        status=HTTPStatus.FORBIDDEN,
                     )
                     return
                 except Exception as error:
@@ -292,7 +380,7 @@ class MiniEmsApiServer:
 
                 Deny-by-default: Im read-only Netzwerkmodus werden nicht freigegebene
                 POST-Methoden abgelehnt. Der UI-Konfigurationspfad bleibt verfügbar;
-                seine aktivierenden Endpunkte erzwingen weiterhin den Freigabecode.
+                seine aktivierenden Endpunkte erzwingen weiterhin die Admin-Rolle.
                 Zusaetzlich wird der aktive
                 Anlagen-Read GET /api/diagnostics/read explizit gesperrt (er loest
                 trotz GET einen Live-Lesezugriff aus, siehe HOSTING_SICHERHEIT.md
@@ -320,12 +408,17 @@ class MiniEmsApiServer:
                 return False
 
             def _read_json_body(self) -> Dict[str, object]:
+                content_type = str(self.headers.get("Content-Type", "")).split(";", 1)[0].strip().lower()
+                if content_type != "application/json":
+                    raise ValueError("Content-Type muss application/json sein.")
                 try:
                     content_length = int(self.headers.get("Content-Length", "0"))
                 except ValueError as error:
                     raise ValueError("Invalid Content-Length") from error
                 if content_length <= 0:
                     raise ValueError("Request body must not be empty")
+                if content_length > _MAX_JSON_BODY_BYTES:
+                    raise ValueError("Request body is too large")
                 raw = self.rfile.read(content_length)
                 try:
                     payload = json.loads(raw.decode("utf-8"))
@@ -335,21 +428,81 @@ class MiniEmsApiServer:
                     raise ValueError("Request body must be a JSON object")
                 return payload
 
-            def _admin_token(self) -> Optional[str]:
-                token = self.headers.get("X-Mini-Ems-Admin-Token")
-                if token:
-                    return token
-                authorization = self.headers.get("Authorization", "")
-                prefix = "Bearer "
-                if authorization.startswith(prefix):
-                    return authorization[len(prefix):].strip()
-                return None
+            def _session_token(self) -> Optional[str]:
+                raw_cookie = self.headers.get("Cookie", "")
+                if not raw_cookie:
+                    return None
+                cookie = SimpleCookie()
+                try:
+                    cookie.load(raw_cookie)
+                except Exception:
+                    return None
+                morsel = cookie.get(_SESSION_COOKIE_NAME)
+                return morsel.value if morsel is not None else None
 
-            def _send_json(self, payload: Dict[str, object], status: HTTPStatus = HTTPStatus.OK) -> None:
+            def _require_authenticated(self) -> Optional[IdentityUser]:
+                store = api_server.identity_store
+                user = store.session_user(self._session_token()) if store is not None else None
+                if user is None:
+                    self._send_json(
+                        {
+                            "error": "authentication_required",
+                            "message": "Bitte anmelden, um Mini EMS zu verwenden.",
+                        },
+                        status=HTTPStatus.UNAUTHORIZED,
+                    )
+                    return None
+                return user
+
+            def _send_forbidden(self, message: str) -> None:
+                self._send_json(
+                    {"error": "forbidden", "message": message},
+                    status=HTTPStatus.FORBIDDEN,
+                )
+
+            def _send_authenticated(self, session) -> None:
+                self._send_json(
+                    api_server.auth_status_payload(session.token),
+                    headers={"Set-Cookie": self._session_cookie(session.token)},
+                )
+
+            def _session_cookie(self, token: str) -> str:
+                parts = [
+                    "{0}={1}".format(_SESSION_COOKIE_NAME, token),
+                    "Path=/",
+                    "HttpOnly",
+                    "SameSite=Strict",
+                    "Max-Age=43200",
+                ]
+                if api_server.secure_cookies:
+                    parts.append("Secure")
+                return "; ".join(parts)
+
+            def _expired_session_cookie(self) -> str:
+                parts = [
+                    "{0}=".format(_SESSION_COOKIE_NAME),
+                    "Path=/",
+                    "HttpOnly",
+                    "SameSite=Strict",
+                    "Max-Age=0",
+                ]
+                if api_server.secure_cookies:
+                    parts.append("Secure")
+                return "; ".join(parts)
+
+            def _send_json(
+                self,
+                payload: Dict[str, object],
+                status: HTTPStatus = HTTPStatus.OK,
+                headers: Optional[Dict[str, str]] = None,
+            ) -> None:
                 raw = json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
+                self._send_security_headers()
+                for name, value in (headers or {}).items():
+                    self.send_header(name, value)
                 self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
                 self.wfile.write(raw)
@@ -359,6 +512,7 @@ class MiniEmsApiServer:
                 self.send_response(status)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Cache-Control", "no-store")
+                self._send_security_headers()
                 self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
                 self.wfile.write(raw)
@@ -377,6 +531,7 @@ class MiniEmsApiServer:
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "application/pdf")
                 self.send_header("Cache-Control", "no-store")
+                self._send_security_headers()
                 self.send_header("Content-Disposition", 'attachment; filename="mini-ems-report.pdf"')
                 self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
@@ -403,9 +558,16 @@ class MiniEmsApiServer:
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Cache-Control", "no-store")
+                self._send_security_headers()
                 self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
                 self.wfile.write(raw)
+
+            def _send_security_headers(self) -> None:
+                self.send_header("Content-Security-Policy", _CONTENT_SECURITY_POLICY)
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("X-Frame-Options", "DENY")
 
         return Handler
 
@@ -440,6 +602,84 @@ class MiniEmsApiServer:
         if isinstance(today_date, str) and today_date:
             return today_date
         return ""
+
+    def auth_status_payload(self, session_token: Optional[str]) -> Dict[str, object]:
+        store = self.identity_store
+        initialized = bool(store and store.is_initialized())
+        user = store.session_user(session_token) if store is not None else None
+        return {
+            "initialized": initialized,
+            "authenticated": user is not None,
+            "user": user.to_public_dict() if user is not None else None,
+            "permissions": _permissions_for(user),
+        }
+
+    def health_payload(self) -> Dict[str, object]:
+        health = self._load_json(self.health_path, {})
+        return {
+            "status": str(health.get("status") or "unknown"),
+            "timestamp": health.get("timestamp"),
+            "app_version": self.app_version,
+            "api_read_only": bool(self.api_config.read_only),
+        }
+
+    def bootstrap_identity(self, payload: Dict[str, object]):
+        store = self._require_identity_store()
+        return store.bootstrap_admin(
+            bootstrap_code=str(payload.get("bootstrap_code") or ""),
+            expected_code=str(self.api_config.config_admin_token or ""),
+            username=str(payload.get("username") or "admin"),
+            display_name=str(payload.get("display_name") or "Administrator"),
+            password=str(payload.get("password") or ""),
+        )
+
+    def login(self, payload: Dict[str, object]):
+        return self._require_identity_store().authenticate(
+            str(payload.get("username") or ""),
+            str(payload.get("password") or ""),
+        )
+
+    def logout(self, session_token: Optional[str]) -> None:
+        self._require_identity_store().revoke_session(session_token)
+
+    def users_payload(self) -> Dict[str, object]:
+        return {
+            "users": [user.to_public_dict() for user in self._require_identity_store().list_users()]
+        }
+
+    def create_user_payload(
+        self,
+        payload: Dict[str, object],
+        actor: IdentityUser,
+    ) -> Dict[str, object]:
+        user = self._require_identity_store().create_user(
+            username=str(payload.get("username") or ""),
+            display_name=str(payload.get("display_name") or ""),
+            role=str(payload.get("role") or "viewer"),
+            password=str(payload.get("password") or ""),
+            actor_user_id=actor.user_id,
+        )
+        return {"created": True, "user": user.to_public_dict()}
+
+    def update_user_payload(
+        self,
+        payload: Dict[str, object],
+        actor: IdentityUser,
+    ) -> Dict[str, object]:
+        enabled_value = payload.get("enabled")
+        if enabled_value is not None and not isinstance(enabled_value, bool):
+            raise ValueError("enabled muss true oder false sein.")
+        user = self._require_identity_store().update_user(
+            user_id=str(payload.get("user_id") or ""),
+            role=str(payload["role"]) if payload.get("role") is not None else None,
+            enabled=enabled_value,
+            password=str(payload["password"]) if payload.get("password") else None,
+            actor_user_id=actor.user_id,
+        )
+        return {"updated": True, "user": user.to_public_dict()}
+
+    def security_events_payload(self) -> Dict[str, object]:
+        return {"events": self._require_identity_store().recent_events(30)}
 
     def _get_status_payload(self) -> Dict[str, object]:
         health = self._load_json(self.health_path, {})
@@ -499,7 +739,7 @@ class MiniEmsApiServer:
         return {
             "config": _safe_site_config_view(raw, config),
             "editable_sections": list(_SITE_CONFIG_EDITABLE_SECTIONS),
-            "save_enabled": bool(self.api_config.config_admin_token),
+            "save_enabled": bool(self.identity_store and self.identity_store.is_initialized()),
             "restart_required_on_save": True,
             "restart_required": restart_required,
             "setup_required": not mapping_status["active"],
@@ -556,10 +796,9 @@ class MiniEmsApiServer:
     def save_site_config_payload(
         self,
         payload: Dict[str, object],
-        admin_token: Optional[str],
+        actor: Optional[IdentityUser],
     ) -> Dict[str, object]:
-        self._require_admin_token(admin_token, "Config save")
-
+        actor = _require_admin_actor(actor)
         previous = self._read_site_config()
         try:
             raw = self._candidate_config_from_payload(payload)
@@ -573,7 +812,7 @@ class MiniEmsApiServer:
         revision = store.save_revision(
             raw,
             action="site_config.save",
-            actor="local_admin",
+            actor=actor.username,
             details={
                 "restart_required": True,
                 "changed_sections": changed_sections,
@@ -597,10 +836,9 @@ class MiniEmsApiServer:
     def activate_mapping_config_payload(
         self,
         payload: Dict[str, object],
-        admin_token: Optional[str],
+        actor: Optional[IdentityUser],
     ) -> Dict[str, object]:
-        self._require_admin_token(admin_token, "Mapping activation")
-
+        actor = _require_admin_actor(actor)
         preview = self.preview_mapping_config_payload(payload)
         if not preview.get("valid"):
             return {
@@ -617,7 +855,7 @@ class MiniEmsApiServer:
         revision = store.save_revision(
             raw,
             action="mapping.activate",
-            actor="local_admin",
+            actor=actor.username,
             mapping_draft=payload,
             details={
                 "restart_required": True,
@@ -770,15 +1008,15 @@ class MiniEmsApiServer:
             raise ValueError("Der Standort-Speicher ist nicht verfügbar.")
         return self.site_store
 
-    def _require_admin_token(self, admin_token: Optional[str], action: str) -> None:
-        expected_token = self.api_config.config_admin_token
-        if not expected_token:
-            raise PermissionError("Freigabe ist deaktiviert: Auf der Anlage ist kein Freigabecode eingerichtet.")
-        if admin_token is None or not hmac.compare_digest(str(admin_token), str(expected_token)):
-            raise PermissionError("Der Freigabecode ist nicht gültig.")
+    def _require_identity_store(self) -> IdentityStore:
+        if self.identity_store is None:
+            raise ValueError("Der Benutzer-Speicher ist nicht verfügbar.")
+        return self.identity_store
 
-    def verify_admin_access(self, admin_token: Optional[str]) -> None:
-        self._require_admin_token(admin_token, "Admin access")
+    def _require_commissioning_service(self) -> CommissioningService:
+        if self.commissioning_service is None:
+            raise ValueError("Die BACnet-Inbetriebnahme ist nicht verfügbar.")
+        return self.commissioning_service
 
     def _config_fingerprint(self) -> Optional[str]:
         return self.site_store.active_fingerprint() if self.site_store is not None else None
@@ -890,20 +1128,73 @@ class MiniEmsApiServer:
 # GET-Endpunkte, die trotz GET im read-only Netzwerkmodus (H5) gesperrt bleiben,
 # weil sie einen aktiven Lesezugriff auf die Anlage ausloesen (HOSTING_SICHERHEIT.md
 # Abschnitt 2.1). Alle nicht-GET-Methoden werden ohnehin deny-by-default gesperrt.
+_SESSION_COOKIE_NAME = "mini_ems_session"
+_MAX_JSON_BODY_BYTES = 10 * 1024 * 1024
+_CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; "
+    "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; "
+    "frame-ancestors 'none'; form-action 'self'"
+)
+
+_ADMIN_GET_PATHS = frozenset({
+    "/api/auth/users",
+    "/api/auth/events",
+    "/api/bacnet/write-points",
+    "/api/config/site",
+    "/api/config/changes",
+    "/api/diagnostics/read",
+})
+
+_VIEWER_POST_PATHS = frozenset({
+    "/api/auth/logout",
+    "/api/report/preview",
+})
+
 _READ_ONLY_BLOCKED_GET_PATHS = frozenset({"/api/diagnostics/read"})
 
 # UI-Konfiguration bleibt auch im geschuetzten Netzwerkmodus nutzbar. Nur die
-# beiden persistierenden Pfade speichern Zustand und beide verlangen im Handler
-# zusaetzlich den lokalen Freigabecode. Discovery bleibt als aktiver Anlagenread
+# persistierenden Pfade speichern Zustand und verlangen im Handler zusätzlich
+# eine authentifizierte Admin-Rolle. Discovery bleibt als aktiver Anlagenread
 # gesperrt; Punktlisten-Import und Vorschau arbeiten nur auf dem Request-Inhalt.
 _READ_ONLY_CONFIG_POST_PATHS = frozenset({
-    "/api/auth/admin/verify",
+    "/api/auth/bootstrap",
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/users/create",
+    "/api/auth/users/update",
+    "/api/bacnet/write-points/approve",
+    "/api/bacnet/write-points/revoke",
+    "/api/bacnet/write-test/release",
     "/api/config/site/validate",
     "/api/config/site/save",
     "/api/config/mapping/preview",
     "/api/config/pointlist/import",
     "/api/config/mapping/activate",
 })
+
+
+def _permissions_for(user: Optional[IdentityUser]) -> list[str]:
+    if user is None:
+        return []
+    permissions = ["dashboard.read", "history.read", "reports.read"]
+    if user.role == ROLE_ADMIN:
+        permissions.extend(
+            [
+                "site.configure",
+                "mapping.configure",
+                "diagnostics.read",
+                "users.manage",
+                "bacnet.approve",
+                "bacnet.write_test",
+            ]
+        )
+    return permissions
+
+
+def _require_admin_actor(actor: Optional[IdentityUser]) -> IdentityUser:
+    if actor is None or not actor.enabled or actor.role != ROLE_ADMIN:
+        raise PermissionError("Diese Änderung ist nur für Administratoren verfügbar.")
+    return actor
 
 
 _SITE_CONFIG_EDITABLE_SECTIONS = (

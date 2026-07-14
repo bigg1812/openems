@@ -180,22 +180,17 @@ Diese Punkte bleiben Kandidaten für später, sind aber ausdrücklich nicht Teil
 
 ## 3. Rollenmodell (UX11)
 
-Fachliche Definition der Rollen **Viewer**, **Operator** und **Admin**. Der Pilot setzt davon bereits zwei
-Oberflächenstufen um: Viewer/Operator sehen zuerst den Betrieb; Admin öffnet die Verwaltung einmalig mit
-dem vorhandenen Freigabecode. Der Code wird serverseitig geprüft und nur im Arbeitsspeicher der geöffneten
-Browserseite gehalten. Persönliche Konten, Rechte pro Benutzer und eine eigenständige Operator-Anmeldung
-bleiben Teil der späteren Login-/Hosting-Logik (technische Roadmap H6).
+Im ersten Rollen-Release sind genau **Viewer** und **Admin** technisch umgesetzt. Persönliche Konten und
+serverseitige Sitzungen ersetzen den früheren dauerhaften Freigabecode-Zugang. Eine Operator-Zwischenrolle
+bleibt eine spätere Produkterweiterung, wenn echte betriebliche Stellhandlungen diesen Bedarf belegen.
 
 ### 3.1 Prinzipien
 
-1. **Read-only zuerst (konsistent mit H5):** Der erste Netzwerkzugriff von außerhalb der IPC ist
-   die Viewer-Rolle. Alles, was in den Betrieb eingreift oder die Anlage aktiv anspricht, gehört
-   mindestens zur Operator-Rolle und bleibt zunächst dem lokalen bzw. ausdrücklich freigegebenen
-   Zugriff vorbehalten.
+1. **Read-only zuerst (konsistent mit H5):** Viewer lesen ausschließlich. Admin-Rechte heben den
+   rollenunabhängigen API-Schreibschutz nicht auf.
 2. **Sehen ist nicht Steuern:** Auch Viewer sehen ehrliche Zustände inklusive Warnungen – Vertrauen
    entsteht durch Sichtbarkeit, nicht durch Ausblenden. Nur Eingriffe sind rollenbeschränkt.
-3. **Technische Details wandern nach oben:** Interne IDs, Rohdiagnosen, Konfigurationsdateien und
-   Logs erscheinen erst ab Operator (Diagnose) bzw. Admin (Systemdateien).
+3. **Technische Details wandern nach oben:** Diagnose, Konfiguration, Konten und Freigaben erscheinen nur für Admins.
 4. **Keine verdeckten Schreibpfade:** Eine Ansicht darf keiner Rolle Aktionen anbieten, die ihr
    nicht erlaubt sind – Buttons werden ausgeblendet, nicht nur deaktiviert (H5-Risikohinweis).
 
@@ -204,61 +199,41 @@ bleiben Teil der späteren Login-/Hosting-Logik (technische Roadmap H6).
 | Rolle | Typische Person | Kernfrage |
 | --- | --- | --- |
 | Viewer | Kundenseitige Ansprechperson, Management, Gast per VPN/Secomea | „Läuft die Anlage, und was hat sie geleistet?" |
-| Operator | Betreiber/Hausmeister vor Ort, Energieverantwortlicher | „Muss ich etwas tun, und darf ich Einstellungen anpassen?" |
 | Admin | Interner Betrieb / Inbetriebnahme / Service | „Ist das System richtig konfiguriert und wartbar?" |
 
 ### 3.3 Seiten je Rolle
 
-| Seite | Viewer | Operator | Admin |
-| --- | --- | --- | --- |
-| Dashboard (Übersicht, KPIs, Preisdiagramm, Wetter, Preisfenster) | sichtbar | sichtbar | sichtbar |
-| Analyse (Datenpunkte, Historie, gespeicherte Ansichten) | sichtbar | sichtbar | sichtbar |
-| Berichte (Vorschau, HTML/PDF/CSV-Abruf) | sichtbar | sichtbar | sichtbar |
-| Technik und Status (Signale, Diagnose, letzte Läufe) | nicht in der Standardnavigation | geplant | sichtbar |
-| System – Diagnose (Preisprüfung, technische Details) | nicht sichtbar | sichtbar | sichtbar |
-| Standort einrichten / technische Einstellungen | nicht sichtbar | nicht sichtbar | sichtbar nach Freigabecode |
+| Seite | Viewer | Admin |
+| --- | --- | --- |
+| Übersicht, Analyse, Berichte | sichtbar | sichtbar |
+| Technik und Status | nicht sichtbar | sichtbar |
+| Standort einrichten | nicht sichtbar | sichtbar |
+| Konten und Rollen | nicht sichtbar | sichtbar |
 
 ### 3.4 Aktionen je Rolle
 
-| Aktion (heutiger Pfad) | Viewer | Operator | Admin |
-| --- | --- | --- | --- |
-| Daten ansehen, Zeitraum/Zeitraster wählen, Diagramme lesen | ja | ja | ja |
-| Berichte erzeugen und herunterladen (HTML/PDF/CSV) | ja | ja | ja |
-| Eigene Dashboard-/Analyse-Ansichten speichern (nur im eigenen Browser) | ja | ja | ja |
-| Preisprüfung ausführen (`/api/diagnostics/read`, aktiver Lesezugriff auf die Anlage) | nein | ja | ja |
-| Preissteuerung einstellen (Mindestdauer der Preisfenster, `POST /api/config/spotmarket-lockout`) | nein | ja | ja |
-| Standortkonfiguration ändern (UI, Grenzwerte, Datenpunkte) | nein | nein | ja |
-| Runtime starten/stoppen, Updates, Logs und Datenbank einsehen | nein | nein | ja |
-| Schreibfreigaben an der Anlage ändern (Safety-Flags) | nein | nein | ja (nur lokal/administrativ, nie über den Netzwerkzugriff) |
-
-Begründung der beiden Grenzfälle:
-
-- **Preisprüfung ist Operator, nicht Viewer:** Sie löst echte Lesezugriffe auf die Anlage aus und
-  ist damit keine reine Anzeige – im read-only Netzwerkmodus (H5) darf dieser Endpunkt von außen
-  nicht erreichbar sein.
-- **Preissteuerungs-Einstellung ist Operator, nicht Admin:** Sie ändert nur das Planungsverhalten
-  (Mindestdauer der Preisfenster), keine Sicherheits- oder Schreibfreigaben. Das ist eine
-  betriebliche Entscheidung des Betreibers, keine Systemadministration.
+| Aktion (heutiger Pfad) | Viewer | Admin |
+| --- | --- | --- |
+| Daten ansehen, Diagramme und Berichte verwenden | ja | ja |
+| Diagnose und Standortkonfiguration | nein | ja |
+| Konten anlegen, Rollen ändern, Passwörter setzen | nein | ja |
+| BACnet-BV/AV als `EMS_`-Testpunkt freigeben | nein | ja |
+| Zehnsekündigen BACnet-Schreibtest starten | nein | nur wenn `api.read_only=false` und Runtime-Writes freigegeben sind |
+| Runtime/Windows-Task und Dateien administrieren | nein | nur mit lokalem IPC-Adminzugang |
 
 ### 3.5 Daten je Rolle
 
-| Datenbereich | Viewer | Operator | Admin |
-| --- | --- | --- | --- |
-| Kennzahlen, Messwerte, Historie, Preise, Wetter, Preisfenster | ja | ja | ja |
-| Zustands- und Qualitätsmeldungen in Betreiber-Sprache (inkl. sicherer Modus) | ja | ja | ja |
-| Berichte (Tagesbericht, künftige Wochenübersicht) | ja | ja | ja |
-| Technische Diagnosedetails (interne Kanal-IDs, Rohfehlermeldungen, Einzelmessungen) | nein | ja | ja |
-| Konfigurationsdateien, Logdateien, Datenbankdateien, Zugangsdaten | nein | nein | ja |
+| Datenbereich | Viewer | Admin |
+| --- | --- | --- |
+| Kennzahlen, Messwerte, Historie, Preise, Wetter, Berichte | ja | ja |
+| Technische Diagnose, Standortrevisionen, Security-Audit | nein | ja |
+| Passworthashes und rohe Sitzungstoken | nein | nein; werden auch über die API nie ausgegeben |
 
 ### 3.6 Abgleich mit der Sicherheitslinie (ROADMAP.md)
 
-- **H5 (geschützter Netzwerkmodus):** Viewer sehen Dashboard, Analyse und Berichte ohne aktive
-  Anlagenzugriffe. Ein Admin kann denselben HTTPS-Zugang nach serverseitiger Prüfung des Freigabecodes
-  für Konfigurations-Import, Vorschau und Aktivierung nutzen. Aktive Discovery, Live-Diagnose und
-  betriebliche Anlagenaktionen bleiben gesperrt.
-- **H6 (Login und Rollenlogik):** Dieses Rollenmodell ist die fachliche Vorlage für H6;
-  persönliche Konten, Operator-Rechte und Sitzungsverwaltung bleiben dort.
+- **H5 (geschützter Netzwerkmodus):** `api.read_only` blockiert aktive Anlagenzugriffe unabhängig von Viewer/Admin.
+- **H6 (Login und Rollenlogik):** Viewer/Admin, Konten und Sitzungen sind umgesetzt; Operator ist bewusst später.
 - **H1/H3 (Sichtbarkeitsgrenze):** Nur Admin sieht Runtime-Dateien, Standortkonfiguration und Logs –
   passend zur Festlegung, dass normale Benutzer das UI öffnen, aber keine Systemdateien durchsuchen.
-- **Schreibpfad zur Anlage:** Echte Anlagen-Schreibvorgänge und Safety-Flags bleiben außerhalb
-  jeder Netzwerk-Rolle; sie sind lokaler Admin-Betrieb auf der IPC.
+- **Schreibpfad zur Anlage:** Admin ist notwendig, aber nie hinreichend. Zusätzlich gelten Punktfreigabe,
+  `EMS_`-Namenskonvention, sichere Priorität, Runtime-Write-Freigabe und der unabhängige API-Schreibschutz.

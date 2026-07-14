@@ -5,11 +5,9 @@ Setzt die Endpunkt-Einstufung aus HOSTING_SICHERHEIT.md Abschnitt 2.1 durch:
 - api.read_only Default False -> Verhalten unveraendert (Bestandssuite deckt das ab;
   hier zusaetzlich explizit geprueft, dass POST- und diagnostics/read-Pfade nicht 403 sind).
 - api.read_only True -> Anlagenaktionen und GET /api/diagnostics/read liefern
-  403. Der UI-Konfigurationspfad bleibt erreichbar; Speichern und Aktivieren
-  verlangen weiterhin den Freigabecode.
-- Die Config-Editor-Pipeline, die seit Commit e5417edd2 hinzugekommen ist
-  (POST /api/config/pointlist/import, POST /api/config/discovery/bacnet/preview,
-  POST /api/config/mapping/activate), ist explizit inventarisiert.
+  403. Der UI-Konfigurationspfad bleibt für eine Admin-Sitzung erreichbar.
+- Anmeldung, Rollenverwaltung und BACnet-Inbetriebnahme sind vollständig
+  inventarisiert. Admin-Sitzungen ersetzen den früheren Freigabecode-Header.
 - ReadOnlyGuardStructuralTest scannt do_POST in http_api.py und stellt sicher,
   dass jeder dort verdrahtete POST-Pfad in dieser Testliste vorkommt, damit
   kuenftige neue Endpunkte nicht unbemerkt an der Sperre vorbeirutschen.
@@ -37,6 +35,7 @@ def _free_port() -> int:
 from mini_ems_poc.mini_ems_runtime import http_api as http_api_module
 from mini_ems_poc.mini_ems_runtime.config import validate_raw_config
 from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
+from mini_ems_poc.mini_ems_runtime.identity import IdentityStore
 from mini_ems_poc.mini_ems_runtime.runtime_db import RuntimeDatabase
 from mini_ems_poc.mini_ems_runtime.site_store import SiteConfigStore
 from mini_ems_poc.tests.test_config_api import make_raw_config
@@ -51,6 +50,12 @@ API_ENDPOINTS = [
     ("GET", "/index.html", False),
     ("GET", "/dashboard.css", False),
     ("GET", "/dashboard.js", False),
+    ("GET", "/theme-init.js", False),
+    ("GET", "/api/auth/status", False),
+    ("GET", "/api/health", False),
+    ("GET", "/api/auth/users", False),
+    ("GET", "/api/auth/events", False),
+    ("GET", "/api/bacnet/write-points", False),
     ("GET", "/api/status", False),
     ("GET", "/api/config/spotmarket-lockout", False),
     ("GET", "/api/config/site", False),
@@ -68,8 +73,16 @@ API_ENDPOINTS = [
     ("GET", "/api/diagnostics/read", True),
     # Anlagen-/Bedienaktionen bleiben gesperrt
     ("POST", "/api/config/spotmarket-lockout", True),
-    # Verwaltungszugang und Konfigurationsfluss bleiben erreichbar.
-    ("POST", "/api/auth/admin/verify", False),
+    # Anmeldung, Verwaltung und Konfigurationsfluss bleiben erreichbar.
+    ("POST", "/api/auth/bootstrap", False),
+    ("POST", "/api/auth/login", False),
+    ("POST", "/api/auth/logout", False),
+    ("POST", "/api/auth/users/create", False),
+    ("POST", "/api/auth/users/update", False),
+    ("POST", "/api/bacnet/write-points/approve", False),
+    ("POST", "/api/bacnet/write-points/revoke", False),
+    ("POST", "/api/bacnet/write-test/start", True),
+    ("POST", "/api/bacnet/write-test/release", False),
     ("POST", "/api/config/site/validate", False),
     ("POST", "/api/config/site/save", False),
     ("POST", "/api/config/mapping/preview", False),
@@ -85,23 +98,15 @@ BLOCKED_ENDPOINTS = [(m, p) for (m, p, blocked) in API_ENDPOINTS if blocked]
 # (Wetterdienst / PDF-Renderer); fuer die offline/deterministische Erreichbarkeits-
 # Stichprobe ausgenommen. Ihre Read-only-Einstufung (Freigabe) aendert sich dadurch nicht.
 _LIVE_DEPENDENT_PATHS = frozenset({"/api/weather", "/api/report/pdf"})
-_TOKEN_PROTECTED_PATHS = frozenset({
-    "/api/auth/admin/verify",
-    "/api/config/site/save",
-    "/api/config/mapping/activate",
-})
 NON_BLOCKED_ENDPOINTS = [
     (m, p)
     for (m, p, blocked) in API_ENDPOINTS
-    if not blocked and p not in _LIVE_DEPENDENT_PATHS and p not in _TOKEN_PROTECTED_PATHS
+    if not blocked and p not in _LIVE_DEPENDENT_PATHS
 ]
 
 
 class ReadOnlyApiTestBase(unittest.TestCase):
     read_only = False
-    # Optional Admin-Token fuer Unterklassen, die pruefen, dass die read-only
-    # Sperre auch mit einem gueltigen Admin-Token nicht umgangen werden kann.
-    admin_token: Optional[str] = None
 
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -112,12 +117,22 @@ class ReadOnlyApiTestBase(unittest.TestCase):
         self.logger.handlers.clear()
         self.logger.addHandler(logging.NullHandler())
 
-        raw = make_raw_config(config_admin_token=self.admin_token)
+        self.bootstrap_code = "test-bootstrap-code-for-read-only"
+        raw = make_raw_config(config_admin_token=self.bootstrap_code)
         raw["api"]["read_only"] = self.read_only
         # Freier Port: damit aufeinanderfolgende Testserver nicht auf 8090 kollidieren.
         raw["api"]["port"] = _free_port()
         self.site_store.save_revision(raw, action="site.bootstrap", actor="test")
         config = validate_raw_config(raw, base_dir=self.base_dir)
+        self.identity_store = IdentityStore(self.base_dir)
+        session = self.identity_store.bootstrap_admin(
+            bootstrap_code=self.bootstrap_code,
+            expected_code=self.bootstrap_code,
+            username="admin",
+            display_name="Test Admin",
+            password="sicheres-testpasswort",
+        )
+        self.admin_cookie = "mini_ems_session={0}".format(session.token)
 
         # Minimaler Dashboard-Ordner + Zustandsdateien, damit die Freigabeliste
         # echte Antworten statt 404 liefert.
@@ -126,6 +141,7 @@ class ReadOnlyApiTestBase(unittest.TestCase):
         (dashboard_dir / "index.html").write_text("<html>ok</html>", encoding="utf-8")
         (dashboard_dir / "dashboard.css").write_text("/* ok */", encoding="utf-8")
         (dashboard_dir / "dashboard.js").write_text("// ok", encoding="utf-8")
+        (dashboard_dir / "theme-init.js").write_text("// ok", encoding="utf-8")
         for path, payload in (
             (config.health_path, {"status": "healthy", "today_date": "2026-04-01"}),
             (config.state_path, {"safe_mode_active": False}),
@@ -146,17 +162,27 @@ class ReadOnlyApiTestBase(unittest.TestCase):
             logger=self.logger,
             read_diagnostics=None,
             site_store=self.site_store,
+            identity_store=self.identity_store,
         )
         self.server.start()
         self.addCleanup(self.server.stop)
         self.host = self.server._server.server_address[0]
         self.port = self.server._server.server_address[1]
 
-    def _request(self, method: str, path: str, headers: Optional[Dict[str, str]] = None):
+    def _request(
+        self,
+        method: str,
+        path: str,
+        headers: Optional[Dict[str, str]] = None,
+        payload: Optional[Dict[str, object]] = None,
+        authenticated: bool = True,
+    ):
         connection = http.client.HTTPConnection(self.host, self.port, timeout=5)
         try:
-            body = "{}" if method == "POST" else None
+            body = json.dumps(payload or {}) if method == "POST" else None
             request_headers = {"Content-Type": "application/json"} if method == "POST" else {}
+            if authenticated:
+                request_headers["Cookie"] = self.admin_cookie
             if headers:
                 request_headers.update(headers)
             connection.request(method, path, body=body, headers=request_headers)
@@ -192,7 +218,7 @@ class ReadOnlyDefaultOffTest(ReadOnlyApiTestBase):
         # Standard-Verhalten unveraendert: bei Default off darf die zentrale
         # Read-only-Sperre auf keinem der im read-only Modus gesperrten Pfade
         # ausloesen. Ein Endpunkt kann aus anderen Gruenden 403 liefern (z. B.
-        # site/save ohne Admin-Token) - entscheidend ist, dass es nicht der
+        # fehlende/ungültige Nutzdaten) - entscheidend ist, dass es nicht der
         # read_only_mode-Fehler ist.
         for method, path in BLOCKED_ENDPOINTS:
             with self.subTest(method=method, path=path):
@@ -233,11 +259,20 @@ class ReadOnlyEnabledTest(ReadOnlyApiTestBase):
         # Liste), die im read-only Modus weiter funktionieren muessen.
         for method, path in NON_BLOCKED_ENDPOINTS:
             with self.subTest(method=method, path=path):
-                status, _ = self._request(method, path)
-                self.assertNotEqual(status, 403, "{0} {1} must stay reachable".format(method, path))
+                _status, raw = self._request(method, path)
+                payload = {}
+                try:
+                    payload = json.loads(raw.decode("utf-8"))
+                except (UnicodeDecodeError, ValueError):
+                    pass
+                self.assertNotEqual(
+                    payload.get("error"),
+                    "read_only_mode",
+                    "{0} {1} must not hit the read-only gate".format(method, path),
+                )
 
     def test_sample_allowlist_endpoints_ok(self) -> None:
-        for path in ("/api/status", "/api/report/daily", "/dashboard"):
+        for path in ("/api/status", "/api/health", "/api/report/daily", "/dashboard"):
             with self.subTest(path=path):
                 status, _ = self._request("GET", path)
                 self.assertEqual(status, 200)
@@ -254,45 +289,32 @@ class ReadOnlyEnabledTest(ReadOnlyApiTestBase):
         self.assertNotIn("user", event)
 
 
-class ReadOnlyAllowsProtectedUiConfigurationTest(ReadOnlyApiTestBase):
-    """Der UI-Konfigurationspfad bleibt mit Freigabecode erreichbar."""
+class ReadOnlyAllowsAuthenticatedUiConfigurationTest(ReadOnlyApiTestBase):
+    """Der UI-Konfigurationspfad bleibt mit einer Admin-Sitzung erreichbar."""
 
     read_only = True
-    admin_token = "test-admin-token-for-read-only-guard"
 
-    def _assert_reaches_handler_with_admin_token(self, path: str) -> None:
-        status, raw = self._request(
-            "POST",
-            path,
-            headers={"X-Mini-Ems-Admin-Token": self.admin_token},
-        )
-        self.assertEqual(status, 200, "{0} should reach its token-protected handler".format(path))
+    def _assert_reaches_admin_handler(self, path: str) -> None:
+        status, raw = self._request("POST", path)
+        self.assertEqual(status, 200, "{0} should reach its authenticated handler".format(path))
         payload = json.loads(raw.decode("utf-8"))
         self.assertNotEqual(payload.get("error"), "read_only_mode")
 
-    def test_admin_verify_accepts_valid_token(self) -> None:
-        status, raw = self._request(
-            "POST",
-            "/api/auth/admin/verify",
-            headers={"X-Mini-Ems-Admin-Token": self.admin_token},
-        )
+    def test_auth_status_accepts_session_cookie(self) -> None:
+        status, raw = self._request("GET", "/api/auth/status")
         self.assertEqual(status, 200)
         self.assertTrue(json.loads(raw.decode("utf-8"))["authenticated"])
 
-    def test_admin_verify_rejects_invalid_token(self) -> None:
-        status, raw = self._request(
-            "POST",
-            "/api/auth/admin/verify",
-            headers={"X-Mini-Ems-Admin-Token": "wrong"},
-        )
-        self.assertEqual(status, 403)
+    def test_auth_status_rejects_missing_session(self) -> None:
+        status, raw = self._request("GET", "/api/auth/status", authenticated=False)
+        self.assertEqual(status, 200)
         self.assertFalse(json.loads(raw.decode("utf-8"))["authenticated"])
 
-    def test_mapping_activate_reaches_handler_with_valid_admin_token(self) -> None:
-        self._assert_reaches_handler_with_admin_token("/api/config/mapping/activate")
+    def test_mapping_activate_reaches_handler_with_admin_session(self) -> None:
+        self._assert_reaches_admin_handler("/api/config/mapping/activate")
 
-    def test_site_save_reaches_handler_with_valid_admin_token(self) -> None:
-        self._assert_reaches_handler_with_admin_token("/api/config/site/save")
+    def test_site_save_reaches_handler_with_admin_session(self) -> None:
+        self._assert_reaches_admin_handler("/api/config/site/save")
 
 
 class ReadOnlyGuardStructuralTest(unittest.TestCase):

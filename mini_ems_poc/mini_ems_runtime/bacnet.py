@@ -428,7 +428,13 @@ def _parse_read_property_ack_float(data: bytes, object_type: int, instance: int)
     value_section = _read_property_value_section(data, object_type, instance)
     if value_section is None:
         return None
-    return _scan_real_value(value_section)
+    real_value = _scan_real_value(value_section)
+    if real_value is not None:
+        return real_value
+    if object_type == BACNET_BV:
+        enumerated_value = _scan_enumerated_value(value_section)
+        return float(enumerated_value) if enumerated_value is not None else None
+    return None
 
 
 def _is_simple_ack(data: bytes, invoke_id: int, service_choice: int) -> bool:
@@ -488,6 +494,17 @@ def _scan_real_value(data: bytes) -> Optional[float]:
     for index in range(len(data) - 4):
         if data[index] == 0x44:
             return round(struct.unpack(">f", data[index + 1:index + 5])[0], 4)
+    return None
+
+
+def _scan_enumerated_value(data: bytes) -> Optional[int]:
+    for index, tag in enumerate(data):
+        if tag >> 4 != 9 or tag & 0x08:
+            continue
+        length = tag & 0x07
+        if length < 1 or length > 4 or index + 1 + length > len(data):
+            continue
+        return int.from_bytes(data[index + 1:index + 1 + length], "big")
     return None
 
 

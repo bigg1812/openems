@@ -108,7 +108,7 @@ Dieser Ablauf ist Laptop-Arbeit. Auf der IPC wird erst am Ende getestet
 # Einzelzyklus mit einem frischen sicheren Standort-Speicher:
 packaging/dist/mini_ems/mini_ems --site-dir <temp-standort> --once
 
-# Kurzer Loop auf einem freien Port zum Prüfen von /api/status und /dashboard:
+# Kurzer Loop auf einem freien Port zum Prüfen von /api/health, Login und /dashboard:
 packaging/dist/mini_ems/mini_ems --site-dir <temp-standort> --loop
 ```
 

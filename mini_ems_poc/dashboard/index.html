@@ -4,16 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mini EMS Leitstand</title>
-  <script>
-    (function () {
-      try {
-        var stored = localStorage.getItem("miniEmsTheme");
-        document.documentElement.setAttribute("data-theme", stored === "dark" ? "dark" : "light");
-      } catch (error) {
-        document.documentElement.setAttribute("data-theme", "light");
-      }
-    })();
-  </script>
+  <script src="/theme-init.js"></script>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/vendor/uPlot.min.css">
   <link rel="stylesheet" href="/dashboard.css">
@@ -39,10 +30,10 @@
         <div class="nav-admin-block">
           <button class="nav-admin-button" id="admin-access-button" type="button" aria-expanded="false">
             <span>
-              <span class="nav-group-label">Verwaltung</span>
-              <strong id="admin-access-label">Verwaltung öffnen</strong>
+              <span class="nav-group-label" id="admin-access-role">Zugang</span>
+              <strong id="admin-access-label">Anmelden</strong>
             </span>
-            <span aria-hidden="true">›</span>
+            <span id="admin-access-symbol" aria-hidden="true">›</span>
           </button>
           <div class="nav-admin-links" id="admin-nav-links" hidden>
             <a href="#/konfiguration" class="nav-link" data-page="konfiguration">
@@ -51,7 +42,13 @@
             <a href="#/system" class="nav-link" data-page="system">
               <span class="nav-icon" aria-hidden="true">◉</span>Technik und Status
             </a>
+            <a href="#/zugriff" class="nav-link" data-page="zugriff">
+              <span class="nav-icon" aria-hidden="true">◇</span>Konten und Rollen
+            </a>
           </div>
+          <button class="nav-link nav-logout" id="logout-button" type="button" hidden>
+            <span class="nav-icon" aria-hidden="true">↪</span>Abmelden
+          </button>
         </div>
       </nav>
       <div class="nav-status">
@@ -354,7 +351,7 @@
           </div>
         </article>
 
-        <!-- Geführter Ablauf (UX14): Standort -> Geräte -> Datenpunkte -> Testen -> Abschließen -->
+        <!-- Geführter Ablauf: Standort -> Geräte -> Datenpunkte -> Testen -> Schreibzugriffe -> Abschließen -->
         <ol class="setup-steps" id="setup-steps"></ol>
 
         <div class="setup-panels">
@@ -455,10 +452,58 @@
             <p class="config-note">Die Punkte werden nacheinander mit kurzer Pause geprüft, um die Anlage nicht zu belasten. Schreibpunkte werden nicht angesprochen.</p>
           </article>
 
+          <article class="tool-panel commissioning-panel" id="setup-panel-schreiben">
+            <div class="panel-head commissioning-head">
+              <div>
+                <h3>5. Schreibzugriffe</h3>
+                <p>Nur eindeutig benannte Punkte freigeben und kurz gegen die Anlage prüfen.</p>
+              </div>
+              <span class="access-badge" id="write-protection-badge">Schutzstatus wird geladen</span>
+            </div>
+            <div class="commissioning-flow" aria-label="Ablauf für Schreibzugriffe">
+              <div><span>1</span><strong>Punkt prüfen</strong><small>Name und Adresse</small></div>
+              <div><span>2</span><strong>Freigeben</strong><small>nur EMS_…</small></div>
+              <div><span>3</span><strong>10 Sekunden testen</strong><small>danach automatisch frei</small></div>
+            </div>
+            <div class="write-guard-message" id="write-guard-message">
+              Freigaben werden geladen.
+            </div>
+            <form class="write-approval-form" id="write-approval-form">
+              <label>
+                Eindeutige Bezeichnung
+                <input id="write-point-name" type="text" required pattern="EMS_[A-Za-z0-9_.]+(?:-[A-Za-z0-9_.]+)*" placeholder="EMS_TEST_BV">
+              </label>
+              <label>
+                Zielgerät
+                <input id="write-point-controller-ip" type="text" required inputmode="decimal" placeholder="192.168.244.20">
+              </label>
+              <label>
+                Objekttyp
+                <select id="write-point-object-type">
+                  <option value="bv">Binärer Wert (BV)</option>
+                  <option value="av">Analoger Wert (AV)</option>
+                </select>
+              </label>
+              <label>
+                Instanz
+                <input id="write-point-instance" type="number" min="0" max="4194303" required placeholder="200">
+              </label>
+              <div class="write-priority-note">
+                <span>Priorität</span>
+                <strong>14</strong>
+              </div>
+              <button class="button primary" id="write-point-approve" type="submit">Für Mini EMS freigeben</button>
+            </form>
+            <div class="config-feedback neutral" id="write-approval-feedback" role="status">Noch kein Punkt freigegeben.</div>
+            <div class="approved-write-list" id="approved-write-list">
+              <div class="empty-state compact">Noch keine freigegebenen Schreibpunkte.</div>
+            </div>
+          </article>
+
           <article class="tool-panel" id="setup-panel-aktivieren">
             <div class="panel-head">
               <div>
-                <h3>5. Abschließen</h3>
+                <h3>6. Abschließen</h3>
                 <p>Mini EMS prüft die Zuordnung, sichert den bisherigen Stand und übernimmt die Änderung in einem Schritt.</p>
               </div>
             </div>
@@ -485,7 +530,7 @@
 
         <nav class="setup-step-navigation" aria-label="Einrichtungsschritte">
           <button class="button" id="setup-step-back" type="button">Zurück</button>
-          <span id="setup-step-position">Schritt 1 von 5</span>
+          <span id="setup-step-position">Schritt 1 von 6</span>
           <button class="button primary" id="setup-step-next" type="button">Weiter</button>
         </nav>
 
@@ -784,6 +829,60 @@
         </details>
       </section>
 
+      <!-- ============ ZUGRIFF ============ -->
+      <section class="page" data-page="zugriff" aria-label="Konten und Rollen">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Sicherheit</span>
+            <h2>Konten und Rollen</h2>
+          </div>
+          <button class="button primary" id="user-create-open" type="button">Konto hinzufügen</button>
+        </div>
+
+        <article class="access-intro">
+          <div>
+            <span class="micro-label">Viewer</span>
+            <strong>Ansehen</strong>
+            <p>Dashboard, Verläufe und Berichte. Keine Änderungen an der Anlage.</p>
+          </div>
+          <div>
+            <span class="micro-label">Admin</span>
+            <strong>Verwalten</strong>
+            <p>Standort einrichten, Konten verwalten und freigegebene BACnet-Punkte testen.</p>
+          </div>
+        </article>
+
+        <div class="access-layout">
+          <article class="tool-panel">
+            <div class="panel-head">
+              <div>
+                <h3>Konten</h3>
+                <p>Jede Person erhält ein eigenes Konto und eine klare Rolle.</p>
+              </div>
+            </div>
+            <div class="config-feedback neutral" id="user-list-feedback" role="status" hidden></div>
+            <div class="user-list" id="user-list">
+              <div class="empty-state compact">Konten werden geladen.</div>
+            </div>
+          </article>
+
+          <article class="tool-panel access-security-panel">
+            <div class="panel-head">
+              <div>
+                <h3>Sitzungsschutz</h3>
+                <p>Lokale Anmeldung hinter dem verschlüsselten Anlagenzugang.</p>
+              </div>
+            </div>
+            <dl class="security-facts">
+              <div><dt>Passwörter</dt><dd>scrypt + individueller Salt</dd></div>
+              <div><dt>Sitzungen</dt><dd>serverseitig, automatisch ablaufend</dd></div>
+              <div><dt>Browser-Cookie</dt><dd>HttpOnly · SameSite Strict</dd></div>
+              <div><dt>Anlagenwrites</dt><dd>separate Punktfreigabe erforderlich</dd></div>
+            </dl>
+          </article>
+        </div>
+      </section>
+
       <!-- ============ SYSTEM ============ -->
       <section class="page" data-page="system" aria-label="System">
         <div class="section-head">
@@ -846,22 +945,102 @@
     </main>
   </div>
 
-  <!-- Verwaltungszugang: ein Freigabecode für die laufende Browsersitzung. -->
+  <!-- Anmeldung und einmalige Einrichtung des ersten Administrators. -->
   <div class="modal-overlay" id="admin-access-modal" hidden>
-    <form class="modal admin-access-modal" id="admin-access-form" role="dialog" aria-modal="true" aria-labelledby="admin-access-title">
+    <form class="modal admin-access-modal auth-modal" id="admin-access-form" role="dialog" aria-modal="true" aria-labelledby="admin-access-title">
       <div class="modal-head">
-        <h3 id="admin-access-title">Verwaltung öffnen</h3>
+        <div>
+          <span class="brand-kicker">Mini EMS</span>
+          <h3 id="admin-access-title">Anmelden</h3>
+        </div>
         <button class="link-button" id="admin-access-close" type="button">Schließen</button>
       </div>
-      <p class="modal-hint">Der Freigabecode schützt Einrichtung und technische Einstellungen. Er wird nur für diese geöffnete Seite verwendet.</p>
-      <label>
-        Freigabecode
-        <input id="admin-access-token" type="password" autocomplete="off" required placeholder="Freigabecode eingeben">
-      </label>
-      <div class="config-feedback neutral" id="admin-access-feedback" role="status">Noch nicht freigegeben.</div>
+      <p class="modal-hint" id="admin-access-hint">Mit dem persönlichen Konto am Standort anmelden.</p>
+      <div class="auth-login-fields" id="auth-login-fields">
+        <label>
+          Benutzername
+          <input id="auth-username" type="text" autocomplete="username" required placeholder="name">
+        </label>
+        <label>
+          Passwort
+          <input id="auth-password" type="password" autocomplete="current-password" required placeholder="Passwort">
+        </label>
+      </div>
+      <div class="auth-bootstrap-fields" id="auth-bootstrap-fields" hidden>
+        <div class="auth-callout">
+          <strong>Ersten Admin einrichten</strong>
+          <span>Der Freigabecode stammt aus der bisherigen Release-Installation.</span>
+        </div>
+        <label>
+          Freigabecode
+          <input id="auth-bootstrap-code" type="password" autocomplete="one-time-code" placeholder="Freigabecode">
+        </label>
+        <div class="auth-field-pair">
+          <label>
+            Anzeigename
+            <input id="auth-display-name" type="text" autocomplete="name" placeholder="Gabriel">
+          </label>
+          <label>
+            Benutzername
+            <input id="auth-bootstrap-username" type="text" autocomplete="username" value="admin">
+          </label>
+        </div>
+        <label>
+          Neues Passwort
+          <input id="auth-bootstrap-password" type="password" minlength="12" autocomplete="new-password" placeholder="Mindestens 12 Zeichen">
+        </label>
+      </div>
+      <div class="config-feedback neutral" id="admin-access-feedback" role="status">Bitte anmelden.</div>
       <div class="modal-actions">
         <button class="button" id="admin-access-cancel" type="button">Abbrechen</button>
-        <button class="button primary" id="admin-access-submit" type="submit">Verwaltung öffnen</button>
+        <button class="button primary" id="admin-access-submit" type="submit">Anmelden</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="modal-overlay" id="user-create-modal" hidden>
+    <form class="modal user-create-modal" id="user-create-form" role="dialog" aria-modal="true" aria-labelledby="user-create-title">
+      <div class="modal-head">
+        <h3 id="user-create-title">Konto hinzufügen</h3>
+        <button class="link-button" id="user-create-close" type="button">Schließen</button>
+      </div>
+      <p class="modal-hint">Viewer sehen den Betrieb. Admins dürfen zusätzlich konfigurieren und freigegebene Schreibtests ausführen.</p>
+      <div class="auth-field-pair">
+        <label>Anzeigename<input id="user-create-display-name" type="text" required autocomplete="off" placeholder="Leitwarte"></label>
+        <label>Benutzername<input id="user-create-username" type="text" required autocomplete="off" placeholder="leitwarte"></label>
+      </div>
+      <label>
+        Rolle
+        <select id="user-create-role">
+          <option value="viewer">Viewer · nur ansehen</option>
+          <option value="admin">Admin · verwalten</option>
+        </select>
+      </label>
+      <label>Startpasswort<input id="user-create-password" type="password" minlength="12" required autocomplete="new-password" placeholder="Mindestens 12 Zeichen"></label>
+      <div class="config-feedback neutral" id="user-create-feedback" role="status">Das Konto ist nach dem Anlegen sofort nutzbar.</div>
+      <div class="modal-actions">
+        <button class="button" id="user-create-cancel" type="button">Abbrechen</button>
+        <button class="button primary" id="user-create-submit" type="submit">Konto anlegen</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="modal-overlay" id="user-password-modal" hidden>
+    <form class="modal user-password-modal" id="user-password-form" role="dialog" aria-modal="true" aria-labelledby="user-password-title">
+      <div class="modal-head">
+        <div>
+          <span class="brand-kicker">Kontosicherheit</span>
+          <h3 id="user-password-title">Passwort setzen</h3>
+        </div>
+        <button class="link-button" id="user-password-close" type="button">Schließen</button>
+      </div>
+      <p class="modal-hint" id="user-password-target">Neues Passwort für das ausgewählte Konto.</p>
+      <input class="visually-hidden" id="user-password-username" type="text" autocomplete="username" tabindex="-1" aria-hidden="true">
+      <label>Neues Passwort<input id="user-password-value" type="password" minlength="12" required autocomplete="new-password" placeholder="Mindestens 12 Zeichen"></label>
+      <div class="config-feedback neutral" id="user-password-feedback" role="status">Bestehende Sitzungen dieses Kontos werden beendet.</div>
+      <div class="modal-actions">
+        <button class="button" id="user-password-cancel" type="button">Abbrechen</button>
+        <button class="button primary" id="user-password-submit" type="submit">Passwort speichern</button>
       </div>
     </form>
   </div>

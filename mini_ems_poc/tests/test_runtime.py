@@ -171,6 +171,16 @@ def make_ack_response(*, invoke_id: int, service_choice: int = 0x0F):
     return payload, ("192.168.1.100", 47808)
 
 
+def make_bv_read_response(value: bool, *, invoke_id: int, instance: int):
+    object_id = struct.pack(">I", (5 << 22) | instance)
+    apdu = bytes([0x30, invoke_id, 0x0C, 0x0C]) + object_id + bytes(
+        [0x19, 0x55, 0x3E, 0x91, 0x01 if value else 0x00, 0x3F]
+    )
+    npdu = bytes([0x01, 0x04])
+    payload = bytes([0x81, 0x0A]) + struct.pack(">H", 4 + len(npdu) + len(apdu)) + npdu + apdu
+    return payload, ("192.168.1.100", 47808)
+
+
 def make_wrong_sender_response(value: float):
     payload, _sender = make_read_response_for_point(value, invoke_id=1, instance=300)
     return payload, ("10.0.0.5", 47808)
@@ -211,6 +221,19 @@ class BacnetAdapterTest(unittest.TestCase):
 
         self.assertEqual(value, 4.25)
         self.assertEqual(len(fake_socket.sent_packets), 1)
+
+    def test_read_binary_value_present_value_for_commissioning_readback(self) -> None:
+        point = replace(
+            self.registry.get(GRID_LOCKOUT_CHANNEL),
+            access="readwrite",
+            instance=200,
+        )
+        fake_socket = FakeSocket([make_bv_read_response(False, invoke_id=1, instance=200)])
+        adapter = BacnetAdapter(self.network, self.logger, sock=fake_socket)
+
+        value = adapter.read_float(point)
+
+        self.assertEqual(value, 0.0)
 
     def test_read_timeout_raises(self) -> None:
         fake_socket = FakeSocket([socket.timeout()])

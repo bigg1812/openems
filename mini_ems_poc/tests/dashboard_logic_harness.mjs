@@ -210,42 +210,44 @@ function makeState(overrides) {
     rows: seeded.rows.map((row) => ({ ...row })),
     preview: { valid: null, message: null, tone: "neutral", patch: null },
     activation: { done: true, restartRequired: false, revision: "r1", activatedAt: "2026-07-11T10:00:00Z" },
+    write: { loaded: true, points: [], testsAvailable: false, mode: "simulation" },
     dirty: false,
     ...overrides,
   };
 }
 
 const steps = context.computeSetupSteps(makeState({}));
-check("Schritte: fünf Stück", steps.length, 5);
+check("Schritte: sechs Stück", steps.length, 6);
 check("Schritte: Standort erledigt", steps[0].state, "done");
 check("Schritte: Geräte erledigt", steps[1].state, "done");
 check("Schritte: Datenpunkte erledigt (aktive Zuordnung)", steps[2].state, "done");
 check("Schritte: Testen offen", steps[3].state, "open");
-check("Schritte: Abschluss aktiv", steps[4].state, "done");
-check("Schritte: Abschluss verständlich benannt", steps[4].label, "Abschließen");
+check("Schritte: Schreibzugriffe optional", steps[4].state, "open");
+check("Schritte: Abschluss aktiv", steps[5].state, "done");
+check("Schritte: Abschluss verständlich benannt", steps[5].label, "Abschließen");
 
 const readOnlySteps = context.computeSetupSteps(makeState({ readOnly: true }));
 check("Schritte: read-only sperrt Testen", readOnlySteps[3].state, "locked");
-check("Schritte: read-only lässt geschützte Aktivierung zu", readOnlySteps[4].state, "done");
+check("Schritte: read-only lässt geschützte Aktivierung zu", readOnlySteps[5].state, "done");
 
 const noTokenSteps = context.computeSetupSteps(makeState({
   saveEnabled: false,
   activation: { done: false, restartRequired: false, revision: null, activatedAt: null },
 }));
-check("Schritte: ohne Token gesperrt erklärt", noTokenSteps[4].state, "locked");
-check("Schritte: Sperrgrund benannt", noTokenSteps[4].detail.includes("Freigabecode"), true);
+check("Schritte: ohne Admin gesperrt erklärt", noTokenSteps[5].state, "locked");
+check("Schritte: Sperrgrund benannt", noTokenSteps[5].detail.includes("Admin"), true);
 
 const noTokenDirtySteps = context.computeSetupSteps(makeState({ saveEnabled: false, dirty: true }));
-check("Schritte: offener Entwurf bleibt ohne Freigabecode gesperrt", noTokenDirtySteps[4].state, "locked");
+check("Schritte: offener Entwurf bleibt ohne Admin gesperrt", noTokenDirtySteps[5].state, "locked");
 
 const dirtySteps = context.computeSetupSteps(makeState({ dirty: true }));
-check("Schritte: offener Entwurf ist nicht abgeschlossen", dirtySteps[4].state, "open");
-check("Schritte: offener Entwurf verständlich erklärt", dirtySteps[4].detail.includes("noch nicht übernommen"), true);
+check("Schritte: offener Entwurf ist nicht abgeschlossen", dirtySteps[5].state, "open");
+check("Schritte: offener Entwurf verständlich erklärt", dirtySteps[5].detail.includes("noch nicht übernommen"), true);
 
 const restartSteps = context.computeSetupSteps(makeState({
   activation: { done: true, restartRequired: true, revision: "r2", activatedAt: "2026-07-11T10:00:00Z" },
 }));
-check("Schritte: Neustart bleibt sichtbar", restartSteps[4].detail.includes("Neustart erforderlich"), true);
+check("Schritte: Neustart bleibt sichtbar", restartSteps[5].detail.includes("Neustart erforderlich"), true);
 
 const failedState = makeState({});
 failedState.rows[0].test = { tone: "alert", text: "Keine Antwort von der Anlage.", valueLabel: "" };

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from mini_ems_poc.mini_ems_runtime.config import validate_raw_config
 from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
+from mini_ems_poc.mini_ems_runtime.identity import IdentityUser
 from mini_ems_poc.mini_ems_runtime.site_store import SiteConfigStore
 from mini_ems_poc.tests.test_mapping_config import sample_mapping_draft
 
@@ -105,6 +106,8 @@ class ConfigApiTest(unittest.TestCase):
         self.logger = logging.getLogger("mini_ems.runtime.test.config_api")
         self.logger.handlers.clear()
         self.logger.addHandler(logging.NullHandler())
+        self.admin = IdentityUser("admin-id", "admin", "Anlagenadmin", "admin", True, 0)
+        self.viewer = IdentityUser("viewer-id", "viewer", "Betrachter", "viewer", True, 0)
 
     def _build_server(self, raw):
         if self.site_store.has_active_config():
@@ -376,18 +379,18 @@ class ConfigApiTest(unittest.TestCase):
         self.assertEqual(payload["mapping_draft"]["raw_points"][0]["id"], "bacnet:device_100:av:300")
         self.assertEqual(payload["mapping_draft"]["mappings"][0]["channel_id"], "grid.active_power_kw")
 
-    def test_mapping_activate_rejects_missing_admin_token(self) -> None:
+    def test_mapping_activate_requires_admin_role(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
 
-        with self.assertRaisesRegex(PermissionError, "Freigabecode ist nicht gültig"):
-            server.activate_mapping_config_payload(sample_mapping_draft(), admin_token=None)
+        with self.assertRaisesRegex(PermissionError, "nur für Administratoren"):
+            server.activate_mapping_config_payload(sample_mapping_draft(), actor=self.viewer)
 
     def test_mapping_activate_persists_patch_draft_audit_and_previous_revision(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
 
         payload = server.activate_mapping_config_payload(
             sample_mapping_draft(),
-            admin_token="secret-token",
+            actor=self.admin,
         )
         persisted = self.site_store.active_config()
         revision = self.site_store.revision(payload["revision"])
@@ -404,7 +407,7 @@ class ConfigApiTest(unittest.TestCase):
         )
         self.assertEqual(revision.mapping_draft, sample_mapping_draft())
         self.assertEqual(revision.action, "mapping.activate")
-        self.assertEqual(revision.actor, "local_admin")
+        self.assertEqual(revision.actor, "admin")
         self.assertEqual(revision.details["patch_sections"], ["additional_inputs", "network", "points"])
         self.assertEqual(revision.details["device_count"], 1)
         self.assertEqual(revision.details["mapping_count"], 2)
@@ -417,7 +420,7 @@ class ConfigApiTest(unittest.TestCase):
 
     def test_restart_requirement_clears_when_runtime_restarts_with_current_config(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
-        server.activate_mapping_config_payload(sample_mapping_draft(), admin_token="secret-token")
+        server.activate_mapping_config_payload(sample_mapping_draft(), actor=self.admin)
 
         restarted_server = self._build_server_from_existing_store()
         site = restarted_server.get_site_config()
@@ -431,7 +434,7 @@ class ConfigApiTest(unittest.TestCase):
         draft = sample_mapping_draft()
         draft["raw_points"][0]["object_type"] = "ai"
 
-        payload = server.activate_mapping_config_payload(draft, admin_token="secret-token")
+        payload = server.activate_mapping_config_payload(draft, actor=self.admin)
         persisted = self.site_store.active_config()
 
         self.assertFalse(payload["activated"])
@@ -442,6 +445,13 @@ class ConfigApiTest(unittest.TestCase):
 
     def test_site_config_view_strips_admin_token_and_keeps_editable_sections(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
+        server.identity_store.bootstrap_admin(
+            bootstrap_code="secret-token",
+            expected_code="secret-token",
+            username="admin",
+            display_name="Admin",
+            password="sicheres-testpasswort",
+        )
 
         payload = server.get_site_config()
 
@@ -461,33 +471,33 @@ class ConfigApiTest(unittest.TestCase):
 
         response = server.save_site_config_payload(
             {"patch": {"site": {"name": "Werk Nord", "access_status": "restricted", "operator_note": "Pilot"}}},
-            admin_token="secret-token",
+            actor=self.admin,
         )
 
         self.assertTrue(response["saved"])
         self.assertEqual(self.site_store.active_config()["site"]["name"], "Werk Nord")
 
-    def test_save_is_disabled_without_configured_admin_token(self) -> None:
+    def test_save_requires_authenticated_admin(self) -> None:
         server = self._build_server(make_raw_config())
 
-        with self.assertRaisesRegex(PermissionError, "kein Freigabecode eingerichtet"):
-            server.save_site_config_payload({"patch": {"timing": {"cycle_seconds": 60}}}, admin_token=None)
+        with self.assertRaisesRegex(PermissionError, "nur für Administratoren"):
+            server.save_site_config_payload({"patch": {"timing": {"cycle_seconds": 60}}}, actor=None)
 
-    def test_save_rejects_wrong_admin_token(self) -> None:
+    def test_save_rejects_viewer_role(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
 
-        with self.assertRaisesRegex(PermissionError, "Freigabecode ist nicht gültig"):
+        with self.assertRaisesRegex(PermissionError, "nur für Administratoren"):
             server.save_site_config_payload(
                 {"patch": {"timing": {"cycle_seconds": 60}}},
-                admin_token="wrong-token",
+                actor=self.viewer,
             )
 
-    def test_save_with_admin_token_persists_patch_and_keeps_previous_revision(self) -> None:
+    def test_save_with_admin_persists_patch_and_keeps_previous_revision(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
 
         payload = server.save_site_config_payload(
             {"patch": {"timing": {"cycle_seconds": 60}}},
-            admin_token="secret-token",
+            actor=self.admin,
         )
         persisted = self.site_store.active_config()
         revision = self.site_store.revision(payload["revision"])
@@ -506,10 +516,10 @@ class ConfigApiTest(unittest.TestCase):
 
     def test_change_history_is_latest_first_and_hides_internal_file_names(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
-        server.activate_mapping_config_payload(sample_mapping_draft(), admin_token="secret-token")
+        server.activate_mapping_config_payload(sample_mapping_draft(), actor=self.admin)
         server.save_site_config_payload(
             {"patch": {"timing": {"cycle_seconds": 60}}},
-            admin_token="secret-token",
+            actor=self.admin,
         )
 
         payload = server.get_config_changes_payload(limit=10)
@@ -540,7 +550,7 @@ class ConfigApiTest(unittest.TestCase):
 
     def test_live_operator_setting_does_not_clear_existing_restart_requirement(self) -> None:
         server = self._build_server(make_raw_config(config_admin_token="secret-token"))
-        server.activate_mapping_config_payload(sample_mapping_draft(), admin_token="secret-token")
+        server.activate_mapping_config_payload(sample_mapping_draft(), actor=self.admin)
 
         server.update_spotmarket_lockout_settings({"min_consecutive_quarters": 6})
 

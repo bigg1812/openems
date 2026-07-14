@@ -167,7 +167,7 @@ Verify that Secomea/the customer network can reach the dashboard (production, re
 ```powershell
 Get-NetTCPConnection -LocalPort 8090
 Get-NetTCPConnection -LocalPort 443
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8090/api/status
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8090/api/health
 Invoke-WebRequest -UseBasicParsing -SkipCertificateCheck https://192.168.244.10/dashboard
 Get-Content C:\ProgramData\MiniEMS\runtime\health.json
 ```
@@ -178,7 +178,8 @@ Expected state (production, release path):
 - Exactly one listener on `192.168.244.10:443`, owned by `caddy.exe` (task `MiniEmsDashboardCaddy`).
 - The owning process command line contains `mini_ems.exe --site-dir C:\ProgramData\MiniEMS --loop`, started by task `MiniEmsPoCRelease`.
 - `C:\ProgramData\MiniEMS\runtime\health.json` is current and reports `status: healthy`.
-- `https://192.168.244.10/dashboard` and `/api/status` return HTTP `200`; `/api/status` reports `api_read_only: true`.
+- `https://192.168.244.10/dashboard` returns the login UI; `/api/health` returns HTTP `200` and reports
+  `api_read_only: true`. `/api/status` requires a Viewer/Admin session.
 
 If the task view shows `Ready` but the dashboard works, trust the process and health checks first. The wrapper may leave the actual `mini_ems.exe` process running through `run_mini_ems_release.cmd`; verify by checking port `8090`/`443`, process command line, and `health.json`.
 

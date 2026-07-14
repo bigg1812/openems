@@ -17,6 +17,7 @@ depend on ``ProtocolAdapter`` here rather than on the concrete adapter.
 """
 
 from dataclasses import dataclass
+import threading
 from typing import Dict, Optional, Protocol, runtime_checkable
 
 from .channels import PointConfig
@@ -111,9 +112,11 @@ class ProtocolRoutingAdapter:
         if not adapters:
             raise ValueError("ProtocolRoutingAdapter requires at least one adapter")
         self._adapters = dict(adapters)
+        self._io_lock = threading.RLock()
 
     def read_float(self, point: PointConfig) -> float:
-        return self._adapter_for(point).read_float(point)
+        with self._io_lock:
+            return self._adapter_for(point).read_float(point)
 
     def write_with_confirmation(
         self,
@@ -121,21 +124,23 @@ class ProtocolRoutingAdapter:
         desired_value: object,
         confirmation_mode: str,
     ) -> WriteConfirmation:
-        return self._adapter_for(point).write_with_confirmation(
-            point,
-            desired_value,
-            confirmation_mode,
-        )
+        with self._io_lock:
+            return self._adapter_for(point).write_with_confirmation(
+                point,
+                desired_value,
+                confirmation_mode,
+            )
 
     def relinquish_with_confirmation(
         self,
         point: PointConfig,
         confirmation_mode: str,
     ) -> WriteConfirmation:
-        return self._adapter_for(point).relinquish_with_confirmation(
-            point,
-            confirmation_mode,
-        )
+        with self._io_lock:
+            return self._adapter_for(point).relinquish_with_confirmation(
+                point,
+                confirmation_mode,
+            )
 
     def close(self) -> None:
         # Adapters may be registered under several protocol names (e.g. one

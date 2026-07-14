@@ -1,29 +1,30 @@
 # Mini EMS – Reverse Proxy (H4)
 
-Dieses Verzeichnis liefert die **Vorstufe zu H4** aus `ROADMAP.md`: die
+Dieses Verzeichnis liefert den **H4-Reverse-Proxy** aus `ROADMAP.md`: die
 Mini-EMS-API wird intern an `127.0.0.1` gebunden und ausschließlich über einen
 lokalen Reverse Proxy (Caddy) mit HTTPS erreichbar gemacht. Das Konzept, die
 Bindungs-Matrix und die Sicherheits-Ehrlichkeit dazu stehen in
 `HOSTING_SICHERHEIT.md`, **Teil 4**. Dieses README ist die praktische
 Installationsanleitung.
 
-> **Was diese Stufe leistet und was nicht.** H4 nimmt die technische API aus dem
+> **Was Caddy leistet und was nicht.** Caddy nimmt die technische API aus dem
 > Netz (sie hört nur noch auf `127.0.0.1`), stellt TLS bereit und kanalisiert den
-> Zugriff über genau einen Einstiegspunkt. H4 ist **kein Login**: Wer den Proxy im
-> Kundennetz/VPN erreicht, sieht das Dashboard ohne Passwort. Login und Rollen
-> (`viewer`/`operator`/`admin`) kommen mit **H6**. Der Schutz endet außerdem beim
-> Kunden-Administrator der IPC (Grenze aus `HOSTING_SICHERHEIT.md`, Teil 1.3).
+> Zugriff über genau einen Einstiegspunkt. Login und Rollen liegen seit H6 in
+> Mini EMS selbst: Ohne Sitzung sind nur die Anmeldeseite und `/api/health`
+> erreichbar; Viewer lesen, Admins verwalten. Caddy ersetzt diese Rollenprüfung
+> nicht. Der Schutz endet außerdem beim Kunden-Administrator der IPC (Grenze aus
+> `HOSTING_SICHERHEIT.md`, Teil 1.3).
 
 ## Inhalt
 
 | Datei | Zweck |
 |---|---|
-| `Caddyfile` | kommentierte Reverse-Proxy-Vorlage (HTTPS intern, reverse_proxy auf `127.0.0.1:8090`, auskommentierter Login-Block für H6) |
+| `Caddyfile` | kommentierte Reverse-Proxy-Vorlage (HTTPS intern, `reverse_proxy` auf `127.0.0.1:8090`) |
 | `firewall_rules.ps1` | kopierbare Windows-Firewall-Regeln (Proxy-Port nur Kundennetz, 8090 nur lokal) |
 | `README.md` | diese Datei |
 
 Analog zu `packaging/` sind das **nur Vorlagen**. Sie ändern nichts an Mini EMS,
-an `config.json` oder an `windows/*.ps1`. Zugangsdaten/Passwort-Hashes gehören
+am Standort-Speicher oder an `windows/*.ps1`. Zugangsdaten/Passwort-Hashes gehören
 **nie** in dieses Verzeichnis oder ins Git.
 
 ## Warum Caddy
@@ -44,7 +45,7 @@ Kurzvergleich der drei naheliegenden Optionen für die Windows-IPC:
   bewegliche Teile als eine einzelne Binary.
 
 **Empfehlung: Caddy** – eine Binary, automatisches internes HTTPS, einfache
-Integration als Windows-Dienst; das passt zur Release-Paket-Philosophie und hält
+Integration als geplanter Windows-Task; das passt zur Release-Paket-Philosophie und hält
 die Betriebsschritte minimal.
 
 ## Voraussetzungen auf der IPC
@@ -54,11 +55,13 @@ die Betriebsschritte minimal.
 2. Diese `Caddyfile`-Vorlage kopieren, z. B. nach
    `C:\ProgramData\MiniEMS\proxy\Caddyfile`, und die `<...>`-Platzhalter anpassen
    (Hostname/IP, ggf. Port).
-3. **Mini-EMS-API auf lokal umstellen** (Admin-Arbeit an `config.json`, gehört
-   nicht in dieses Repo): im `api`-Block `host` auf `127.0.0.1` setzen und
-   `read_only: true` ergänzen. Danach ist 8090 nur noch lokal erreichbar, und die
-   read-only Grenze gilt zusätzlich serverseitig (siehe `HOSTING_SICHERHEIT.md`
-   2.1/Teil 4). Anschließend Mini EMS neu starten.
+3. **Mini-EMS-API auf lokal umstellen:** als Admin unter **Standort einrichten →
+   Technische Einstellungen** `api.host` auf `127.0.0.1` und `api.read_only` auf
+   `true` setzen, speichern und Mini EMS neu starten. Die Änderung landet als
+   Revision in `C:\ProgramData\MiniEMS\site.sqlite`; `config.json` ist nur noch
+   ein einmaliger Migrationseingang. Danach ist 8090 nur lokal erreichbar, und
+   die read-only Grenze gilt zusätzlich serverseitig (siehe
+   `HOSTING_SICHERHEIT.md` 2.1/Teil 4).
 
    ```json
    "api": {
@@ -140,23 +143,22 @@ einen DNS- oder `hosts`-Eintrag `<hostname> -> 192.168.244.10`.
 Ausführlich (curl von innen/außen, erwartete Ergebnisse) in
 `HOSTING_SICHERHEIT.md`, **Teil 4, Verifikations-Checkliste**. Kurzform:
 
-1. Lokal auf der IPC: `curl http://127.0.0.1:8090/api/status` → `200` (API lebt lokal).
-2. Lokal über den Proxy: `curl -k https://<hostname>/api/status` → `200`.
-3. Vom zweiten Rechner (Kundennetz/VPN): `curl -k https://<hostname>/api/status`
-   → `200`; `curl http://192.168.244.10:8090/api/status` → Verbindung abgelehnt
+1. Lokal auf der IPC: `curl http://127.0.0.1:8090/api/health` → `200` (API lebt lokal).
+2. Lokal über den Proxy: `curl -k https://<hostname>/api/health` → `200`.
+3. Vom zweiten Rechner (Kundennetz/VPN): `curl -k https://<hostname>/api/health`
+   → `200`; Dashboard öffnen und anmelden; `curl http://192.168.244.10:8090/api/health` → Verbindung abgelehnt
    (API nicht mehr direkt im Netz).
 4. Schreib-/Aktiv-Endpunkte über den Proxy: `curl -k -X POST
    https://<hostname>/api/config/spotmarket-lockout` → `403 read_only_mode`;
    `curl -k https://<hostname>/api/diagnostics/read` → `403`.
 
-## Abgrenzung zum Secomea-Pfad
+## Abgrenzung zum direkten Secomea-Pfad
 
-Der heutige Betrieb (`HOSTING_SICHERHEIT.md`, Teil 2, Pfad a) bindet die API an
-die EMS-LAN-IP `192.168.244.10:8090` und erreicht sie über Secomea/VPN **direkt**,
-ohne Proxy und ohne TLS. Dieser Proxy ist eine **optionale Stufe davor**, kein
-Ersatz: Er kanalisiert denselben VPN-Zugriff über HTTPS und einen einzigen
-Einstiegspunkt und macht 8090 im Netz unsichtbar. Solange der Proxy nicht
-eingerichtet ist, bleibt Pfad a unverändert gültig.
+Der frühere Direktpfad bindet die API an die EMS-LAN-IP
+`192.168.244.10:8090` und erreicht sie über Secomea/VPN ohne Proxy und ohne TLS.
+Die App-Anmeldung gilt auch dort, aber der Transport ist schwächer. Der
+empfohlene Produktivpfad führt Secomea/VPN deshalb über Caddy/HTTPS und hält 8090
+im Netz unsichtbar.
 
 ## Beim Mini-EMS-Update
 
@@ -166,10 +168,10 @@ neu startet, liefert der Proxy kurz `502` und erholt sich automatisch, sobald
 `127.0.0.1:8090` wieder antwortet. Neu gestartet/nachgeladen werden muss der
 Proxy nur, wenn sich die `Caddyfile` oder die `caddy.exe` selbst ändert.
 
-## Ausblick H6
+## Login und Rollen
 
-Der auskommentierte `basic_auth`-Block in der `Caddyfile` ist die vorbereitete
-Andockstelle für den ersten Zugriffsschutz. Er bleibt inaktiv, bis H6 freigegeben
-ist; Passwort-Hashes werden dann mit `caddy hash-password` erzeugt und **außerhalb
-des Repos** gehalten. Die vollständige Rollenlogik (`viewer`/`operator`/`admin`)
-ist Gegenstand von H6 und `PRODUCT_UX_KONZEPT.md`, Abschnitt 3.
+H6 ist in Mini EMS umgesetzt. Persönliche Viewer-/Admin-Konten, Passworthashes,
+serverseitige Sitzungen und Rollenprüfungen liegen in
+`C:\ProgramData\MiniEMS\identity.sqlite`. Ein zusätzlicher Caddy-`basic_auth`-
+Block ist für den normalen Betrieb nicht nötig und würde nur eine zweite,
+getrennte Passwortschicht erzeugen.

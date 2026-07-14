@@ -220,17 +220,17 @@ Der Sicherheitsmechanismus ist bewusst hart:
 Konfigurationsweg:
 
 ```text
-Standort -> Geräte -> Datenpunkte -> Testen -> Abschließen
+Standort -> Geräte -> Datenpunkte -> Testen -> Schreibzugriffe -> Abschließen
 ```
 
-Die UI erzeugt einen Mapping-Entwurf, prüft ihn gegen dieselben Regeln wie die Runtime und übernimmt ihn erst
-nach Eingabe des lokalen Freigabecodes. Die technische Vorschau bleibt unter „Erweiterte Direktbearbeitung“
+Die UI erzeugt einen Mapping-Entwurf, prüft ihn gegen dieselben Regeln wie die Runtime und übernimmt ihn nur
+in einer angemeldeten Admin-Sitzung. Die technische Vorschau bleibt unter „Erweiterte Direktbearbeitung“
 eingeklappt; sie ist keine zweite Konfigurationsquelle.
 
-- Viewer sehen nur freigegebene Konfigurationszusammenfassungen und Statushinweise.
-- Operator können betriebliche Änderungen als Entwurf vorbereiten, aber keine aktive Standortkonfiguration speichern.
-- Konfigurator/Admin übernehmen geprüfte Entwürfe mit dem lokalen Freigabecode
-  (`api.config_admin_token`; der technische Name bleibt nur in der Standortkonfiguration sichtbar).
+- Viewer sehen Übersicht, Analyse und Berichte und können nichts verändern.
+- Admins konfigurieren den Standort, verwalten Konten und dürfen explizit freigegebene BACnet-Punkte testen.
+- Der einmalige `api.config_admin_token` dient nur zur Anlage des ersten Admin-Kontos und wird danach nicht als
+  dauerhafte Browserberechtigung verwendet.
 
 Vor jeder Übernahme bleibt die bisherige SQLite-Revision unverändert erhalten; Mapping-Entwurf und Audit-Metadaten
 werden gemeinsam mit der neuen Revision gespeichert. Ungültige Entwürfe dürfen die aktive Revision nicht ersetzen. Änderungen
@@ -302,7 +302,7 @@ Empfohlener Ablauf:
 
 6. **Einrichtung abschließen**
 
-   Lokalen Freigabecode eingeben und „Einrichtung abschließen“ wählen. Die UI prüft automatisch noch einmal und
+   Als Admin „Einrichtung abschließen“ wählen. Die UI prüft automatisch noch einmal und
    ruft erst danach `POST /api/config/mapping/activate` auf. Backup, Entwurfsdatei und Audit-Eintrag entstehen
    automatisch. Danach zeigt die UI den nötigen Mini-EMS-Neustart an.
 
@@ -696,15 +696,15 @@ Wenn `api.enabled = true`, startet die Runtime einen HTTP-Server auf der in `api
 Für reinen Lokalbetrieb bleibt `127.0.0.1` die sichere Wahl. Wenn Secomea oder ein anderes Remote-Tool zugreifen soll, binde die API an die konkrete EMS-LAN-IP, zum Beispiel `192.168.244.10`. Das ist sauberer und sicherer als `0.0.0.0`, weil der Dienst nur auf dem vorgesehenen Interface erreichbar ist.
 
 Für Netzwerkzugriff gilt zuerst read-only: Dashboard, Status, Historie und Reports. Diagnose-, Konfigurations-
-und spätere Schreib-Endpunkte brauchen einen geschützten Admin-/Operator-Pfad und dürfen nicht direkt ins
+und Schreib-Endpunkte brauchen eine Admin-Sitzung und dürfen nicht direkt ins
 Internet freigegeben werden. Die lokale Simulation bleibt auf `127.0.0.1` und darf keinen Pfad mit realen
 BACnet-Writes bekommen.
 
-Der optionale Schlüssel `api.read_only` (Boolean, Default `false`) erzwingt diese Grenze serverseitig. Ist er
-`true`, lehnt die API alle nicht-GET-Methoden (POST/PUT/DELETE) und zusätzlich den aktiven Anlagen-Read
-`GET /api/diagnostics/read` mit `HTTP 403` und einem kurzen deutschen Hinweis ab; alle Anzeige-/Abruf-Endpunkte
-(Dashboard, `/api/status`, Historie, Zyklen, Reports, Wetter, Spotmarkt) bleiben erreichbar. `GET /api/status`
-meldet dann `api_read_only: true`. Default `false` lässt das bisherige Verhalten unverändert. Für den
+Der Schlüssel `api.read_only` erzwingt eine zweite, rollenunabhängige Grenze. Ist er `true`, bleiben aktive
+Anlagenreads, Discovery, Bedienaktionen und BACnet-Schreibtests mit `HTTP 403` gesperrt. Passive Mapping-
+Vorschau, Standortrevisionen, Kontenverwaltung und BACnet-Punktfreigaben bleiben für Admins verfügbar. Ohne
+Anmeldung sind nur UI-Assets, `/api/auth/status` und `/api/health` erreichbar; `/api/status`, Historie und Reports
+verlangen mindestens Viewer. `/api/health` meldet Version und `api_read_only`, ohne Anlagenwerte offenzulegen. Für den
 read-only Netzbetrieb (Pilot-Pfad a in [HOSTING_SICHERHEIT.md](./HOSTING_SICHERHEIT.md)) den Schlüssel im
 `api`-Block ergänzen:
 
@@ -724,9 +724,13 @@ Wichtige Endpunkte:
 
 - `/`
 - `/dashboard`
-  - einfaches Dashboard
+  - Login und Dashboard
+- `/api/health`
+  - öffentlicher minimaler Health-/Versionscheck für Update und Monitoring
+- `/api/auth/status`
+  - Initialisierungs- und Sitzungsstatus, keine Anlagenwerte
 - `/api/status`
-  - `health.json`, `state.json`, Spotmarktplan und letzte Zyklen
+  - angemeldet: `health.json`, `state.json`, Spotmarktplan und letzte Zyklen
 - `/api/spotmarket/windows`
   - aktueller Spotmarktplan
 - `/api/history?channel_id=site.outdoor_temperature_c`
@@ -748,7 +752,13 @@ Wichtige Endpunkte:
 - `POST /api/config/mapping/preview`
   - validiert einen Mapping-Entwurf und erzeugt daraus nur einen Runtime-Config-Patch
 - `POST /api/config/mapping/activate`
-  - übernimmt einen validierten Mapping-Entwurf nur mit lokalem Freigabecode; erstellt Backup, Entwurfsdatei und Audit-Eintrag
+  - übernimmt einen validierten Mapping-Entwurf nur als Admin; erstellt Revision und Audit-Eintrag
+- `GET /api/bacnet/write-points`
+  - Admin-Liste separat freigegebener BACnet-BV/AV-Punkte und letzter Test-Leases
+- `POST /api/bacnet/write-points/approve`
+  - Admin-Freigabe eines eindeutigen `EMS_`-Punkts; noch kein Anlagen-Write
+- `POST /api/bacnet/write-test/start`
+  - startet bei aufgehobenem API-Schreibschutz einen zehnsekündigen Test mit automatischem Relinquish
 - `POST /api/config/pointlist/import`
   - importiert eine CSV-/TSV-/XLSX-Datenpunktliste aus `filename` plus `content_base64` oder `content`; Ergebnis sind
     Rohpunkt-Kandidaten und ein Mapping-Entwurf, keine aktive Konfiguration

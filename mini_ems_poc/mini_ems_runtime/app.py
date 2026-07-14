@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .bacnet import BacnetAdapter, BacnetCommunicationError
 from .channels import ChannelRegistry
+from .commissioning import CommissioningService, CommissioningStore
 from .config import (
     PROTOCOL_BACNET,
     PROTOCOL_MODBUS_TCP,
@@ -19,6 +20,7 @@ from .config import (
 )
 from .cycle import CycleRunner
 from .http_api import MiniEmsApiServer
+from .identity import IdentityStore
 from .logging_utils import log_event, setup_logging
 from .modbus import ModbusTcpAdapter
 from .price_cache import SpotmarketPriceCacheService
@@ -37,8 +39,15 @@ def main() -> int:
     args = _parse_args()
     site_dir = _site_dir_from_args(args)
     site_store = SiteConfigStore(site_dir)
+    identity_store = IdentityStore(site_dir)
     raw, startup_message = _load_or_initialize_site(site_store, args.import_config)
     if args.reset_admin_code:
+        if identity_store.is_initialized():
+            temporary_password = secrets.token_urlsafe(15)
+            admin = identity_store.reset_first_admin_password(temporary_password)
+            print("Temporäres Mini-EMS-Passwort für {0}: {1}".format(admin.username, temporary_password))
+            print("Nach der Anmeldung bitte unter Konten und Rollen ein eigenes Passwort setzen.")
+            return 0
         token = secrets.token_urlsafe(9)
         api = raw.setdefault("api", {})
         if not isinstance(api, dict):
@@ -79,6 +88,14 @@ def main() -> int:
         adapter=adapter,
         logger=logger,
     )
+    commissioning = CommissioningService(
+        store=CommissioningStore(identity_store.path),
+        identity_store=identity_store,
+        adapter=adapter,
+        config=config,
+        logger=logger,
+    )
+    commissioning.recover_unfinished()
 
     spotmarket_plan_writer = SpotmarketPlanWriter(
         config.spotmarket_plan_path,
@@ -116,6 +133,9 @@ def main() -> int:
         spotmarket_plan_writer=spotmarket_plan_writer,
         price_source_resolution=config.price_source.resolution,
         app_version=app_version,
+        identity_store=identity_store,
+        secure_cookies=config.runtime.environment == "ipc",
+        commissioning_service=commissioning,
     )
 
     log_event(
@@ -160,6 +180,7 @@ def main() -> int:
         return 0
     finally:
         api_server.stop()
+        commissioning.shutdown()
         adapter.close()
 
 
@@ -217,8 +238,10 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--reset-admin-code",
+        "--reset-admin-password",
+        dest="reset_admin_code",
         action="store_true",
-        help="Generate a new UI approval code in the site store and exit.",
+        help="Reset the initial approval code or an existing Admin password and exit.",
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(

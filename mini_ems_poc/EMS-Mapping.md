@@ -311,12 +311,12 @@ Dann braucht der POC eine Topic-zu-Channel-Tabelle.
 
 OpenEMS selbst hat in diesem Checkout keine fertige native BACnet-Edge-Bridge wie `Bridge.Modbus.Tcp` oder `Bridge.Mbus`. Unser POC implementiert BACnet daher selbst.
 
-Relevante POC-Dateien:
+Relevante POC-Dateien und Standortdaten:
 
 ```text
-mini_ems_poc/config.json
-mini_ems_poc/config.local.json
+<site-dir>/site.sqlite
 mini_ems_poc/mini_ems_runtime/config.py
+mini_ems_poc/mini_ems_runtime/site_store.py
 mini_ems_poc/mini_ems_runtime/channels.py
 mini_ems_poc/mini_ems_runtime/bacnet.py
 mini_ems_poc/mini_ems_runtime/simulation.py
@@ -326,7 +326,7 @@ mini_ems_poc/mini_ems_runtime/cycle.py
 Aktuelle BACnet-Kette:
 
 ```text
-config.json
+aktive Revision aus site.sqlite
 -> PointsConfig / AdditionalInputConfig
 -> ChannelRegistry
 -> PointConfig
@@ -346,7 +346,7 @@ Punktliste oder read-only Discovery
 -> POST /api/config/mapping/preview
 -> verständliche Fehler/Hinweise in der UI
 -> Test der lesbaren Punkte
--> Einrichtung abschließen mit lokalem Freigabecode
+-> Einrichtung abschließen mit authentifizierter Admin-Sitzung
 -> Backup + gespeicherter Entwurf + Audit-Eintrag
 -> geplanter Runtime-Neustart
 ```
@@ -356,7 +356,7 @@ Punktliste oder read-only Discovery
 mit Browser-Formularfeldern. Dadurch bleibt die Bedienung fachlich einfach, während Backup, Rollback und
 Anlagensicherheit technisch getrennt bleiben.
 
-Der fünfte UI-Schritt zeigt drei Zustände ausdrücklich getrennt:
+Der Abschlussbereich der Einrichtung zeigt drei Zustände ausdrücklich getrennt:
 
 - **Aktive Zuordnung:** wird aktuell von Mini EMS verwendet.
 - **Entwurf mit offenen Änderungen:** hat noch keine Wirkung auf die Anlage.

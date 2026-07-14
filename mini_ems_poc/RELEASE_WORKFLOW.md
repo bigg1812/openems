@@ -43,8 +43,8 @@ mini_ems.exe --site-dir C:\ProgramData\MiniEMS --loop
 ```
 
 Beim ersten Start erzeugt Mini EMS einen sicheren, lokalen Einrichtungsstand in `site.sqlite` und schreibt
-den einmaligen Freigabecode nach `C:\ProgramData\MiniEMS\logs\mini_ems_stdout.log`. Bei Verlust kann lokal
-ein neuer Code erzeugt werden:
+den einmaligen Freigabecode nach `C:\ProgramData\MiniEMS\logs\mini_ems_stdout.log`. Dieser Code legt im Browser
+genau einmal das erste Admin-Konto an. Konten und Sitzungen liegen danach getrennt in `identity.sqlite`.
 
 ```powershell
 & "C:\Program Files\MiniEMS\mini_ems.exe" `
@@ -60,8 +60,9 @@ Dashboard öffnen und **Konfiguration → Standort einrichten** ausführen:
 2. Geräte eintragen oder per Punktliste/Discovery erfassen.
 3. Datenpunkte fachlichen Kanälen zuordnen.
 4. Lesbare Punkte testen.
-5. Mit dem Freigabecode aktivieren.
-6. Den geplanten Task einmal neu starten.
+5. Optional einen eindeutig benannten `EMS_`-BACnet-Punkt freigeben; Schreiben bleibt bei aktivem API-Schutz aus.
+6. Als Admin aktivieren.
+7. Den geplanten Task einmal neu starten.
 
 Die Aktivierung schreibt keine Konfigurationsdatei. Sie erzeugt eine neue unveränderliche Revision in
 `site.sqlite`; die vorherige Revision bleibt als Rollback-Stand erhalten.
@@ -87,11 +88,12 @@ neu registriert wird.
 
 ```powershell
 Get-ScheduledTask -TaskName MiniEmsPoCRelease
-Invoke-RestMethod -Uri http://127.0.0.1:8090/api/status
+Invoke-RestMethod -Uri http://127.0.0.1:8090/api/health
 Get-ChildItem "C:\ProgramData\MiniEMS"
 ```
 
-Erwartet werden `site.sqlite`, Betriebsdaten und Logs, aber keine aktive `config.json`.
+Erwartet werden `site.sqlite`, nach der ersten Kontoeinrichtung `identity.sqlite`, Betriebsdaten und Logs, aber
+keine aktive `config.json`.
 
 Updates ersetzen ausschließlich `C:\Program Files\MiniEMS`. Der gesamte Standortordner unter
 `C:\ProgramData\MiniEMS` bleibt erhalten; Details stehen in `UPDATE_WARTUNG.md`.
