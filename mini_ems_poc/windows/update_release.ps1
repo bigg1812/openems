@@ -103,7 +103,16 @@ function Test-PackageChecksums {
             $mismatch++
             continue
         }
-        $actual = (Get-FileHash -Path $target -Algorithm SHA256).Hash.ToLower()
+        # Checksum calculation is read-only and must also run during the
+        # package-validation dry run. The provider observes the script-wide
+        # WhatIf preference although Get-FileHash has no -WhatIf parameter.
+        $savedWhatIfPreference = $WhatIfPreference
+        try {
+            $WhatIfPreference = $false
+            $actual = (Get-FileHash -Path $target -Algorithm SHA256).Hash.ToLower()
+        } finally {
+            $WhatIfPreference = $savedWhatIfPreference
+        }
         if ($actual -ne $expected) {
             Write-Warning "[update] Pruefsumme weicht ab: $rel"
             $mismatch++

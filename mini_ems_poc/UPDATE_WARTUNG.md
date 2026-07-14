@@ -1,145 +1,86 @@
-# Mini EMS – Update und Wartung
+# Mini EMS – Update, Rollback und Wartung
 
-Diese Anleitung beschreibt den normalen Release-Wechsel auf der Windows-IPC. Der Ablauf ist bewusst kurz:
-Das geprüfte Paket wird mit einem Skript installiert, automatisch getestet und kann mit einem Skript
-zurückgerollt werden.
+Der normale Ablauf zum **Bauen und Installieren** eines neuen Releases steht kurz und vollständig in
+`RELEASE_WORKFLOW.md`. Diese Datei wird nur benötigt, wenn ein Update fehlschlägt oder alte Sicherungen
+aufgeräumt werden sollen.
 
-> **Realer Nachweis vom 12.07.2026:** Der Betreiber hat den Release-Wechsel auf der Pilot-IPC erfolgreich
-> durchgeführt. Die neue Version lief fehlerfrei, die bestehende Konfiguration blieb erhalten, der
-> Freigabecode funktionierte und es gab keine Fehlermeldungen. Dieser Nachweis beruht auf der ausdrücklichen
-> Betreiberbestätigung; Konsolenausgaben wurden nicht ins Repository übernommen.
-
-## Was beim Update getrennt bleibt
+## Was beim Update erhalten bleibt
 
 ```text
-C:\Program Files\MiniEMS\       Anwendung und Dashboard; wird ersetzt
-C:\ProgramData\MiniEMS\         Standortdaten; bleibt erhalten
+C:\Program Files\MiniEMS\       Anwendung; wird ersetzt
+C:\ProgramData\MiniEMS\         Standortdaten; bleiben erhalten
 ```
 
-Der Standortordner enthält insbesondere:
+Zu den Standortdaten gehören `site.sqlite`, `identity.sqlite`, Betriebsdaten, Logs und Runtime-Zustand.
+`C:\ProgramData\MiniEMS` niemals durch Dateien aus dem Release-Paket ersetzen.
 
-- `site.sqlite`: aktive Konfiguration, Mapping und Revisionsverlauf
-- `data\`: Betriebsdaten und Preiszustände
-- `logs\`: Runtime- und Startprotokolle
-- `runtime\`: aktueller Zustand und `health.json`
+## Was das Update-Skript automatisch macht
 
-Eine aktive `config.json` gibt es nach der einmaligen Migration nicht mehr. Das Release-Paket darf keine
-Standortdaten enthalten.
+`windows\update_release.ps1`:
 
-## Voraussetzungen
+1. prüft Paket und Prüfsummen,
+2. stoppt Task und Prozess,
+3. sichert Standortdaten und bisherige Anwendung,
+4. installiert das neue Paket,
+5. startet Mini EMS,
+6. prüft Version und Health.
 
-- PowerShell als Administrator geöffnet
-- neues Release vollständig entpackt, zum Beispiel nach `C:\Temp\MiniEMS-Release-2026.07.2`
-- im Paketordner liegen mindestens `mini_ems.exe`, `VERSION`, `SHA256SUMS` und `windows\`
-- produktiver Task heißt standardmäßig `MiniEmsPoCRelease`
+Bei Erfolg erscheint:
 
-Der Paketordner ist die Quelle des Updates. `C:\Program Files\MiniEMS` ist dagegen die bereits installierte
-Anwendung und darf nicht als `-PackagePath` verwendet werden.
-
-## Reguläres Update
-
-### 1. In den neuen Paketordner wechseln
-
-```powershell
-cd "C:\Temp\MiniEMS-Release-2026.07.2"
+```text
+[update] UPDATE BESTANDEN
 ```
 
-### 2. Trockenlauf ausführen
+## Rollback nach einem fehlgeschlagenen Update
+
+Eine PowerShell mit **Als Administrator ausführen** öffnen:
 
 ```powershell
-.\windows\update_release.ps1 `
-  -PackagePath "C:\Temp\MiniEMS-Release-2026.07.2" `
-  -WhatIf
+$Package = "C:\dev\openems\mini_ems_poc\packaging\dist\mini_ems"
+
+& powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File "$Package\windows\update_release.ps1" `
+  -Rollback
 ```
 
-Der Trockenlauf prüft Paketpfad, Pflichtdateien und Prüfsummen und zeigt die geplanten Änderungen. Er stoppt
-keinen Task und kopiert keine Dateien.
+Das Skript stellt die zuletzt funktionierende Anwendung wieder her, startet den Task und prüft die alte
+Version. Die aktuellen Standortdaten bleiben dabei erhalten.
 
-### 3. Update ausführen
+Nur wenn ausdrücklich eine fehlerhafte Standortdaten-Migration zurückgenommen werden muss:
 
 ```powershell
-.\windows\update_release.ps1 `
-  -PackagePath "C:\Temp\MiniEMS-Release-2026.07.2"
+$Package = "C:\dev\openems\mini_ems_poc\packaging\dist\mini_ems"
+
+& powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File "$Package\windows\update_release.ps1" `
+  -Rollback `
+  -RestoreSiteBackup
 ```
 
-Das Skript erledigt automatisch:
+`-RestoreSiteBackup` nicht bei einem normalen App-Rollback verwenden, weil sonst neuere Betriebsdaten durch
+die Sicherung ersetzt werden.
 
-1. Paket-Prüfsummen kontrollieren.
-2. Task stoppen und Prozess-Ende abwarten.
-3. Den ruhenden Standortordner als `C:\ProgramData\MiniEMS_backup_<Zeit>` sichern.
-4. Die bisherige App als `C:\Program Files\MiniEMS_vorher_<Version>` behalten.
-5. Das neue Paket nach `C:\Program Files\MiniEMS` kopieren.
-6. Den Task starten.
-7. Health, Version und neue Fehler im Log prüfen.
-
-Bei Erfolg endet das Skript mit `UPDATE BESTANDEN`. Kein weiterer Installationsbefehl ist erforderlich.
-
-## Prüfung nach dem Update
-
-Der automatische Smoketest reicht für die technische Freigabe. Zusätzlich kurz den echten Zugriffsweg prüfen:
+## Zustand prüfen
 
 ```powershell
+Get-Content "C:\Program Files\MiniEMS\VERSION"
 Get-ScheduledTask -TaskName MiniEmsPoCRelease
-Invoke-RestMethod http://127.0.0.1:8090/api/health
+Invoke-RestMethod "http://127.0.0.1:8090/api/health"
 Get-Item "C:\ProgramData\MiniEMS\site.sqlite"
 ```
 
-Danach im Browser über Caddy öffnen:
+Dashboard:
 
 ```text
 https://192.168.244.10/dashboard
 ```
 
-Erwartet:
+Erwartet werden eine laufende Release-Version, HTTP `200`, `api_read_only: true` und die unveränderte
+`site.sqlite`.
 
-- Dashboard verlangt eine Anmeldung; nach Login lädt die Übersicht aktuelle Daten.
-- `/api/health` meldet die neue `app_version.version`.
-- `api_read_only` ist auf der produktiven IPC `true`.
-- Beim ersten H6-Update legt der bisherige Freigabecode einmalig das erste Admin-Konto an; danach funktioniert
-  die persönliche Anmeldung über denselben HTTPS-Link.
-- Standortdaten, `identity.sqlite` und bisherige Revisionen bleiben bei späteren Updates erhalten.
+## Admin-Zugang lokal zurücksetzen
 
-Der Smoketest kann bei Bedarf einzeln wiederholt werden:
-
-```powershell
-.\windows\smoketest_release.ps1 `
-  -ExpectedVersion 2026.07.2 `
-  -SiteDir "C:\ProgramData\MiniEMS" `
-  -ExpectReadOnly $true
-```
-
-## Rollback der Anwendung
-
-Wenn der automatische Smoketest fehlschlägt, keinen zweiten Blindversuch starten:
-
-```powershell
-.\windows\update_release.ps1 -Rollback
-```
-
-Das Skript legt den fehlgeschlagenen App-Stand beiseite, stellt den jüngsten
-`MiniEMS_vorher_*`-Ordner wieder her, startet den Task und prüft die alte Version.
-
-Der Standortordner wird dabei absichtlich nicht zurückgesetzt. So gehen keine seit dem Update entstandenen
-Betriebsdaten verloren.
-
-## Rollback über die erste site.sqlite-Migration
-
-Beim ersten Wechsel von einer alten `config.json`-Version auf `site.sqlite` ist auch das Standortformat neu.
-Soll genau dieser Wechsel zurückgerollt werden, App und Standort gemeinsam wiederherstellen:
-
-```powershell
-.\windows\update_release.ps1 -Rollback -RestoreSiteBackup
-```
-
-Der aktuelle Standortordner wird nicht gelöscht, sondern als `MiniEMS_fehlgeschlagen_<Zeit>` beiseitegelegt.
-Danach wird die jüngste `MiniEMS_backup_*`-Sicherung zurückbenannt. Diese Option nur verwenden, wenn wirklich
-auf eine alte `config.json`-Version zurückgegangen wird oder eine Standortmigration nachweislich beschädigt ist.
-
-## Admin-Zugang lokal wiederherstellen
-
-Bei einem noch nicht eingerichteten Standort erzeugt der Befehl einen neuen einmaligen Freigabecode. Sobald
-Konten existieren, setzt derselbe Befehl lokal ein temporäres Passwort für das erste aktive Admin-Konto und
-beendet dessen bestehende Sitzungen:
+Eine PowerShell als Administrator öffnen:
 
 ```powershell
 Stop-ScheduledTask -TaskName MiniEmsPoCRelease
@@ -151,21 +92,18 @@ Stop-ScheduledTask -TaskName MiniEmsPoCRelease
 Start-ScheduledTask -TaskName MiniEmsPoCRelease
 ```
 
-Code bzw. temporäres Passwort werden einmal in PowerShell ausgegeben. Nach der Anmeldung unter „Konten und
-Rollen“ sofort ein eigenes Passwort setzen. Der Wert wird nicht über Dashboard, Log oder API offengelegt.
+Bei einem neuen Standort wird ein neuer einmaliger Freigabecode ausgegeben. Wenn bereits Konten existieren,
+wird für das erste aktive Admin-Konto ein temporäres Passwort erzeugt. Danach sofort ein eigenes Passwort
+setzen.
 
-## Aufräumen nach erfolgreicher Abnahme
+## Alte Sicherungen aufräumen
 
-Rollback-Stände nicht sofort löschen. Nach einigen stabilen Betriebstagen genügt normalerweise:
+Das Update-Skript lässt Sicherungen bewusst liegen:
 
-- ein zuletzt funktionierender `MiniEMS_vorher_*`-App-Ordner
-- eine passende `MiniEMS_backup_*`-Standortsicherung
+```text
+C:\Program Files\MiniEMS_vorher_<Version>
+C:\ProgramData\MiniEMS_backup_<Zeit>
+```
 
-Ältere Sicherungen erst nach dokumentierter Abnahme manuell entfernen. `C:\ProgramData\MiniEMS` selbst niemals
-als Aufräummaßnahme löschen oder durch Dateien aus dem Release-Paket ersetzen.
-
-## Zugehörige Dokumente
-
-- `RELEASE_WORKFLOW.md`: Erstinstallation und einmalige Migration
-- `packaging/README.md`: Release bauen
-- `HOSTING_SICHERHEIT.md`: Caddy, Netzwerkgrenzen und Rollen
+Erst nach einigen stabilen Betriebstagen aufräumen. Mindestens den letzten funktionierenden App-Stand und
+eine passende Standort-Sicherung behalten. `C:\ProgramData\MiniEMS` selbst niemals löschen.

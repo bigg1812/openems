@@ -27,6 +27,10 @@ if (-not $Version) {
     Write-Host "[build] FEHLER: Version fehlt. Aufruf mit -Version JJJJ.MM.n (z. B. 2026.07.1) oder `$env:MINI_EMS_VERSION setzen." -ForegroundColor Red
     exit 2
 }
+if ($Version -notmatch '^\d{4}\.\d{2}\.\d+$') {
+    Write-Host "[build] FEHLER: Ungueltige Version '$Version'. Erwartet wird JJJJ.MM.n (z. B. 2026.07.3)." -ForegroundColor Red
+    exit 2
+}
 
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $ProjectDir = Split-Path -Parent $ScriptDir
@@ -58,9 +62,13 @@ if (-not (Test-Path $ReleaseDir)) {
 
 # --- VERSION file: semver + build date + git commit hash --------------------
 $BuildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-$GitCommit = (& git -C $ProjectDir rev-parse --short=12 HEAD 2>$null)
+# Ignore the user-global excludes file here. On locked-down IPC accounts Git may
+# be unable to read ~/.config/git/ignore and writes a warning to stderr; with
+# $ErrorActionPreference="Stop" PowerShell would otherwise abort a successful
+# release build while only collecting version metadata.
+$GitCommit = (& git -c core.excludesFile=NUL -C $ProjectDir rev-parse --short=12 HEAD 2>$null)
 if (-not $GitCommit) { $GitCommit = "unknown" }
-& git -C $ProjectDir diff --quiet HEAD 2>$null
+& git -c core.excludesFile=NUL -c core.safecrlf=false -C $ProjectDir diff --quiet HEAD 2>$null
 if ($LASTEXITCODE -ne 0) { $GitCommit = "$GitCommit+dirty" }
 $Platform = "Windows-$env:PROCESSOR_ARCHITECTURE"
 @(

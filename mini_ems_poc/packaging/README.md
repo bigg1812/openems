@@ -68,10 +68,21 @@ MINI_EMS_VERSION=2026.07.1 packaging/build_release.sh
 
 ### Windows (IPC-Release)
 
+Der einfache vollständige Ablauf einschließlich Tests, Installation und Start steht in `..\RELEASE_WORKFLOW.md`.
+Für einen reinen Paket-Build in einer normalen PowerShell:
+
 ```powershell
-python -m pip install pyinstaller
-powershell -ExecutionPolicy Bypass -File packaging\build_release.ps1 -Version 2026.07.1
+Set-Location "C:\dev\openems\mini_ems_poc"
+$Version = Read-Host "Neue Version (JJJJ.MM.n)"
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File ".\packaging\build_release.ps1" `
+  -Version $Version `
+  -Python ".\.venv\Scripts\python.exe"
 ```
+
+Nicht als Administrator bauen. Zum Installieren oder Aktualisieren ausschließlich den Ablauf in
+`RELEASE_WORKFLOW.md` verwenden und nicht manuell in eine laufende Installation kopieren.
 
 ## Release erstellen (reproduzierbarer Ablauf)
 
