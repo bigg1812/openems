@@ -1,9 +1,12 @@
 import json
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
+from .price_time import TIME_MODEL, slot_count, slot_label, slot_start, to_berlin
+from .price_provider_smard import PriceProviderError
 from .state_store import write_json_atomic
 
 
@@ -17,8 +20,13 @@ class SpotmarketWindow:
     min_price_ct_kwh: float
     max_price_ct_kwh: float
 
+    start_utc: Optional[str] = None
+    end_utc: Optional[str] = None
+
     def to_dict(self) -> Dict[str, object]:
         return {
+            "start_utc": self.start_utc,
+            "end_utc": self.end_utc,
             "start_slot": self.start_slot,
             "end_slot_exclusive": self.end_slot_exclusive,
             "start_label": self.start_label,
@@ -83,7 +91,7 @@ class SpotmarketManualOverrideStore:
         raw_windows = raw.get("windows")
         if isinstance(raw_windows, list):
             for item in raw_windows:
-                window = _parse_override_window(item)
+                window = _parse_override_window(item, date_iso)
                 if window is not None:
                     windows.append(window)
 
@@ -123,14 +131,15 @@ class SpotmarketPlanWriter:
         current_slot_index: int,
     ) -> Dict[str, object]:
         with self._lock:
-            today_windows = self._find_windows(today_slots)
-            tomorrow_windows = self._find_windows(tomorrow_slots)
+            today_windows = self._find_windows(today_slots, today_date_iso)
+            tomorrow_windows = self._find_windows(tomorrow_slots, tomorrow_date_iso)
             active_today = self.is_slot_active(current_slot_index, today_windows)
             next_today_window = self._next_window(current_slot_index, today_windows)
 
             payload = {
                 "generated_at": generated_at,
                 "plan_type": "spotmarket_windows",
+                "time_model": TIME_MODEL,
                 "source_resolution": "quarterhour",
                 "negative_threshold_ct_kwh": self.negative_threshold_ct_kwh,
                 "min_consecutive_quarters": self.min_consecutive_quarters,
@@ -175,7 +184,7 @@ class SpotmarketPlanWriter:
             "windows": [window.to_dict() for window in windows],
         }
 
-    def _find_windows(self, slots: Sequence[Optional[float]]) -> List[SpotmarketWindow]:
+    def _find_windows(self, slots: Sequence[Optional[float]], date_iso: str) -> List[SpotmarketWindow]:
         windows: List[SpotmarketWindow] = []
         current_start: Optional[int] = None
         current_values: List[float] = []
@@ -190,14 +199,14 @@ class SpotmarketPlanWriter:
                 continue
 
             if current_start is not None:
-                maybe_window = self._build_window(current_start, slot_index, current_values)
+                maybe_window = self._build_window(current_start, slot_index, current_values, date_iso)
                 if maybe_window is not None:
                     windows.append(maybe_window)
                 current_start = None
                 current_values = []
 
         if current_start is not None:
-            maybe_window = self._build_window(current_start, len(slots), current_values)
+            maybe_window = self._build_window(current_start, len(slots), current_values, date_iso)
             if maybe_window is not None:
                 windows.append(maybe_window)
 
@@ -208,6 +217,7 @@ class SpotmarketPlanWriter:
         start_slot: int,
         end_slot_exclusive: int,
         values: Sequence[float],
+        date_iso: str,
     ) -> Optional[SpotmarketWindow]:
         length = end_slot_exclusive - start_slot
         if length < self.min_consecutive_quarters:
@@ -215,8 +225,10 @@ class SpotmarketPlanWriter:
         return SpotmarketWindow(
             start_slot=start_slot,
             end_slot_exclusive=end_slot_exclusive,
-            start_label=_slot_label(start_slot),
-            end_label_exclusive=_slot_label(end_slot_exclusive),
+            start_label=slot_label(date_iso, start_slot),
+            start_utc=slot_start(date_iso, start_slot).isoformat(),
+            end_label_exclusive=slot_label(date_iso, end_slot_exclusive),
+            end_utc=slot_start(date_iso, end_slot_exclusive).isoformat(),
             length_quarters=length,
             min_price_ct_kwh=round(min(values), 4),
             max_price_ct_kwh=round(max(values), 4),
@@ -253,44 +265,37 @@ class SpotmarketPlanWriter:
         return parsed
 
 
-def _slot_label(slot_index: int) -> str:
-    wrapped_index = slot_index % 96
-    hour = wrapped_index // 4
-    minute = (wrapped_index % 4) * 15
-    return "{0:02d}:{1:02d}".format(hour, minute)
-
-
-def _parse_override_window(raw: object) -> Optional[SpotmarketWindow]:
+def _parse_override_window(raw: object, date_iso: str) -> Optional[SpotmarketWindow]:
     if not isinstance(raw, dict):
-        return None
-    start_label = raw.get("start_label")
-    end_label_exclusive = raw.get("end_label_exclusive")
-    if not isinstance(start_label, str) or not isinstance(end_label_exclusive, str):
-        return None
-    start_slot = _label_to_slot(start_label)
-    end_slot_exclusive = _label_to_slot(end_label_exclusive)
-    if start_slot is None or end_slot_exclusive is None or end_slot_exclusive <= start_slot:
-        return None
+        raise PriceProviderError("Manuelles Preisfenster ist ungültig")
+    boundaries = [slot_start(date_iso, index) for index in range(slot_count(date_iso) + 1)]
+
+    def boundary_index(utc_key: str, label_key: str) -> int:
+        try:
+            if raw.get(utc_key) is not None:
+                instant = datetime.fromisoformat(str(raw[utc_key]).replace("Z", "+00:00"))
+                if instant.tzinfo is None:
+                    raise ValueError("missing timezone")
+                return boundaries.index(instant)
+            label = raw.get(label_key)
+            if label == "24:00":
+                return len(boundaries) - 1
+            # Clock labels are accepted only if they identify exactly one boundary.
+            matches = [index for index, moment in enumerate(boundaries[:-1])
+                       if to_berlin(moment).strftime("%H:%M") == label]
+            if len(matches) == 1:
+                return matches[0]
+        except (ValueError, TypeError):
+            pass
+        raise PriceProviderError("Manuelles Preisfenster: Uhrzeit fehlt oder ist mehrdeutig; start_utc/end_utc verwenden")
+
+    start = boundary_index("start_utc", "start_label")
+    end = boundary_index("end_utc", "end_label_exclusive")
+    if end <= start:
+        raise PriceProviderError("Manuelles Preisfenster endet nicht nach seinem Beginn")
     return SpotmarketWindow(
-        start_slot=start_slot,
-        end_slot_exclusive=end_slot_exclusive,
-        start_label=start_label,
-        end_label_exclusive=end_label_exclusive,
-        length_quarters=end_slot_exclusive - start_slot,
-        min_price_ct_kwh=0.0,
-        max_price_ct_kwh=0.0,
+        start_slot=start, end_slot_exclusive=end,
+        start_label=slot_label(date_iso, start), end_label_exclusive=slot_label(date_iso, end),
+        length_quarters=end - start, min_price_ct_kwh=0.0, max_price_ct_kwh=0.0,
+        start_utc=boundaries[start].isoformat(), end_utc=boundaries[end].isoformat(),
     )
-
-
-def _label_to_slot(label: str) -> Optional[int]:
-    parts = label.split(":")
-    if len(parts) != 2:
-        return None
-    try:
-        hour = int(parts[0])
-        minute = int(parts[1])
-    except ValueError:
-        return None
-    if hour < 0 or hour > 23 or minute not in (0, 15, 30, 45):
-        return None
-    return hour * 4 + (minute // 15)

@@ -1,10 +1,12 @@
 import json
+import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from .price_provider_smard import PriceProviderError, RecentSlotMapScanResult, SmardPriceProvider, berlin_now
+from .price_time import TIME_MODEL, slot_count, slot_label, slot_starts
 from .state_store import write_json_atomic
 
 
@@ -14,15 +16,16 @@ class CachedDay:
     slots: List[Optional[float]]
 
     def to_dict(self) -> dict:
-        slot_minutes = 60 if len(self.slots) == 24 else 15
         return {
             "date": self.date_iso,
             "slot_count": len(self.slots),
             "available_slot_count": sum(1 for value in self.slots if value is not None),
-            "slot_minutes": slot_minutes,
+            "slot_minutes": 15,
+            "time_model": TIME_MODEL,
+            "slot_starts_utc": slot_starts(self.date_iso),
             "slots": list(self.slots),
             "slots_by_label": {
-                _slot_label(index, slot_minutes): value
+                slot_label(self.date_iso, index): value
                 for index, value in enumerate(self.slots)
             },
         }
@@ -35,10 +38,23 @@ class CachedDay:
         slots = raw.get("slots")
         if not isinstance(date_iso, str) or not isinstance(slots, list):
             return None
-        normalized_slots: List[Optional[float]] = []
-        for value in slots:
-            normalized_slots.append(None if value is None else float(value))
-        return cls(date_iso=date_iso, slots=normalized_slots)
+        try:
+            expected = slot_count(date_iso)
+            if raw.get("time_model") != TIME_MODEL:
+                # Old clock-indexed transition days cannot be reconstructed reliably.
+                if expected != 96 or raw.get("time_model") is not None:
+                    return None
+                if len(slots) == 24:
+                    slots = [value for value in slots for _ in range(4)]
+            if len(slots) != expected:
+                return None
+            normalized = [None if value is None else float(value) for value in slots]
+            if any(value is not None and not math.isfinite(value) for value in normalized):
+                return None
+            return cls(date_iso=date_iso, slots=normalized)
+        except (ValueError, TypeError, OverflowError):
+            return None
+
 
 
 @dataclass(frozen=True)
@@ -84,37 +100,19 @@ class SpotmarketPriceCacheService:
         today_slot_map = scan_result.slot_maps_by_date.get(today.isoformat(), {})
         tomorrow_slot_map = scan_result.slot_maps_by_date.get(tomorrow.isoformat(), {})
 
-        today_entry = cache.today
-        tomorrow_entry = cache.tomorrow
+        def merged_day(day: date, fresh: Dict[int, float]) -> CachedDay:
+            date_iso = day.isoformat()
+            previous = next((entry for entry in (cache.today, cache.tomorrow)
+                             if entry is not None and entry.date_iso == date_iso), None)
+            slots = list(previous.slots) if previous else [None] * slot_count(date_iso)
+            # Merge corrections even when the published interval count is unchanged.
+            for index, value in fresh.items():
+                if 0 <= index < len(slots) and math.isfinite(value):
+                    slots[index] = float(value)
+            return CachedDay(date_iso=date_iso, slots=slots)
 
-        if today_entry is None or today_entry.date_iso != today.isoformat():
-            if tomorrow_entry is not None and tomorrow_entry.date_iso == today.isoformat():
-                today_entry = tomorrow_entry
-                tomorrow_entry = None
-            else:
-                today_entry = CachedDay(
-                    date_iso=today.isoformat(),
-                    slots=self._build_slots(today_slot_map),
-                )
-        elif len(today_slot_map) > sum(1 for value in today_entry.slots if value is not None):
-            today_entry = CachedDay(
-                date_iso=today.isoformat(),
-                slots=self._build_slots(today_slot_map),
-            )
-
-        if tomorrow_entry is not None and tomorrow_entry.date_iso == today.isoformat():
-            tomorrow_entry = None
-
-        if tomorrow_entry is None or tomorrow_entry.date_iso != tomorrow.isoformat():
-            tomorrow_entry = CachedDay(
-                date_iso=tomorrow.isoformat(),
-                slots=self._build_slots(tomorrow_slot_map),
-            )
-        elif len(tomorrow_slot_map) > sum(1 for value in tomorrow_entry.slots if value is not None):
-            tomorrow_entry = CachedDay(
-                date_iso=tomorrow.isoformat(),
-                slots=self._build_slots(tomorrow_slot_map),
-            )
+        today_entry = merged_day(today, today_slot_map)
+        tomorrow_entry = merged_day(tomorrow, tomorrow_slot_map)
 
         slot_index = self.provider.current_slot_index(now_local)
         if slot_index >= len(today_entry.slots):
@@ -128,7 +126,7 @@ class SpotmarketPriceCacheService:
         if current_value is None:
             raise PriceProviderError(
                 "Current slot {0} for {1} is not available in the published price set".format(
-                    self.provider.slot_label(slot_index),
+                    slot_label(today_entry.date_iso, slot_index),
                     today_entry.date_iso,
                 )
             )
@@ -145,7 +143,7 @@ class SpotmarketPriceCacheService:
         return PublishedPriceSnapshot(
             current_price_ct_kwh=float(current_value),
             current_slot_index=slot_index,
-            current_slot_label=self.provider.slot_label(slot_index),
+            current_slot_label=slot_label(today_entry.date_iso, slot_index),
             today_date_iso=today_entry.date_iso,
             today_available_slot_count=sum(1 for value in today_entry.slots if value is not None),
             today_slots=list(today_entry.slots),
@@ -189,7 +187,7 @@ class SpotmarketPriceCacheService:
         tomorrow_slots = list(tomorrow_entry.slots) if tomorrow_entry is not None else []
         tomorrow_available_slot_count = sum(1 for value in tomorrow_slots if value is not None)
         today_available_slot_count = sum(1 for value in today_entry.slots if value is not None)
-        expected_slots = 24 if self.provider.config.resolution == "hour" else 96
+        expected_slots = slot_count(today.isoformat())
         source_status = {
             "provider": self.provider.config.provider,
             "resolution": self.provider.config.resolution,
@@ -201,13 +199,13 @@ class SpotmarketPriceCacheService:
             "today_complete": today_available_slot_count == expected_slots,
             "tomorrow_date": tomorrow.isoformat(),
             "tomorrow_slots_found": tomorrow_available_slot_count,
-            "tomorrow_complete": tomorrow_available_slot_count == expected_slots,
+            "tomorrow_complete": tomorrow_available_slot_count == slot_count(tomorrow.isoformat()),
             "last_successful_update_at": cache.last_update_at,
         }
         return PublishedPriceSnapshot(
             current_price_ct_kwh=float(current_value),
             current_slot_index=slot_index,
-            current_slot_label=self.provider.slot_label(slot_index),
+            current_slot_label=slot_label(today_entry.date_iso, slot_index),
             today_date_iso=today_entry.date_iso,
             today_available_slot_count=today_available_slot_count,
             today_slots=list(today_entry.slots),
@@ -245,14 +243,6 @@ class SpotmarketPriceCacheService:
     def _save_cache(self, cache: "PriceCacheFile") -> None:
         write_json_atomic(self.path, cache.to_dict())
 
-    def _build_slots(self, slot_map: Dict[int, float]) -> List[Optional[float]]:
-        expected_slots = 24 if self.provider.config.resolution == "hour" else 96
-        slots: List[Optional[float]] = [None] * expected_slots
-        for slot_index, value in slot_map.items():
-            if 0 <= slot_index < expected_slots:
-                slots[slot_index] = float(value)
-        return slots
-
     def _build_price_source_status(
         self,
         scan_result: RecentSlotMapScanResult,
@@ -261,7 +251,7 @@ class SpotmarketPriceCacheService:
     ) -> Dict[str, object]:
         today_slots_found = len(scan_result.slot_maps_by_date.get(today.isoformat(), {}))
         tomorrow_slots_found = len(scan_result.slot_maps_by_date.get(tomorrow.isoformat(), {}))
-        expected_slots = 24 if self.provider.config.resolution == "hour" else 96
+        expected_slots = slot_count(today.isoformat())
         return {
             "provider": self.provider.config.provider,
             "resolution": self.provider.config.resolution,
@@ -270,7 +260,7 @@ class SpotmarketPriceCacheService:
             "today_complete": today_slots_found == expected_slots,
             "tomorrow_date": tomorrow.isoformat(),
             "tomorrow_slots_found": tomorrow_slots_found,
-            "tomorrow_complete": tomorrow_slots_found == expected_slots,
+            "tomorrow_complete": tomorrow_slots_found == slot_count(tomorrow.isoformat()),
             "first_local_timestamp": scan_result.first_local_timestamp,
             "last_local_timestamp": scan_result.last_local_timestamp,
             "scanned_block_count": len(scan_result.scanned_block_timestamps),
@@ -292,13 +282,6 @@ class PriceCacheFile:
             "tomorrow": self.tomorrow.to_dict() if self.tomorrow is not None else None,
             "price_source_status": self.price_source_status,
         }
-
-
-def _slot_label(slot_index: int, slot_minutes: int) -> str:
-    slots_per_hour = 60 // slot_minutes
-    hour = slot_index // slots_per_hour
-    minute = (slot_index % slots_per_hour) * slot_minutes
-    return "{0:02d}:{1:02d}".format(hour, minute)
 
 
 def _slot_label_from_timestamp(timestamp: Optional[str]) -> Optional[str]:

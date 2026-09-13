@@ -1,5 +1,20 @@
 # Mini EMS - Product & UX Roadmap
 
+## Aktuelle Priorität – 13.09.2026
+
+Die nächste Version soll einen Standort zuverlässig einrichten, seinen Zustand korrekt erklären und
+freigegebene Eingriffe einschließlich ihrer Rückgabe lückenlos nachweisen. Technische Aufgaben und
+Feldabnahmen stehen ausschließlich in [ROADMAP.md](ROADMAP.md), einschließlich R1–R12.
+
+1. **UX24:** Schreibnachweis lokal überarbeitet und getestet; reale IPC-Abnahme bleibt offen.
+2. **UX23:** Fachfremden Bedienversuch nach der technischen Stabilisierung durchführen.
+3. **UX17:** Vorhandenen Import/Discovery-Ablauf gezielt vervollständigen; insbesondere Modbus-Einrichtung
+   mit R12 abstimmen. BACnet-Import ist bereits vorhanden und kein neu zu bauendes Grundfeature.
+4. **UX18–UX22:** Bis zu den jeweiligen Export-/Semantik-/Steuerungsgrundlagen zurückgestellt.
+
+`design_prototype/` bleibt ein statisches Designexperiment. Die folgenden älteren Umsetzungsnotizen
+erklären die Entwicklung; ihre Häkchen ersetzen weder die aktuelle Fehlerbewertung noch eine Feldabnahme.
+
 ## Zweck
 
 Diese Roadmap ergänzt die technische `ROADMAP.md`. Sie beschreibt nicht primär Adapter, Watchdogs,
@@ -128,6 +143,34 @@ Leitentscheidungen:
   - **IPC-Abnahme (2026-07-12, Betreiberbestätigung):** Das neue Release läuft fehlerfrei, die bestehende
     Konfiguration blieb erhalten und der Verwaltungszugang mit Freigabecode funktionierte. Offen bleibt nur
     der ausdrücklich geforderte Durchlauf durch eine fachfremde Testperson; deshalb bleibt UX23 insgesamt offen.
+
+- [ ] **UX24. Ergebnis eines BACnet-Schreibtests dauerhaft und eindeutig anzeigen**
+  - **Stand 13.09.2026 – lokal umgesetzt und geprüft, Feldabnahme offen:** Angefordert, BACnet-ACK,
+    einmaliger Readback, Wirksamkeit beim Rücklesen und Rückgabe bleiben getrennt sichtbar – auch nach
+    Ablauf. Eine Abweichung nennt höhere Priorität nur als mögliche Ursache. Fehlender Readback bleibt
+    unbekannt; der Countdown benennt die verbleibende Freigabezeit. Eine offene Rückgabe sperrt neue
+    Tests, bleibt erneut anforderbar und wird nicht als Erfolg angezeigt. Regressionen im Dashboard-Harness.
+    Bestehende Leases unterscheiden manuelle/automatische Rückgabe nicht; deshalb heißt der Nachweis neutral
+    „Rückgabe bestätigt“. Neue Versuche speichern Beginn, Auslöser und Ergebnis (R3b); die UI zeigt
+    Schreibfehler sowie Anzahl und Zeit des letzten Rückgabeversuchs. Im lokalen macOS-Paket wurde der
+    Ablauf einschließlich Timer und Wiederöffnen nach Reload im Browser geprüft; siehe Validierungsnachweis.
+  - **Auslöser:** Der reale IPC-Test am 14.07.2026 mit je einem BV und AV zeigte zwei korrekte BACnet-Fälle:
+    Eine höher priorisierte DDC-Programmlogik blieb wirksam, obwohl der Write auf Priorität 14 angenommen wurde;
+    ohne diese Programmlogik wurde der Mini-EMS-Testwert wirksam. Nach der automatischen Rückgabe zeigte die UI
+    jedoch nur „Letzter Test: <angeforderter Wert>“. Das kann fälschlich wie ein wirksamer Wert aussehen.
+  - **Was:** Angeforderten Wert, BACnet-ACK, direkt zurückgelesenen wirksamen Wert und bestätigte Rückgabe getrennt
+    darstellen. Das Ergebnis „wirksam“ beziehungsweise „nicht wirksam, höhere Priorität aktiv“ muss auch nach dem
+    zehnsekündigen Relinquish sichtbar bleiben. Der Countdown wird ausdrücklich als verbleibende Freigabezeit
+    bezeichnet und darf nicht den Eindruck einer laufenden Messung erwecken.
+  - **Betroffen:** Schreibzugriffe in `dashboard.js`; vorhandene Lease-Felder `desired_value`, `effective_value`,
+    Write-/Release-Bestätigung und Zeitstempel nutzen. Nur falls für die Anzeige nötig, API-Payload additiv ergänzen.
+  - **Aufwand:** S/M
+  - **Risiken:** Ein bestätigtes BACnet-ACK beweist nur die Annahme des Schreibbefehls, nicht dessen Wirksamkeit im
+    Priority Array. Eine einmalige Rücklesung darf nicht als kontinuierlich aktueller Anlagenwert bezeichnet werden.
+  - **Definition of Done:** Beim Test gegen eine höher priorisierte DDC-Logik bleibt nach Ablauf sichtbar:
+    „angefordert Aus/AV-Wert, zurückgelesen Ein/abweichender AV-Wert, nicht wirksam, automatisch zurückgegeben“.
+    Ohne höhere Priorität bleibt entsprechend „wirksam und automatisch zurückgegeben“ sichtbar. Beide Fälle sind
+    durch Tests abgedeckt und werden einmal auf der IPC bestätigt.
 
 - [x] **UX6. Zustände und Warnungen verständlich machen** — erledigt: jeder kritische Zustand erscheint als
   verständliche Meldung mit nächstem Schritt; dezenter Ladehinweis beim ersten Laden und beim Aktualisieren.
@@ -436,18 +479,10 @@ Leitentscheidungen:
 
 ## Empfohlener nächster Schritt
 
-**Als Nächstes H6/UX12 als neues Release auf der echten IPC abnehmen.** Anmeldung, Viewer-/Admin-Trennung,
-Kontenverwaltung und der neue BACnet-Inbetriebnahmeschritt sind lokal umgesetzt. Nach Installation über den
-bestehenden Updatepfad folgt UX23 mit einer fachfremden Testperson über Caddy. Die Operator-Rolle ist bewusst
-kein Teil dieses ersten Rollen-Releases.
+Technische Stabilisierung nach R1–R4 der `ROADMAP.md`, danach Paketprüfung und gemeinsame
+IPC-Abnahme von Rollen, Zugriffspfad und UX24 (R5/R6/R7). Der reale Test vom 14.07.2026 bleibt
+als Einzelbeobachtung erhalten; er belegt nicht pauschal das heutige Release.
 
-**Standort-Schritte laufen parallel, außerhalb dieser Roadmap.** H2 (Release-Paket) und H3 (ACL-Härtung)
-sind auf der Pilot-IPC erledigt. Offen bleibt bei H4 (API intern binden/Proxy) und H5 (Read-only
-Netzwerkmodus) derselbe reale Nachweis von einem zweiten Rechner am Standort über Kundennetz/VPN/Secomea,
-ebenso bei To-do 3 (Online-Hosting-Nachweis). Für H6 steht nur die reale IPC-Release-Abnahme aus.
-Diese Punkte aus `ROADMAP.md` sind Standort-/Betriebsnachweise bzw. Betriebsentscheidungen ohne
-offenen UX-Bedarf und werden dort geführt.
-
-**Nächste Produktlinie:** S9 startet technisch mit einem kleinen read-only Edge-to-Cloud-Pfad. UX18 wird erst
-dann konkret, wenn echte exportierte Standortdaten vorliegen. UX17 und UX19-UX22 bleiben bis zu ihren
-technischen Grundlagen aus `ROADMAP.md` (S10-S16, C1-C9) geparkt.
+UX23 benötigt anschließend einen fachfremden Bedienversuch. UX17 folgt einem konkreten Gerät und R12.
+S9/UX18 starten erst nach der Stabilisierung. Semantik, Remote-Steuerung und umfassendes Redesign sind
+keine parallelen Aufgaben der nächsten Version.

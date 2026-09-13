@@ -653,7 +653,10 @@ Vor jedem neuen Protokoll oder Messgerät:
 
 ## Konkreter nächster sinnvoller POC-Schritt
 
-Der nächste technische Schritt sollte ein read-only Modbus-Meter-Adapter sein:
+**Aktualisiert 12.09.2026:** Der read-only Modbus-TCP-Adapter ist implementiert und getestet.
+Offen ist die durchgängige Einrichtung im Mapping-Assistenten und der Nachweis an einem konkreten Gerät
+(R12 in [ROADMAP.md](ROADMAP.md)). Das folgende Beispiel beschreibt diesen Integrationspfad, keinen neu
+zu bauenden Adapter. Zuerst gilt die Stabilisierungsreihenfolge R1–R4.
 
 ```text
 Modbus TCP Leistungsmessgerät

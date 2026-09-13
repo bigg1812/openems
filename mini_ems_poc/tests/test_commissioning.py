@@ -2,6 +2,7 @@ import json
 import logging
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from mini_ems_poc.mini_ems_runtime.commissioning import CommissioningService, CommissioningStore
@@ -159,13 +160,25 @@ class CommissioningTest(unittest.TestCase):
         self.assertTrue(result["effective"])
         self.assertEqual(result["lease"]["status"], "active")
         self.assertEqual(adapter.writes[0][0].write_priority, 14)
-        self.assertEqual(FakeTimer.created[0].seconds, 10)
+        self.assertGreater(FakeTimer.created[0].seconds, 0)
+        self.assertLessEqual(FakeTimer.created[0].seconds, 10)
 
         FakeTimer.created[0].callback()
 
         lease = self.store.latest_lease(point["id"])
         self.assertEqual(lease["status"], "released")
         self.assertEqual(len(adapter.relinquishes), 1)
+
+    def test_slow_io_does_not_add_another_ten_seconds_to_the_lease(self) -> None:
+        adapter = FakeAdapter(readback=0)
+        service = self.service(adapter)
+        clock = iter((100.0, 111.0))
+        service.monotonic = lambda: next(clock)
+        point = self.approve(service)
+        service.start_test({"point_id": point["id"], "value": False}, self.admin)
+        self.assertEqual(FakeTimer.created[0].seconds, 0)
+        FakeTimer.created[0].callback()
+        self.assertEqual(self.store.latest_lease(point["id"])["status"], "released")
 
     def test_mismatching_readback_reports_higher_priority(self) -> None:
         adapter = FakeAdapter(readback=1)
@@ -200,7 +213,7 @@ class CommissioningTest(unittest.TestCase):
         self.assertEqual(self.store.latest_lease(point["id"])["status"], "released")
         self.assertEqual(len(restart_adapter.relinquishes), 1)
 
-    def test_failed_ack_triggers_best_effort_relinquish(self) -> None:
+    def test_failed_ack_persists_write_error_and_confirmed_release(self) -> None:
         adapter = FakeAdapter(write_confirmed=False)
         service = self.service(adapter)
         point = self.approve(service)
@@ -208,8 +221,125 @@ class CommissioningTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "no ack"):
             service.start_test({"point_id": point["id"], "value": False}, self.admin)
 
-        self.assertEqual(self.store.latest_lease(point["id"])["status"], "failed")
+        lease = self.store.latest_lease(point["id"])
+        self.assertEqual(lease["status"], "released")
+        self.assertEqual(lease["write_error"], "no ack")
+        self.assertFalse(lease["write_confirmation"]["confirmed"])
+        self.assertEqual(lease["release_attempts"][0]["trigger"], "write_failure")
         self.assertEqual(len(adapter.relinquishes), 1)
+
+    def test_unknown_write_and_failed_release_survive_store_reopen(self) -> None:
+        adapter = FakeAdapter()
+        service = self.service(adapter)
+        point = self.approve(service)
+
+        def fail_write(*args):
+            raise RuntimeError("write outcome unknown")
+
+        def fail_release(*args):
+            raise RuntimeError("connection lost")
+
+        adapter.write_with_confirmation = fail_write
+        adapter.relinquish_with_confirmation = fail_release
+        with self.assertRaisesRegex(RuntimeError, "write outcome unknown"):
+            service.start_test({"point_id": point["id"], "value": False}, self.admin)
+
+        self.store = CommissioningStore(self.identity.path)
+        pending = self.store.latest_lease(point["id"])
+        self.assertEqual(pending["status"], "release_failed")
+        self.assertEqual(pending["write_error"], "write outcome unknown")
+        self.assertEqual(pending["release_attempts"][0]["confirmation"]["error"], "connection lost")
+        with self.assertRaises(ValueError):
+            self.service().start_test({"point_id": point["id"], "value": True}, self.admin)
+
+        restarted = self.service()
+        restarted.recover_unfinished()
+        final = self.store.latest_lease(point["id"])
+        self.assertEqual(final["status"], "released")
+        self.assertEqual([attempt["trigger"] for attempt in final["release_attempts"]], ["write_failure", "restart"])
+        self.assertEqual(final["write_error"], "write outcome unknown")
+        self.assertEqual(restarted.adapter.writes, [])
+
+    def test_recovery_uses_persisted_target_after_interrupted_write(self) -> None:
+        service = self.service()
+        point = self.approve(service)
+        lease = self.store.create_lease(point["id"], False, self.admin.user_id)
+        # Simulate a crash in status writing and an old application changing the approval.
+        with self.store._connect() as connection:
+            connection.execute("UPDATE bacnet_write_points SET write_priority = 15 WHERE point_id = ?", (point["id"],))
+        self.store = CommissioningStore(self.identity.path)
+        restarted = self.service()
+        restarted.recover_unfinished()
+        self.assertEqual(restarted.adapter.relinquishes[0][0].write_priority, 14)
+        self.assertEqual(self.store.get_lease(lease["id"])["status"], "released")
+
+    def test_interrupted_release_retains_attempt_without_claiming_result(self) -> None:
+        service = self.service()
+        point = self.approve(service)
+        lease = self.store.create_lease(point["id"], False, self.admin.user_id)
+        self.store.begin_release_attempt(lease["id"], "timer")
+        self.store = CommissioningStore(self.identity.path)
+        restarted = self.service()
+        restarted.recover_unfinished()
+        final = self.store.get_lease(lease["id"])
+        self.assertEqual(final["status"], "released")
+        self.assertEqual(len(final["release_attempts"]), 2)
+        self.assertIsNone(final["release_attempts"][0]["confirmation"])
+        self.assertTrue(final["release_attempts"][1]["confirmation"]["confirmed"])
+
+    def test_legacy_failed_record_blocks_new_write_without_guessing_priority(self) -> None:
+        service = self.service()
+        point = self.approve(service)
+        lease = self.store.create_lease(point["id"], False, self.admin.user_id)
+        with self.store._connect() as connection:
+            connection.execute("UPDATE bacnet_write_leases SET status = 'failed', target_json = NULL WHERE lease_id = ?", (lease["id"],))
+            connection.execute("ALTER TABLE bacnet_write_leases DROP COLUMN target_json")
+            connection.execute("ALTER TABLE bacnet_write_leases DROP COLUMN write_error")
+            connection.execute("DROP TABLE bacnet_release_attempts")
+        self.store = CommissioningStore(self.identity.path)
+        service = self.service()
+        with self.assertRaisesRegex(ValueError, "offen"):
+            service.start_test({"point_id": point["id"], "value": True}, self.admin)
+        with self.assertRaisesRegex(ValueError, "vor Ort"):
+            service.release_test(lease["id"], self.admin)
+        service.recover_unfinished()
+        self.assertEqual(service.adapter.relinquishes, [])
+
+    def test_failed_release_remains_open_blocks_new_test_and_recovers(self) -> None:
+        adapter = FakeAdapter(readback=0)
+        service = self.service(adapter)
+        point = self.approve(service)
+        service.start_test({"point_id": point["id"], "value": False}, self.admin)
+        original_release = adapter.relinquish_with_confirmation
+        adapter.relinquish_with_confirmation = lambda *args: replace(
+            original_release(*args), confirmed=False, ack_received=False, error="no release ack"
+        )
+        FakeTimer.created[0].callback()
+        self.assertEqual(self.store.latest_lease(point["id"])["status"], "release_failed")
+        self.assertEqual(len(self.store.unfinished_leases()), 1)
+        with self.assertRaises(ValueError):
+            service.start_test({"point_id": point["id"], "value": True}, self.admin)
+        # The original priority must remain unchanged until its release is resolved.
+        with self.assertRaises(ValueError):
+            service.approve({**point, "write_priority": 15}, self.admin)
+        adapter.relinquish_with_confirmation = original_release
+        service.recover_unfinished()
+        self.assertEqual(self.store.latest_lease(point["id"])["status"], "released")
+        self.assertEqual(len(self.store.unfinished_leases()), 0)
+        self.assertEqual(len(adapter.writes), 1)
+
+    def test_release_exception_is_persisted_and_manual_result_is_honest(self) -> None:
+        adapter = FakeAdapter(readback=0)
+        service = self.service(adapter)
+        point = self.approve(service)
+        lease = service.start_test({"point_id": point["id"], "value": False}, self.admin)["lease"]
+        def fail_release(*args):
+            raise RuntimeError("simulated transport failure")
+        adapter.relinquish_with_confirmation = fail_release
+        result = service.release_test(lease["id"], self.admin)
+        self.assertFalse(result["released"])
+        self.assertEqual(result["lease"]["status"], "release_failed")
+        self.assertEqual(len(self.store.unfinished_leases()), 1)
 
 
 if __name__ == "__main__":

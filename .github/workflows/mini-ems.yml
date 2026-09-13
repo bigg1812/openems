@@ -1,0 +1,37 @@
+name: Mini EMS
+
+on:
+  pull_request:
+    paths:
+      - 'mini_ems_poc/**'
+      - '.github/workflows/mini-ems.yml'
+  push:
+    paths:
+      - 'mini_ems_poc/**'
+      - '.github/workflows/mini-ems.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      # Core runtime and import tests use the standard library and fake devices.
+      # Optional BACpypes3, Jinja/PDF and packaged-release validation are separate work.
+      - name: Python runtime and HTTP tests (simulation only)
+        run: python -m unittest discover -s mini_ems_poc/tests -v
+      - name: Dashboard logic
+        run: node mini_ems_poc/tests/dashboard_logic_harness.mjs

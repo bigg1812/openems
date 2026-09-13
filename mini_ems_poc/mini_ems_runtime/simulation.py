@@ -14,6 +14,7 @@ from .modbus import ModbusPermissionError
 from .protocol import WriteConfirmation
 from .price_cache import CachedDay, PriceCacheFile, PublishedPriceSnapshot
 from .price_provider_smard import PriceProviderError, berlin_now
+from .price_time import slot_count, slot_index, slot_label
 from .state_store import write_json_atomic
 
 
@@ -200,10 +201,10 @@ class SimulatedSpotmarketPriceService:
         today = now_local.date()
         tomorrow = today + timedelta(days=1)
         raw = self._load_price_config()
-        today_slots = self._build_slots(raw, "today")
-        tomorrow_slots = self._build_slots(raw, "tomorrow")
-        slot_index = self._current_slot_index(now_local)
-        current_value = today_slots[slot_index]
+        today_slots = self._build_slots(raw, "today", today.isoformat())
+        tomorrow_slots = self._build_slots(raw, "tomorrow", tomorrow.isoformat())
+        current_index = slot_index(now_local)
+        current_value = today_slots[current_index]
         if current_value is None:
             raise PriceProviderError("Simulated current price slot is empty")
 
@@ -230,14 +231,14 @@ class SimulatedSpotmarketPriceService:
             self.logger,
             logging.INFO,
             "simulation.price_snapshot",
-            current_slot_label=self._slot_label(slot_index),
+            current_slot_label=slot_label(today.isoformat(), current_index),
             current_price_ct_kwh=current_value,
             prices_file=str(self.prices_path),
         )
         return PublishedPriceSnapshot(
             current_price_ct_kwh=float(current_value),
-            current_slot_index=slot_index,
-            current_slot_label=self._slot_label(slot_index),
+            current_slot_index=current_index,
+            current_slot_label=slot_label(today.isoformat(), current_index),
             today_date_iso=today.isoformat(),
             today_available_slot_count=price_source_status["today_slots_found"],
             today_slots=today_slots,
@@ -265,15 +266,16 @@ class SimulatedSpotmarketPriceService:
             raise PriceProviderError("Simulation prices must be a JSON object")
         return raw
 
-    def _build_slots(self, raw: dict, day_key: str) -> List[Optional[float]]:
-        expected_slots = 96 if self.resolution == "quarterhour" else 24
+    def _build_slots(self, raw: dict, day_key: str, date_iso: str) -> List[Optional[float]]:
+        expected_slots = slot_count(date_iso) // (4 if self.resolution == "hour" else 1)
         explicit_slots = raw.get("{0}_slots_ct_kwh".format(day_key))
         if isinstance(explicit_slots, list):
             if len(explicit_slots) != expected_slots:
                 raise PriceProviderError(
                     "{0}_slots_ct_kwh must contain {1} slots".format(day_key, expected_slots)
                 )
-            return [None if value is None else float(value) for value in explicit_slots]
+            return [None if value is None else float(value) for value in explicit_slots
+                    for _ in range(4 if self.resolution == "hour" else 1)]
 
         default_value = float(raw.get("default_{0}_ct_kwh".format(day_key), raw.get("default_ct_kwh", 10.0)))
         slots: List[Optional[float]] = [default_value] * expected_slots
@@ -288,18 +290,4 @@ class SimulatedSpotmarketPriceService:
             price = float(window["price_ct_kwh"])
             for slot_index in range(start_slot, min(start_slot + length, expected_slots)):
                 slots[slot_index] = price
-        return slots
-
-    def _current_slot_index(self, now_local) -> int:
-        if self.resolution == "quarterhour":
-            return now_local.hour * 4 + now_local.minute // 15
-        return now_local.hour
-
-    def _slot_label(self, slot_index: int) -> str:
-        if self.resolution == "quarterhour":
-            hour = slot_index // 4
-            minute = (slot_index % 4) * 15
-        else:
-            hour = slot_index
-            minute = 0
-        return "{0:02d}:{1:02d}".format(hour, minute)
+        return [value for value in slots for _ in range(4 if self.resolution == "hour" else 1)]

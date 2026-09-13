@@ -1,5 +1,24 @@
 # Mini EMS PoC - Architektur, Betrieb und aktueller Stand
 
+## Gültigkeit und Aufgabenstand – 12.09.2026
+
+Aktuelle Aufgaben und Abnahmen stehen ausschließlich in [ROADMAP.md](ROADMAP.md).
+Diese Anleitung enthält noch historische Pilotabschnitte mit `config.json`/`config.local.json`, festen
+BACnet-Adressen und Checkout-Pfaden. Sie sind keine aktuellen Startanweisungen; ihre vollständige
+Bereinigung ist R9. Für den Betrieb gelten der folgende SiteDir-Pfad, [RELEASE_WORKFLOW.md](RELEASE_WORKFLOW.md)
+und [UPDATE_WARTUNG.md](UPDATE_WARTUNG.md).
+
+Die lokale Stabilisierungsrunde korrigiert Messwertqualität, Health-Alter, Rückgabe-Recovery und
+Schreibtestdarstellung. Sie wurde noch nicht auf die IPC ausgerollt. `/api/health` und `/api/status`
+bewerten den Zeitpunkt des letzten gespeicherten Zyklus bei jedem Aufruf; ein alter Zustand wird
+`stale_runtime`, ein ungültiger/fehlender Zeitpunkt `unknown`. Der gültige Snapshot-Schwellwert gilt,
+sonst 300 Sekunden. HTTP 200 bestätigt nur die Erreichbarkeit der API. Der bisherige Zyklusstatus bleibt
+in `/api/status` unter `health.cycle_status` erhalten. Die Health-Datei selbst wird dabei nicht geändert.
+
+Fehlgeschlagene BACnet-Rückgaben bleiben offen und sperren Folgetests/Prioritätsänderungen. Ein Admin
+kann die Rückgabe erneut anfordern; Neustart und geordnetes Beenden versuchen offene Rückgaben erneut.
+Das ist kein unbegrenzter Retry-Dienst und ersetzt keinen DDC-Fallback bei IPC-/Netzausfall.
+
 ## Aktueller Konfigurationspfad
 
 Seit dem standortunabhängigen Release ist `site.sqlite` im per `--site-dir` gewählten Standortordner die einzige
@@ -9,7 +28,7 @@ beschreiben den alten Betriebspfad und sind keine aktuelle Startanweisung mehr.
 
 ```text
 mini_ems.py --site-dir <Standortordner> --loop
-UI: Standort -> Geräte -> Datenpunkte -> Testen -> Abschließen
+UI: Standort -> Geräte -> Datenpunkte -> Testen -> Schreibzugriffe -> Abschließen
 -> neue Revision in site.sqlite
 -> geplanter Neustart
 ```
@@ -17,7 +36,7 @@ UI: Standort -> Geräte -> Datenpunkte -> Testen -> Abschließen
 Ein leerer Standort startet sicher in Simulation, nur auf Loopback und ohne reale Writes. Eine vorhandene
 `config.json` kann beim ersten Start einmalig migriert werden; danach wird sie nicht mehr gelesen.
 
-## Ziel
+## Historischer Pilotscope
 
 Dieses PoC ist eine kleine Python-Edge auf dem IPC. Sie uebernimmt vier Aufgaben:
 
@@ -864,7 +883,7 @@ Wichtig:
   aus, muss die DDC den lokalen Fallback selbst ausloesen; diese DDC-Logik ist ein MSR-Abnahmetest,
   kein reiner Laptop-Test.
 
-## Aktueller Projektstand
+## Historischer Pilotstand (nicht als aktuelle Aufgabenliste verwenden)
 
 ### Funktioniert
 
@@ -903,28 +922,9 @@ lokal mit `config.local.json` liegen die gleichen Dateien unter `runtime/local/`
 2. [mini_ems.log](C:/dev/openems/mini_ems_poc/logs/mini_ems.log)
 3. [mini_ems.sqlite](C:/dev/openems/mini_ems_poc/data/runtime/mini_ems.sqlite)
 
-### Offene Punkte
+### Aktuelle Aufgaben und nächster Schritt
 
-1. `BV:400` weiter fachlich verifizieren
-2. Controller- und GUI-Zeitbasis sauber im Feld nachhalten
-3. Watchdog fuer echten Betriebsalarm bei haengender Runtime: umgesetzt. Ist der letzte Zyklus- bzw.
-   Healthy-Zeitstempel aelter als `watchdog.max_cycle_age_seconds`, meldet `health.json` den Status
-   `stale_runtime` (Felder `stale_runtime`, `runtime_status`). Ohne konfigurierten Schwellwert bleibt der
-   Watchdog rein beobachtend; der Watchdog meldet nur "kein Zyklus mehr" und loest keine Safe-Mode-/Steuerlogik aus.
-4. Zweiten Rechner im Kundennetz/VPN gegen `https://192.168.244.10` testen und sicherstellen, dass
-   schreibende/aktive Endpunkte `HTTP 403` liefern
-5. UI spaeter weiter in Richtung OpenEMS-inspirierte Bedienoberflaeche ausbauen
-
-## Meine aktuelle Empfehlung
-
-Weiter in dieser Reihenfolge:
-
-1. Auf dem Laptop weiterentwickeln; `config.local.json` bleibt der sichere Simulationspfad
-2. Am IPC nur noch den zweiten-Rechner-/Secomea-Nachweis fuer H4/H5 fahren:
-   `https://192.168.244.10` muss funktionieren, `http://192.168.244.10:8090` darf nicht mehr direkt erreichbar sein,
-   aktive/schreibende Endpunkte muessen `HTTP 403` liefern
-3. Als nächste Laptop-Linie S9 klein beginnen: normalisierte read-only Payload, lokale Outbox und simulierter
-   Cloud-Empfänger; keine Remote-Befehle und kein direkter Anlagenzugriff
-4. `BV:400` und den S15-DDC-Fallback im echten Betrieb fachlich absichern, bevor neue schreibende Eingriffe
-   ausgebaut werden
-5. Reports auf Basis der SQLite-Historie nutzen und die spätere Cloud-Oberfläche auf den stabilen Edge-Daten aufbauen
+Die frühere Aufgaben-/Empfehlungsliste ist durch [ROADMAP.md](ROADMAP.md) ersetzt:
+R1–R4 stabilisieren Messwerte, Betriebszustand, Schreibnachweis und Zeitmodell; R5–R7 führen zur
+belegten IPC-Abnahme. Der aktuelle lokale Start ist `mini_ems.py --site-dir runtime/local/site --once`
+mit Python 3.12. Eine aktive `config.local.json` ist kein unterstützter Startpfad.

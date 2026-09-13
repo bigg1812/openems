@@ -44,7 +44,7 @@ from mini_ems_poc.mini_ems_runtime.cycle import CycleRunner
 from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
 from mini_ems_poc.mini_ems_runtime.objectlist_import import import_objectlist_snapshot
 from mini_ems_poc.mini_ems_runtime.price_cache import CachedDay, PriceCacheFile, PublishedPriceSnapshot, SpotmarketPriceCacheService
-from mini_ems_poc.mini_ems_runtime.price_provider_smard import PriceProviderError, RecentSlotMapScanResult, SmardPriceProvider, berlin_now
+from mini_ems_poc.mini_ems_runtime.price_provider_smard import PriceProviderError, RecentSlotMapScanResult, SmardPriceProvider
 from mini_ems_poc.mini_ems_runtime.read_diagnostics import (
     QUALITY_BAD,
     QUALITY_GOOD,
@@ -558,8 +558,23 @@ class CycleRunnerTest(unittest.TestCase):
         snapshot = runner.run_cycle()
 
         self.assertTrue(snapshot["write_results"][CURRENT_PRICE_CHANNEL]["changed"])
-        self.assertEqual(snapshot["watchdog"]["last_price_handoff_key"], "2026-04-01/11:45")
+        self.assertEqual(snapshot["watchdog"]["last_price_handoff_key"], "2026-04-01T09:45:00+00:00")
         self.assertEqual(runner.state.health.last_price_handoff_value_ct_kwh, -0.25)
+
+    def test_ambiguous_manual_window_stops_cycle_before_regular_outputs(self) -> None:
+        price = replace(self._price_snapshot(), today_date_iso="2026-10-25", today_slots=[-1.] * 100,
+                        current_slot_index=12, current_slot_label="02:00 +0100")
+        override = self.config.spotmarket_override_path
+        override.parent.mkdir(parents=True, exist_ok=True)
+        override.write_text(json.dumps({"enabled": True, "date": "2026-10-25", "windows": [
+            {"start_label": "02:00", "end_label_exclusive": "04:00"}]}), encoding="utf-8")
+        fake_socket = FakeSocket([])
+        runner = self._build_runner(fake_socket, price_service=FakePriceService([price]))
+        snapshot = runner.run_cycle()
+        self.assertEqual(snapshot["status"], "safe_mode")
+        self.assertIn("mehrdeutig", snapshot["safe_mode_reason"])
+        self.assertNotIn(CURRENT_PRICE_CHANNEL, snapshot["desired_outputs"])
+        self.assertEqual(fake_socket.sent_packets, [])
 
     def test_write_failure_triggers_safe_mode(self) -> None:
         fake_socket = FakeSocket(
@@ -711,8 +726,9 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertEqual(set(snapshot["desired_outputs"]), {EDGE_HEARTBEAT_CHANNEL})
         self.assertEqual(len(fake_socket.sent_packets), 1)
 
+    @patch("mini_ems_poc.mini_ems_runtime.price_cache.berlin_now", new=lambda: datetime.fromisoformat("2026-04-02T10:45:00+02:00"))
     def test_price_cache_falls_back_to_cached_current_slot_when_smard_is_unavailable(self) -> None:
-        today = berlin_now().date()
+        today = datetime(2026, 4, 2).date()
         tomorrow = today.fromordinal(today.toordinal() + 1)
 
         class ProviderStub:
@@ -721,11 +737,6 @@ class CycleRunnerTest(unittest.TestCase):
 
             def current_slot_index(self, _now_local):
                 return 12
-
-            def slot_label(self, slot_index):
-                hour = slot_index // 4
-                minute = (slot_index % 4) * 15
-                return f"{hour:02d}:{minute:02d}"
 
             def scan_recent_slot_maps(self, _target_dates):
                 raise PriceProviderError("vpn offline")
@@ -745,8 +756,9 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertTrue(snapshot.price_source_status["stale"])
         self.assertEqual(snapshot.price_source_status["fallback"], "cache")
 
+    @patch("mini_ems_poc.mini_ems_runtime.price_cache.berlin_now", new=lambda: datetime.fromisoformat("2026-04-02T10:45:00+02:00"))
     def test_price_cache_promotes_cached_tomorrow_after_midnight_when_smard_is_unavailable(self) -> None:
-        today = berlin_now().date()
+        today = datetime(2026, 4, 2).date()
         yesterday = today.fromordinal(today.toordinal() - 1)
 
         class ProviderStub:
@@ -755,11 +767,6 @@ class CycleRunnerTest(unittest.TestCase):
 
             def current_slot_index(self, _now_local):
                 return 43
-
-            def slot_label(self, slot_index):
-                hour = slot_index // 4
-                minute = (slot_index % 4) * 15
-                return f"{hour:02d}:{minute:02d}"
 
             def scan_recent_slot_maps(self, _target_dates):
                 raise PriceProviderError("vpn offline")
@@ -785,8 +792,9 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertEqual(self.config.price_cache_path.name, "spotmarket_price_cache.json")
         self.assertEqual(self.config.spotmarket_plan_path.name, "spotmarket_tomorrow_windows.json")
 
+    @patch("mini_ems_poc.mini_ems_runtime.price_cache.berlin_now", new=lambda: datetime.fromisoformat("2026-04-02T10:45:00+02:00"))
     def test_tomorrow_is_not_marked_available_when_all_slots_are_empty(self) -> None:
-        today = berlin_now().date()
+        today = datetime(2026, 4, 2).date()
         tomorrow = today.fromordinal(today.toordinal() + 1)
 
         class ProviderStub:
@@ -795,11 +803,6 @@ class CycleRunnerTest(unittest.TestCase):
 
             def current_slot_index(self, _now_local):
                 return 56
-
-            def slot_label(self, slot_index):
-                hour = slot_index // 4
-                minute = (slot_index % 4) * 15
-                return f"{hour:02d}:{minute:02d}"
 
             def scan_recent_slot_maps(self, _target_dates):
                 return RecentSlotMapScanResult(
@@ -1098,7 +1101,10 @@ class CycleRunnerTest(unittest.TestCase):
         self.config.price_cache_path.parent.mkdir(parents=True, exist_ok=True)
         self.config.spotmarket_plan_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.config.health_path.write_text(json.dumps({"status": "healthy"}), encoding="utf-8")
+        self.config.health_path.write_text(
+            json.dumps({"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}),
+            encoding="utf-8",
+        )
         self.config.state_path.write_text(json.dumps({"safe_mode_active": False}), encoding="utf-8")
         self.config.price_cache_path.write_text(
             json.dumps(

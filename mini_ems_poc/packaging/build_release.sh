@@ -56,7 +56,7 @@ fi
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 GIT_COMMIT="$(cd "${PROJECT_DIR}" && git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
 GIT_DIRTY=""
-if ! (cd "${PROJECT_DIR}" && git diff --quiet HEAD 2>/dev/null); then
+if [ -n "$(git -C "${PROJECT_DIR}" status --porcelain --untracked-files=normal 2>/dev/null || echo unknown)" ]; then
   GIT_DIRTY="+dirty"
 fi
 {

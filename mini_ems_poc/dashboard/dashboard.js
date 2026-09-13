@@ -1280,7 +1280,7 @@ function buildPriceTimeline(payload, historyRows, range, referenceNow) {
       continue;
     }
     day.slots.forEach((value, index) => {
-      const time = buildSlotTime(day.date, index);
+      const time = parseTime(day.slot_starts_utc?.[index]);
       const numeric = toNumber(value);
       if (Number.isFinite(time) && Number.isFinite(numeric) && time >= referenceNow.getTime() && time <= range.end.getTime()) {
         forecast.push({ time, value: numeric });
@@ -1308,8 +1308,8 @@ function buildWindowBands(plan) {
       continue;
     }
     day.windows.forEach((window) => {
-      const start = buildSlotTime(day.date, Number(window.start_slot));
-      const end = buildSlotTime(day.date, Number(window.end_slot_exclusive));
+      const start = parseTime(window.start_utc);
+      const end = parseTime(window.end_utc);
       if (Number.isFinite(start) && Number.isFinite(end)) {
         bands.push({
           start,
@@ -3489,7 +3489,7 @@ function renderWriteCommissioning() {
   badge.textContent = testReady ? `${modeLabel} · Testbereit` : "Anlagenaktionen gesperrt";
   guard.className = `write-guard-message ${testReady ? "ok" : "warn"}`;
   guard.innerHTML = testReady
-    ? `<strong>Schreibtests sind freigegeben.</strong><span>Jeder Test belegt BACnet-Priorität 14 für ${setupState.write.testSeconds || 10} Sekunden und gibt sie danach automatisch zurück.</span>`
+    ? `<strong>Schreibtests sind freigegeben.</strong><span>Jeder Test verwendet die angezeigte BACnet-Priorität. Nach ${setupState.write.testSeconds || 10} Sekunden wird die Rückgabe versucht; erst ihre Bestätigung schließt den Test ab.</span>`
     : "<strong>Freigeben ist möglich, Schreiben bleibt aus.</strong><span>Der API-Schreibschutz ist aktiv. Für einen echten Test muss ein Admin ihn in den Betriebseinstellungen bewusst aufheben und Mini EMS neu starten.</span>";
 
   if (!setupState.write.points.length) {
@@ -3504,7 +3504,7 @@ function renderWriteCommissioning() {
 
 function writePointHtml(point, testReady) {
   const lease = point.last_test && typeof point.last_test === "object" ? point.last_test : null;
-  const active = lease && ["writing", "active"].includes(String(lease.status));
+  const active = lease && ["writing", "active", "release_failed", "failed"].includes(String(lease.status));
   const enabled = point.enabled === true;
   const target = `${String(point.object_type || "").toUpperCase()} ${point.instance} · ${point.controller_ip}:${point.controller_port}`;
   const status = writeLeaseStatusHtml(lease);
@@ -3540,7 +3540,7 @@ function writePointHtml(point, testReady) {
       </div>
       <div class="write-point-actions">
         ${controls}
-        ${active ? `<button class="link-button danger" type="button" data-write-release data-lease-id="${escapeHtml(lease.id)}">Jetzt zurückgeben</button>` : ""}
+        ${active && (lease.status !== "failed" || lease.target) ? `<button class="link-button danger" type="button" data-write-release data-lease-id="${escapeHtml(lease.id)}">Jetzt zurückgeben</button>` : ""}
         ${enabled ? '<button class="link-button danger" type="button" data-write-revoke>Freigabe aufheben</button>' : ""}
       </div>
     </article>
@@ -3552,27 +3552,31 @@ function writeLeaseStatusHtml(lease) {
     return '<span class="write-state neutral">Noch nicht getestet</span>';
   }
   const status = String(lease.status || "");
+  const hasReadback = lease.effective_value !== null && lease.effective_value !== undefined;
+  const effective = hasReadback && writeValuesMatch(lease.desired_value, lease.effective_value);
+  const evidence = `
+    ${lease.started_at ? `<small>Teststart: ${escapeHtml(formatTimestamp(new Date(Number(lease.started_at) * 1000).toISOString()))}</small>` : ""}
+    ${lease.write_error ? `<small>Schreibfehler: ${escapeHtml(lease.write_error)}</small>` : ""}
+    <small>Angefordert: ${escapeHtml(writeValueLabel(lease.desired_value))} · BACnet-ACK: ${lease.write_confirmation?.ack_received === true ? "bestätigt" : "nicht bestätigt"}</small>
+    <small>Einmal zurückgelesen: ${hasReadback ? escapeHtml(writeValueLabel(lease.effective_value)) : "nicht verfügbar"}</small>
+    ${Array.isArray(lease.release_attempts) && lease.release_attempts.length ? `<small>Rückgabeversuche: ${lease.release_attempts.length} · letzter Versuch: ${escapeHtml(formatTimestamp(new Date(Number(lease.release_attempts.at(-1).timestamp) * 1000).toISOString()))}</small>` : ""}
+    <small>${!hasReadback ? "Wirksamkeit nicht geprüft" : effective ? "Testwert beim Rücklesen wirksam" : "Testwert nicht wirksam; möglicherweise höhere Priorität aktiv"}</small>
+  `;
   if (["writing", "active"].includes(status)) {
-    if (lease.effective_value === null || lease.effective_value === undefined) {
-      return `
-        <span class="write-state neutral">Write bestätigt</span>
-        <small data-write-countdown data-expires-at="${escapeHtml(lease.expires_at)}">${escapeHtml(writeCountdownText(lease.expires_at))}</small>
-      `;
-    }
-    const effective = writeValuesMatch(lease.desired_value, lease.effective_value);
     return `
-      <span class="write-state ${effective ? "ok" : "warn"}">${effective ? "Wert wirksam" : "Höhere Priorität aktiv"}</span>
+      <span class="write-state ${effective ? "ok" : "warn"}">${status === "writing" ? "Schreibtest läuft" : "Rückgabe ausstehend"}</span>
+      ${evidence}
       <small data-write-countdown data-expires-at="${escapeHtml(lease.expires_at)}">${escapeHtml(writeCountdownText(lease.expires_at))}</small>
     `;
   }
   if (status === "released") {
-    return `<span class="write-state ok">Automatisch zurückgegeben</span><small>Letzter Test: ${escapeHtml(writeValueLabel(lease.desired_value))}</small>`;
+    return `<span class="write-state ok">Rückgabe bestätigt</span>${evidence}`;
   }
   if (status === "release_failed") {
-    return `<span class="write-state error">Rückgabe nicht bestätigt</span><small>${escapeHtml(lease.error || "Bitte Anlage prüfen.")}</small>`;
+    return `<span class="write-state error">Rückgabe nicht bestätigt</span>${evidence}<small>${escapeHtml(lease.error || "Bitte Anlage prüfen.")}</small>`;
   }
   if (status === "failed") {
-    return `<span class="write-state error">Test fehlgeschlagen</span><small>${escapeHtml(lease.error || "Keine Bestätigung erhalten.")}</small>`;
+    return `<span class="write-state error">Historischer Test: Rückgabe ungeklärt</span>${evidence}<small>Zielpriorität nicht gesichert. Vor Ort prüfen; weitere Tests bleiben gesperrt.</small>`;
   }
   return `<span class="write-state neutral">${escapeHtml(status || "Unbekannt")}</span>`;
 }
@@ -3598,7 +3602,7 @@ function writeValueLabel(value) {
 
 function writeCountdownText(expiresAt) {
   const remaining = Math.max(0, Math.ceil((Number(expiresAt) * 1000 - Date.now()) / 1000));
-  return remaining > 0 ? `Automatische Rückgabe in ${remaining} s` : "Rückgabe läuft …";
+  return remaining > 0 ? `Verbleibende Freigabezeit: ${remaining} s` : "Freigabezeit abgelaufen; Rückgabe wird geprüft …";
 }
 
 function scheduleWriteCountdown() {
@@ -3619,7 +3623,7 @@ function scheduleWriteCountdown() {
           .map((point) => point.last_test)
           .find((lease) => lease && ["released", "release_failed"].includes(String(lease.status)));
         if (finishedLease?.status === "released") {
-          setWriteApprovalFeedback("Der Test ist beendet. Die BACnet-Priorität wurde automatisch zurückgegeben.", "ok");
+          setWriteApprovalFeedback("Der Test ist beendet. Die Rückgabe der BACnet-Priorität ist bestätigt.", "ok");
         } else if (finishedLease?.status === "release_failed") {
           setWriteApprovalFeedback("Die automatische Rückgabe konnte nicht bestätigt werden. Bitte Anlage prüfen.", "warn");
         }
@@ -3722,8 +3726,11 @@ async function releaseWriteTest(leaseId) {
   }
   setWriteApprovalFeedback("BACnet-Priorität wird zurückgegeben …", "neutral");
   try {
-    await postJson("/api/bacnet/write-test/release", { lease_id: leaseId });
-    setWriteApprovalFeedback("Die BACnet-Priorität wurde zurückgegeben.", "ok");
+    const result = await postJson("/api/bacnet/write-test/release", { lease_id: leaseId });
+    setWriteApprovalFeedback(
+      result.released === true ? "Die BACnet-Priorität wurde zurückgegeben." : "Rückgabe nicht bestätigt. Bitte Anlage prüfen und Rückgabe erneut versuchen.",
+      result.released === true ? "ok" : "warn",
+    );
   } catch (error) {
     setWriteApprovalFeedback(error.message, "warn");
   }
@@ -5086,11 +5093,6 @@ function linePath(points, scaleX, scaleY, gapMs = Infinity) {
     previousTime = point.time;
     return `${command} ${scaleX(point.time).toFixed(1)} ${scaleY(point.value).toFixed(1)}`;
   }).join(" ");
-}
-
-function buildSlotTime(dateIso, slotIndex) {
-  const start = new Date(`${dateIso}T00:00:00`);
-  return start.getTime() + Number(slotIndex) * PRICE_SLOT_MS;
 }
 
 function groupBy(items, keyFn) {

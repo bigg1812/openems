@@ -9,6 +9,39 @@ zurückgerollt werden.
 > Freigabecode funktionierte und es gab keine Fehlermeldungen. Dieser Nachweis beruht auf der ausdrücklichen
 > Betreiberbestätigung; Konsolenausgaben wurden nicht ins Repository übernommen.
 
+## Quellcode, GitHub und installierte Version unterscheiden
+
+Der normale Weg lautet: lokale Änderungen → Commit → Push nach GitHub → geprüfter Windows-Build aus
+diesem Commit → Paketinstallation → Vergleich von `VERSION`, Commit und laufender Health-Antwort.
+`git pull` aktualisiert nur einen Checkout. Der produktive Release-Task startet die kopierte `mini_ems.exe`
+in `C:\Program Files\MiniEMS`; diese Datei wird durch einen Pull nicht ersetzt.
+
+Für eine Freigabe muss der Build auf einem sauberen, bekannten Commit beruhen. `+dirty` kennzeichnet einen
+Prüfstand mit lokalen oder unversionierten Änderungen; derselbe Basis-Commit beweist dann keine gleichen
+Programmdateien. Paketdateien werden zusätzlich anhand von `SHA256SUMS` geprüft. Laptop und IPC dürfen
+absichtlich verschiedene Stände haben, bis ein neuer Stand abgenommen ist. Ihre Standortdaten werden nie
+per Git synchronisiert: lokale Simulation und reale Anlage behalten getrennte Datenbanken.
+
+## Nächste gemeinsame Abnahme nach der Stabilisierungsrunde
+
+Die lokalen Nachweise stehen in [Validierung 13.09.2026](docs/VALIDIERUNG_2026-09-13.md), der Aufgabenstatus
+in [ROADMAP.md](ROADMAP.md). Vor Produktivfreigabe:
+
+1. Windows-/Linux-CI bestätigen und ein Windows-Paket aus dem geprüften Commit bauen. Zuerst in einem
+   separaten Simulations-SiteDir auf Windows starten; Python-Laufzeit, Migration, Preiszeitmodell und Login prüfen.
+2. Am IPC installierte `VERSION`, App-Commit, Task/Prozess, SiteDir und echten Zugriffsweg aufnehmen.
+   Backup/Restore gemäß dieser Anleitung vorbereiten. `identity.sqlite` gehört zum Standortbackup.
+3. Offene/historische Test-Leases vor dem Update feststellen. Alte `failed`-Leases ohne gespeicherte
+   Zielpriorität vor Ort klären; diese neue Version gibt sie nicht anhand einer geratenen Priorität zurück.
+4. Nach Update Version/Commit, frische Health, Rollen, Caddy/HTTPS, Schutzstatus und erhaltene Standortrevision prüfen.
+5. Nur im vereinbarten Testfenster auf einem freigegebenen ungefährlichen Punkt testen: gewünschter Wert,
+   Protokollbestätigung, Readback, höhere Priorität, Rückgabe und Kommunikationsfehler. Danach Rückgabe nachweisen.
+6. DDC-Heartbeat, IPC-Ausfall, Kommunikationsverlust und Wiederanlauf mit Betreiber/MSR fachlich abnehmen (R6).
+   Einen Ausfallversuch erst durchführen, wenn seine sichere Anlagenreaktion und Verantwortlichen feststehen.
+
+Ein Paket-Smoketest ersetzt diese fachliche Abnahme nicht. Testergebnisse stets mit Datum, Paket-Commit,
+Standort und Nachweisart festhalten. Aus der lokalen Entwicklungsumgebung erfolgen keine realen Writes.
+
 ## Was beim Update getrennt bleibt
 
 ```text
@@ -76,7 +109,8 @@ Bei Erfolg endet das Skript mit `UPDATE BESTANDEN`. Kein weiterer Installationsb
 
 ## Prüfung nach dem Update
 
-Der automatische Smoketest reicht für die technische Freigabe. Zusätzlich kurz den echten Zugriffsweg prüfen:
+Der automatische Smoketest prüft Start und technische Erreichbarkeit. Zusätzlich den echten Zugriffsweg
+und die oben aufgeführten Abnahmekriterien prüfen:
 
 ```powershell
 Get-ScheduledTask -TaskName MiniEmsPoCRelease

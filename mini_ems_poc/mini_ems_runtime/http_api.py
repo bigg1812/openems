@@ -615,13 +615,42 @@ class MiniEmsApiServer:
         }
 
     def health_payload(self) -> Dict[str, object]:
-        health = self._load_json(self.health_path, {})
+        health = self._get_health_payload()
         return {
             "status": str(health.get("status") or "unknown"),
             "timestamp": health.get("timestamp"),
             "app_version": self.app_version,
             "api_read_only": bool(self.api_config.read_only),
         }
+
+    def _get_health_payload(self) -> Dict[str, object]:
+        """Assess freshness on every request, independently of the cycle thread.
+
+        The file remains evidence of the last cycle. Old/invalid evidence must
+        never be presented as a current healthy system. Legacy snapshots without
+        a configured watchdog use a five-minute API freshness limit.
+        """
+        health = self._load_json(self.health_path, {})
+        health["cycle_status"] = health.get("status", "unknown")
+        limit = health.get("max_cycle_age_seconds")
+        if not isinstance(limit, (int, float)) or isinstance(limit, bool) or not math.isfinite(limit) or limit <= 0:
+            limit = 300.0
+        age = None
+        try:
+            timestamp = datetime.fromisoformat(str(health.get("timestamp")).replace("Z", "+00:00"))
+            if timestamp.tzinfo is not None:
+                age = (datetime.now(timezone.utc) - timestamp).total_seconds()
+        except (ValueError, OverflowError):
+            pass
+        valid_timestamp = age is not None and age >= 0
+        stale = not valid_timestamp or age > limit
+        health["last_cycle_age_seconds"] = round(age, 3) if valid_timestamp else None
+        health["max_cycle_age_seconds"] = limit
+        health["stale_runtime"] = stale
+        health["runtime_status"] = "unknown" if not valid_timestamp else "stale_runtime" if stale else "live"
+        if stale:
+            health["status"] = health["runtime_status"]
+        return health
 
     def bootstrap_identity(self, payload: Dict[str, object]):
         store = self._require_identity_store()
@@ -682,7 +711,7 @@ class MiniEmsApiServer:
         return {"events": self._require_identity_store().recent_events(30)}
 
     def _get_status_payload(self) -> Dict[str, object]:
-        health = self._load_json(self.health_path, {})
+        health = self._get_health_payload()
         state = self._load_json(self.state_path, {})
         price_cache = self._load_json(self.price_cache_path, {})
         spotmarket_plan = self._load_json(self.spotmarket_plan_path, {})
@@ -917,7 +946,7 @@ class MiniEmsApiServer:
         return self._spotmarket_settings_payload(min_consecutive_quarters)
 
     def _parse_min_consecutive_quarters(self, payload: Dict[str, object]) -> int:
-        slots_per_hour = self._slots_per_hour()
+        slots_per_hour = 4
         if "min_consecutive_quarters" in payload:
             try:
                 quarters = int(payload["min_consecutive_quarters"])
@@ -960,16 +989,13 @@ class MiniEmsApiServer:
         )
 
     def _spotmarket_settings_payload(self, min_consecutive_quarters: int) -> Dict[str, object]:
-        slots_per_hour = self._slots_per_hour()
         return {
-            "resolution": self.price_source_resolution,
-            "slots_per_hour": slots_per_hour,
+            "resolution": "quarterhour",
+            "source_resolution": self.price_source_resolution,
+            "slots_per_hour": 4,
             "min_consecutive_quarters": min_consecutive_quarters,
-            "min_consecutive_hours": min_consecutive_quarters / slots_per_hour if slots_per_hour else 0,
+            "min_consecutive_hours": min_consecutive_quarters / 4,
         }
-
-    def _slots_per_hour(self) -> int:
-        return 1 if self.price_source_resolution == "hour" else 4
 
     def _load_json(self, path: Path, default: Dict[str, object]) -> Dict[str, object]:
         try:

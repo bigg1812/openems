@@ -2,7 +2,7 @@
 # PyInstaller spec for the Mini EMS release package (H2).
 #
 # Design goals (see packaging/README.md):
-#   * One-dir build: a `mini_ems` executable plus a `_internal/` runtime folder.
+#   * One-dir build: executable, runtime and resources share one directory.
 #   * Bundled *resources* (dashboard/, mini_ems_runtime/templates/, sim/) are
 #     shipped as DATA next to the executable, not only frozen inside it, so the
 #     operator can inspect/replace UI assets and the report template without a

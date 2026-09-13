@@ -1,4 +1,5 @@
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -109,7 +110,9 @@ class ChannelReadDiagnosticsService:
 
         for sample_index in range(max(1, int(samples))):
             try:
-                value = self.adapter.read_float(point)
+                value = float(self.adapter.read_float(point))
+                if not math.isfinite(value):
+                    raise AdapterError("value_not_finite")
                 moment = self._now()
                 sample_moments.append(moment)
                 collected_samples.append(
@@ -140,7 +143,7 @@ class ChannelReadDiagnosticsService:
             age_seconds = max(0.0, round((self._now() - sample_moments[-1]).total_seconds(), 3))
 
         quality = _classify_quality(
-            has_value=bool(values),
+            has_value=bool(values) and plausible and not errors,
             status=status,
             age_seconds=age_seconds,
             max_age_seconds=max_age_seconds,

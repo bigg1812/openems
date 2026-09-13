@@ -14,7 +14,8 @@ from .config import MiniEmsConfig, OutputPolicyConfig
 from .controllers import ControllerOutcome, GridLockoutController
 from .logging_utils import log_event, utcnow_iso
 from .operator_status import build_operator_message
-from .price_cache import PublishedPriceSnapshot, SpotmarketPriceCacheService
+from .price_cache import CachedDay, PublishedPriceSnapshot, SpotmarketPriceCacheService
+from .price_time import slot_start
 from .price_provider_smard import PriceProviderError
 from .protocol import ProtocolAdapter
 from .read_diagnostics import ChannelReadDiagnostic, ChannelReadDiagnosticsService
@@ -99,6 +100,7 @@ class CycleRunner:
 
         try:
             price_snapshot = self.price_service.refresh()
+            manual_override = self.spotmarket_override_store.load_for_date(price_snapshot.today_date_iso)
         except PriceProviderError as error:
             self.state.health.consecutive_comm_errors += 1
             snapshot = self._handle_safe_mode(
@@ -226,7 +228,6 @@ class CycleRunner:
             tomorrow_slots=price_snapshot.tomorrow_slots,
             current_slot_index=price_snapshot.current_slot_index,
         )
-        manual_override = self.spotmarket_override_store.load_for_date(price_snapshot.today_date_iso)
         spotmarket_active_now = (
             manual_override.active_now(price_snapshot.current_slot_index)
             if manual_override.enabled
@@ -883,24 +884,14 @@ class CycleRunner:
     def _price_days(self, price_snapshot: PublishedPriceSnapshot | None) -> List[Dict[str, object]]:
         if price_snapshot is None:
             return []
-        days: List[Dict[str, object]] = [
-            {
-                "day_kind": "today",
-                "date": price_snapshot.today_date_iso,
-                "slots": list(price_snapshot.today_slots),
-                "captured_at": price_snapshot.last_update_at,
-            }
+        return [
+            {**CachedDay(date_iso, list(slots)).to_dict(), "day_kind": kind,
+             "captured_at": price_snapshot.last_update_at}
+            for kind, date_iso, slots in (
+                ("today", price_snapshot.today_date_iso, price_snapshot.today_slots),
+                ("tomorrow", price_snapshot.tomorrow_date_iso, price_snapshot.tomorrow_slots),
+            ) if date_iso and slots
         ]
-        if price_snapshot.tomorrow_date_iso:
-            days.append(
-                {
-                    "day_kind": "tomorrow",
-                    "date": price_snapshot.tomorrow_date_iso,
-                    "slots": list(price_snapshot.tomorrow_slots),
-                    "captured_at": price_snapshot.last_update_at,
-                }
-            )
-        return days
 
     def _watchdog_snapshot(self) -> Dict[str, object]:
         liveness = self._watchdog_liveness()
@@ -961,7 +952,7 @@ class CycleRunner:
 
 
 def _price_handoff_key(price_snapshot: PublishedPriceSnapshot) -> str:
-    return "{0}/{1}".format(price_snapshot.today_date_iso, price_snapshot.current_slot_label)
+    return slot_start(price_snapshot.today_date_iso, price_snapshot.current_slot_index).isoformat()
 
 
 def _age_seconds_since(timestamp: Optional[str], now: datetime) -> Optional[float]:

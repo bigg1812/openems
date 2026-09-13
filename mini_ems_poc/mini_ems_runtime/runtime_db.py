@@ -8,6 +8,7 @@ from typing import Any, Iterator
 from typing import Dict, List, Optional, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .price_time import TIME_MODEL, slot_label, slot_start
 
 def _load_site_timezone():
     try:
@@ -366,19 +367,27 @@ class RuntimeDatabase:
             price_row = connection.execute(
                 """
                 SELECT
-                    COUNT(*) AS slot_count,
+                    COUNT(price_ct_kwh) AS slot_count,
+                    MAX(time_model) AS time_model,
                     MIN(price_ct_kwh) AS min_price_ct_kwh,
                     MAX(price_ct_kwh) AS max_price_ct_kwh,
                     AVG(price_ct_kwh) AS average_price_ct_kwh
-                FROM price_slots
-                WHERE date_iso = ?
+                FROM (
+                    SELECT price_ct_kwh, 'utc_quarterhours_v1' AS time_model
+                    FROM price_intervals WHERE date_iso = ?
+                    UNION ALL
+                    SELECT price_ct_kwh, 'legacy_clock_slots' AS time_model
+                    FROM price_slots WHERE date_iso = ?
+                      AND NOT EXISTS (SELECT 1 FROM price_intervals WHERE date_iso = ?)
+                )
                 """,
-                (date_iso,),
+                (date_iso, date_iso, date_iso),
             ).fetchone()
             windows = connection.execute(
                 """
                 SELECT date_iso, start_slot, end_slot_exclusive, start_label, end_label_exclusive,
-                       length_quarters, min_price_ct_kwh, max_price_ct_kwh, source_day_kind, generated_at
+                       length_quarters, min_price_ct_kwh, max_price_ct_kwh, source_day_kind, generated_at,
+                       start_utc, end_utc
                 FROM spotmarket_windows
                 WHERE date_iso = ?
                 ORDER BY start_slot
@@ -416,6 +425,7 @@ class RuntimeDatabase:
             },
             "price_ct_kwh": {
                 "slot_count": price_row["slot_count"],
+                "time_model": price_row["time_model"],
                 "min": _optional_float(price_row["min_price_ct_kwh"]),
                 "max": _optional_float(price_row["max_price_ct_kwh"]),
                 "average": _optional_float(price_row["average_price_ct_kwh"]),
@@ -806,6 +816,18 @@ class RuntimeDatabase:
                 CREATE INDEX IF NOT EXISTS idx_channel_samples_channel_timestamp
                     ON channel_samples (channel_id, timestamp DESC);
 
+                CREATE TABLE IF NOT EXISTS price_intervals (
+                    date_iso TEXT NOT NULL,
+                    slot_start_utc TEXT PRIMARY KEY,
+                    slot_end_utc TEXT NOT NULL,
+                    slot_index INTEGER NOT NULL,
+                    slot_label TEXT NOT NULL,
+                    price_ct_kwh REAL,
+                    source_day_kind TEXT NOT NULL,
+                    captured_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_price_intervals_date ON price_intervals(date_iso);
+
                 CREATE TABLE IF NOT EXISTS price_slots (
                     date_iso TEXT NOT NULL,
                     slot_index INTEGER NOT NULL,
@@ -889,6 +911,11 @@ class RuntimeDatabase:
                     ON channel_rollups_1d (channel_id, bucket_start DESC);
                 """
             )
+
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(spotmarket_windows)")}
+            for name in ("start_utc", "end_utc"):
+                if name not in columns:
+                    connection.execute("ALTER TABLE spotmarket_windows ADD COLUMN {0} TEXT".format(name))
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self.path))
@@ -998,6 +1025,17 @@ class RuntimeDatabase:
         source_day_kind = _optional_text(day_payload.get("day_kind")) or "unknown"
         if not isinstance(slots, list):
             return
+        if day_payload.get("time_model") == TIME_MODEL:
+            for index, value in enumerate(slots):
+                connection.execute(
+                    """INSERT OR REPLACE INTO price_intervals
+                    (date_iso, slot_start_utc, slot_end_utc, slot_index, slot_label,
+                     price_ct_kwh, source_day_kind, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (date_iso, slot_start(date_iso, index).isoformat(),
+                     slot_start(date_iso, index + 1).isoformat(), index, slot_label(date_iso, index),
+                     _optional_float(value), source_day_kind, captured_at),
+                )
+            return
         for slot_index, value in enumerate(slots):
             connection.execute(
                 """
@@ -1048,8 +1086,8 @@ class RuntimeDatabase:
                         min_price_ct_kwh,
                         max_price_ct_kwh,
                         source_day_kind,
-                        generated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        generated_at, start_utc, end_utc
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         date_iso,
@@ -1062,6 +1100,7 @@ class RuntimeDatabase:
                         _optional_float(window.get("max_price_ct_kwh")),
                         day_kind,
                         generated_at,
+                        window.get("start_utc"), window.get("end_utc"),
                     ),
                 )
 

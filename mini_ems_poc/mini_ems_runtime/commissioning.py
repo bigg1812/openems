@@ -9,7 +9,7 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Dict, Iterator, List, Optional
 
@@ -106,8 +106,21 @@ class CommissioningStore:
                 );
                 CREATE INDEX IF NOT EXISTS bacnet_write_leases_point
                 ON bacnet_write_leases(point_id, started_at DESC);
+                CREATE TABLE IF NOT EXISTS bacnet_release_attempts (
+                    attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    lease_id TEXT NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    trigger TEXT NOT NULL,
+                    confirmation_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS bacnet_release_attempts_lease
+                ON bacnet_release_attempts(lease_id, attempt_id);
                 """
             )
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(bacnet_write_leases)")}
+            for name in ("target_json", "write_error"):
+                if name not in columns:
+                    connection.execute("ALTER TABLE bacnet_write_leases ADD COLUMN {0} TEXT".format(name))
 
     def approve(self, payload: Dict[str, object], actor: IdentityUser) -> ApprovedWritePoint:
         _require_admin(actor)
@@ -131,6 +144,12 @@ class CommissioningStore:
                 (controller_ip, controller_port, object_type, instance),
             ).fetchone()
             point_id = str(existing["point_id"]) if existing is not None else secrets.token_urlsafe(10)
+            pending = connection.execute(
+                "SELECT 1 FROM bacnet_write_leases WHERE point_id = ? AND status IN ('writing', 'active', 'release_failed', 'failed')",
+                (point_id,),
+            ).fetchone()
+            if pending is not None:
+                raise ValueError("Die offene BACnet-Rückgabe muss vor einer erneuten Freigabe bestätigt sein.")
             try:
                 connection.execute(
                     """
@@ -196,15 +215,15 @@ class CommissioningStore:
 
     def create_lease(self, point_id: str, desired_value: object, actor_user_id: str) -> Dict[str, object]:
         if self.active_lease(point_id) is not None:
-            raise ValueError("Für diesen Punkt läuft bereits ein Schreibtest.")
+            raise ValueError("Für diesen Punkt läuft ein Schreibtest oder seine Rückgabe ist noch offen.")
         now = int(self._now())
         lease_id = secrets.token_urlsafe(12)
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO bacnet_write_leases (
-                    lease_id, point_id, desired_json, status, started_at, expires_at, actor_user_id
-                ) VALUES (?, ?, ?, 'writing', ?, ?, ?)
+                    lease_id, point_id, desired_json, status, started_at, expires_at, actor_user_id, target_json
+                ) VALUES (?, ?, ?, 'writing', ?, ?, ?, ?)
                 """,
                 (
                     lease_id,
@@ -213,6 +232,7 @@ class CommissioningStore:
                     now,
                     now + WRITE_TEST_SECONDS,
                     actor_user_id,
+                    json.dumps(self.get_point(point_id).to_public_dict()),
                 ),
             )
         return self.get_lease(lease_id)
@@ -238,9 +258,21 @@ class CommissioningStore:
             )
         return self.get_lease(lease_id)
 
-    def mark_released(self, lease_id: str, confirmation: WriteConfirmation) -> Dict[str, object]:
+    def begin_release_attempt(self, lease_id: str, trigger: str) -> int:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO bacnet_release_attempts (lease_id, timestamp, trigger, confirmation_json) VALUES (?, ?, ?, ?)",
+                (lease_id, int(self._now()), trigger, "null"),
+            )
+            return int(cursor.lastrowid)
+
+    def mark_released(self, lease_id: str, confirmation: WriteConfirmation, attempt_id: int) -> Dict[str, object]:
         status = "released" if confirmation.confirmed else "release_failed"
         with self._connect() as connection:
+            connection.execute(
+                "UPDATE bacnet_release_attempts SET confirmation_json = ? WHERE attempt_id = ? AND lease_id = ?",
+                (json.dumps(confirmation.to_dict()), attempt_id, lease_id),
+            )
             connection.execute(
                 """
                 UPDATE bacnet_write_leases
@@ -259,7 +291,7 @@ class CommissioningStore:
     def mark_failed(self, lease_id: str, error: str) -> Dict[str, object]:
         with self._connect() as connection:
             connection.execute(
-                "UPDATE bacnet_write_leases SET status = 'failed', error = ? WHERE lease_id = ?",
+                "UPDATE bacnet_write_leases SET write_error = ? WHERE lease_id = ?",
                 (str(error), lease_id),
             )
         return self.get_lease(lease_id)
@@ -272,7 +304,17 @@ class CommissioningStore:
             ).fetchone()
         if row is None:
             raise ValueError("Der Schreibtest wurde nicht gefunden.")
-        return _lease_from_row(row)
+        result = _lease_from_row(row)
+        with self._connect() as connection:
+            attempts = connection.execute(
+                "SELECT timestamp, trigger, confirmation_json FROM bacnet_release_attempts WHERE lease_id = ? ORDER BY attempt_id",
+                (lease_id,),
+            ).fetchall()
+        result["release_attempts"] = [
+            {"timestamp": row["timestamp"], "trigger": row["trigger"], "confirmation": json.loads(row["confirmation_json"])}
+            for row in attempts
+        ]
+        return result
 
     def latest_lease(self, point_id: str) -> Optional[Dict[str, object]]:
         with self._connect() as connection:
@@ -283,14 +325,14 @@ class CommissioningStore:
                 """,
                 (str(point_id),),
             ).fetchone()
-        return _lease_from_row(row) if row is not None else None
+        return self.get_lease(str(row["lease_id"])) if row is not None else None
 
     def active_lease(self, point_id: str) -> Optional[Dict[str, object]]:
         with self._connect() as connection:
             row = connection.execute(
                 """
                 SELECT * FROM bacnet_write_leases
-                WHERE point_id = ? AND status IN ('writing', 'active')
+                WHERE point_id = ? AND status IN ('writing', 'active', 'release_failed', 'failed')
                 ORDER BY started_at DESC, rowid DESC LIMIT 1
                 """,
                 (str(point_id),),
@@ -300,7 +342,7 @@ class CommissioningStore:
     def unfinished_leases(self) -> List[Dict[str, object]]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM bacnet_write_leases WHERE status IN ('writing', 'active')"
+                "SELECT * FROM bacnet_write_leases WHERE status IN ('writing', 'active', 'release_failed')"
             ).fetchall()
         return [_lease_from_row(row) for row in rows]
 
@@ -315,6 +357,7 @@ class CommissioningService:
         config: MiniEmsConfig,
         logger,
         timer_factory=threading.Timer,
+        monotonic=time.monotonic,
     ):
         self.store = store
         self.identity_store = identity_store
@@ -322,6 +365,7 @@ class CommissioningService:
         self.config = config
         self.logger = logger
         self.timer_factory = timer_factory
+        self.monotonic = monotonic
         self._timers: Dict[str, object] = {}
         self._lock = threading.RLock()
 
@@ -340,7 +384,8 @@ class CommissioningService:
             raise ValueError(
                 "Dieses BACnet-Objekt wird bereits von der laufenden Mini-EMS-Regelung verwendet und kann nicht als separater Testpunkt freigegeben werden."
             )
-        point = self.store.approve(payload, actor)
+        with self._lock:
+            point = self.store.approve(payload, actor)
         self.identity_store.record_event(
             "bacnet.point_approved",
             actor_user_id=actor.user_id,
@@ -377,33 +422,35 @@ class CommissioningService:
                 raise PermissionError("Aus der lokalen Entwicklung sind echte BACnet-Schreibzugriffe gesperrt.")
             if not self.config.runtime.real_writes_enabled:
                 raise PermissionError("Echte BACnet-Schreibzugriffe sind in der Runtime nicht freigegeben.")
-        point = self.store.get_point(str(payload.get("point_id") or ""))
-        if not point.enabled:
-            raise PermissionError("Dieser BACnet-Punkt ist nicht freigegeben.")
-        desired_value = _normalize_desired_value(point, payload.get("value"))
-        point_config = _point_config(point)
         with self._lock:
+            point = self.store.get_point(str(payload.get("point_id") or ""))
+            if not point.enabled:
+                raise PermissionError("Dieser BACnet-Punkt ist nicht freigegeben.")
+            desired_value = _normalize_desired_value(point, payload.get("value"))
+            point_config = _point_config(point)
             lease = self.store.create_lease(point.point_id, desired_value, actor.user_id)
+            started = self.monotonic()
             try:
                 confirmation = self.adapter.write_with_confirmation(
                     point_config,
                     desired_value,
                     "ack_only",
                 )
+                self.store.mark_active(lease["id"], confirmation, None)
                 if not confirmation.confirmed:
-                    self._best_effort_release(point_config)
                     raise RuntimeError(confirmation.error or "Der BACnet-Write wurde nicht bestätigt.")
                 effective_value = self._read_effective_value(point_config)
                 lease = self.store.mark_active(lease["id"], confirmation, effective_value)
                 timer = self.timer_factory(
-                    WRITE_TEST_SECONDS,
-                    lambda: self._release(lease["id"], actor_user_id=None),
+                    max(0, WRITE_TEST_SECONDS - (self.monotonic() - started)),
+                    lambda: self._release(lease["id"], actor_user_id=None, trigger="timer"),
                 )
                 timer.daemon = True
                 self._timers[lease["id"]] = timer
                 timer.start()
             except Exception as error:
                 self.store.mark_failed(lease["id"], str(error))
+                self._release(lease["id"], actor_user_id=actor.user_id, trigger="write_failure")
                 self.identity_store.record_event(
                     "bacnet.write_test_failed",
                     actor_user_id=actor.user_id,
@@ -430,12 +477,13 @@ class CommissioningService:
 
     def release_test(self, lease_id: str, actor: IdentityUser) -> Dict[str, object]:
         _require_admin(actor)
-        return {"released": True, "lease": self._release(lease_id, actor_user_id=actor.user_id)}
+        lease = self._release(lease_id, actor_user_id=actor.user_id)
+        return {"released": lease["status"] == "released", "lease": lease}
 
     def recover_unfinished(self) -> None:
         for lease in self.store.unfinished_leases():
             try:
-                self._release(lease["id"], actor_user_id=None)
+                self._release(lease["id"], actor_user_id=None, trigger="restart")
             except Exception as error:
                 log_event(
                     self.logger,
@@ -451,21 +499,38 @@ class CommissioningService:
             timer.cancel()
         for lease in self.store.unfinished_leases():
             try:
-                self._release(lease["id"], actor_user_id=None)
+                self._release(lease["id"], actor_user_id=None, trigger="shutdown")
             except Exception:
                 pass
 
-    def _release(self, lease_id: str, actor_user_id: Optional[str]) -> Dict[str, object]:
+    def _release(self, lease_id: str, actor_user_id: Optional[str], trigger: str = "manual") -> Dict[str, object]:
         with self._lock:
             lease = self.store.get_lease(lease_id)
             if lease["status"] == "released":
                 return lease
+            if lease["status"] == "failed" and not lease.get("target"):
+                raise ValueError("Historischer Fehlversuch ohne gesicherte Zielpriorität: Rückgabe vor Ort prüfen.")
             point = self.store.get_point(lease["point_id"])
-            confirmation = self.adapter.relinquish_with_confirmation(
-                _point_config(point),
-                "ack_only",
-            )
-            released = self.store.mark_released(lease_id, confirmation)
+            point_config = _point_config(point)
+            if lease.get("target"):
+                target = lease["target"]
+                point_config = replace(
+                    point_config,
+                    controller_ip=target["controller_ip"],
+                    controller_port=target["controller_port"], instance=target["instance"],
+                    object_type=BACNET_BV if target["object_type"] == "bv" else BACNET_AV,
+                    write_priority=target["write_priority"],
+                )
+            attempt_id = self.store.begin_release_attempt(lease_id, trigger)
+            try:
+                confirmation = self.adapter.relinquish_with_confirmation(point_config, "ack_only")
+            except Exception as error:
+                confirmation = WriteConfirmation(
+                    channel_id=point_config.channel_id, confirmed=False, ack_received=False,
+                    confirmation_mode="ack_only", confirmation_source=None,
+                    desired_value=None, attempts=1, error=str(error),
+                )
+            released = self.store.mark_released(lease_id, confirmation, attempt_id)
             timer = self._timers.pop(lease_id, None)
             if timer is not None and threading.current_thread() is not timer:
                 timer.cancel()
@@ -489,12 +554,6 @@ class CommissioningService:
             )
             return None
         return bool(round(value)) if point.object_type == BACNET_BV else float(value)
-
-    def _best_effort_release(self, point: PointConfig) -> None:
-        try:
-            self.adapter.relinquish_with_confirmation(point, "ack_only")
-        except Exception:
-            pass
 
 
 def _require_admin(actor: IdentityUser) -> None:
@@ -584,6 +643,8 @@ def _lease_from_row(row: sqlite3.Row) -> Dict[str, object]:
         "effective_value": json.loads(str(row["effective_value_json"])) if row["effective_value_json"] else None,
         "release_confirmation": json.loads(str(row["release_confirmation_json"])) if row["release_confirmation_json"] else None,
         "error": str(row["error"]) if row["error"] is not None else None,
+        "write_error": row["write_error"],
+        "target": json.loads(row["target_json"]) if row["target_json"] else None,
     }
 
 

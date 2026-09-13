@@ -1,5 +1,22 @@
 # Edge Integration Contract
 
+## Aktuelle Korrekturen – 13.09.2026
+
+Aufgaben und Abnahmegrenzen stehen in [ROADMAP.md](ROADMAP.md), R1–R4 und R6. Lokal implementiert:
+
+- Unplausible und teilweise fehlgeschlagene Messreihen sind `quality=bad`; nichtendliche Zahlen
+  werden verworfen. Ein erfolgreicher Empfang beweist nicht das Alter der Messung im Controller.
+- Health-/Status-API berechnen Snapshot-Alter pro Anfrage neu. Alte Daten sind `stale_runtime`,
+  ungültige/fehlende Zeitstempel `unknown`; gültiger Snapshot-Schwellwert, sonst 300 Sekunden.
+  HTTP 200 bedeutet API erreichbar. Die gespeicherte Datei bleibt historischer Zyklusnachweis.
+- `release_failed` bleibt eine offene Rückgabe und sperrt neue Tests sowie Änderungen der Punktfreigabe.
+  Rückgabeversuche erfolgen auf Admin-Anforderung, beim Neustart oder geordneten Beenden. Fehler bleiben
+  gespeichert. Das Protokoll-ACK belegt keine physische Safety-Reaktion; die Feldabnahmen R3c/R6 bleiben offen.
+- API-Read-only und echte Anlagenbeobachtung ohne Writes sind unterschiedliche Grenzen. Ein eigenständiger
+  realer Monitoringmodus fehlt noch (R8). Lokale Entwicklung bleibt ausschließlich simuliert.
+
+Die folgenden historischen Pilotbeispiele sind kein Nachweis für die aktuell installierte IPC-Version.
+
 Diese Datei ist der Integrationsvertrag zwischen Mini EMS und der Anlage. Sie definiert, was die Edge
 gegenüber MSR, Betreiber, Dashboard, Cloud und späterem Business-System garantiert: was ein gültiger
 Messwert ist, wann ein Wert `stale` oder `bad` ist, was gelesen und geschrieben werden darf, was geloggt
@@ -8,12 +25,40 @@ wird und was bei Netzwerk-, Controller- oder Cloud-Ausfall passiert.
 Grundsatz: **Der Code ist die Wahrheit.** Jede Regel in dieser Datei ist aus dem realen BACnet-Pfad
 abgeleitet (`mini_ems_runtime/config.py`, `channels.py`, `protocol.py`, `bacnet.py`,
 `read_diagnostics.py`, `cycle.py`) und zitiert die echten Schlüssel der aktiven UI-Standortrevision
-(IPC/Anlage) bzw. `config.local.json` (Laptop/Simulation). Weicht diese Datei vom Code ab, gilt der
+(IPC/Anlage) bzw. einen getrennten `--site-dir` (Laptop/Simulation). Weicht diese Datei vom Code ab, gilt der
 Code, und diese Datei ist zu korrigieren.
 
 Der Vertrag ist bewusst hardware- und betriebssystemneutral formuliert. Der Windows-IPC bleibt der
 aktuelle Pilot- und Kundenpfad; das Modell selbst muss später auch auf Linux-IPC, Gateway oder
-Container laufen können (siehe `ROADMAP.md`, Abschnitt "Strategische Ergänzung").
+Container laufen können (siehe `ROADMAP.md`, Abschnitt "Container: bewusste spätere Deployment-Option").
+
+## Zeitbasis der Preise und Migration
+
+- `time_model=utc_quarterhours_v1`: `slots` ist chronologisch, mit 15 Minuten je Element.
+  `slot_starts_utc` liefert den eindeutigen Beginn; das exklusive Ende liegt 15 Minuten später.
+  `date` bezeichnet den Markttag in Europe/Berlin. Auch Stundenpreise werden vor der Regelung in dieses
+  Viertelstundenmodell aufgelöst; die Diagnose nennt weiterhin die tatsächliche Quellauflösung.
+- Zeitumstellung: 92/100 statt 96 Intervalle. `slot_index` ist die Position seit tatsächlichem Tagesbeginn,
+  kein `Stunde * 4`. Fenster enthalten `start_utc`/`end_utc`; die Preisübergabe verwendet einen UTC-Schlüssel.
+  Das Dashboard verwendet diese Zeitpunkte und konstruiert sie nicht aus der Zeitzone des Browsers.
+- Cache ohne Zeitmodell: Normale 96er-Tage sind übernehmbar; normale 24er-Stundentage werden vervierfacht.
+  Alte Zeitumstellungstage werden nicht verwendet. Ohne Quellzugriff und ohne passenden aktuellen Cachewert
+  greift der bestehende `safe_mode`-Pfad; fehlende Preise werden nicht als Null eingesetzt.
+- SQLite: Alte `price_slots` bleiben unverändert. Neue Werte stehen in `price_intervals` mit UTC-Primärschlüssel.
+  Tagesberichte bevorzugen die neue Serie vollständig; sonst ist `price_ct_kwh.time_model=legacy_clock_slots`.
+  Alte Fenster haben keine rekonstruierte UTC-Grenze; neue Fenster speichern beide UTC-Grenzen.
+- Manuelle Fenster: `start_label`/`end_label_exclusive` nur für eindeutige Ortszeiten, Tagesende `24:00`.
+  Bei Zeitumstellung alternativ explizite ISO-Zeitpunkte mit Offset über `start_utc`/`end_utc` verwenden.
+  Mehrdeutige oder nicht existierende Grenzen werden nicht geraten und stoppen reguläre Zyklusausgaben.
+
+## Nachweis zeitlich begrenzter Schreibtests
+
+Neue Leases speichern vor dem Write das Ziel einschließlich Priorität. `write_error` beschreibt den
+Schreibfehler unabhängig vom späteren Rückgabeergebnis. `release_attempts` enthält Beginn, Auslöser
+(`manual`, `timer`, `write_failure`, `restart`, `shutdown`) und `confirmation`. `confirmation=null` bedeutet:
+Versuch begonnen, Ergebnis noch nicht gespeichert; etwa nach Prozessabbruch. Dies ist kein Rückgabenachweis.
+Historische `failed`-Datensätze ohne gesicherte Zielpriorität verlangen eine Vor-Ort-Prüfung und bleiben gesperrt.
+Timer und Recovery wirken nur bei laufender Software/Kommunikation; DDC-Fallback bleibt R6.
 
 ## Begriffsmodell
 
@@ -71,16 +116,15 @@ Die Einstufung macht `_classify_quality()` in `read_diagnostics.py`:
 
 | Qualität | Bedingung (Code) | Bedeutung |
 |---|---|---|
-| `bad` | kein Wert lesbar (Kommunikations-/Parse-Fehler, `status = "error"`) | Wert ist unbrauchbar |
+| `bad` | kein endlicher Wert lesbar, Plausibilitätsverletzung oder teilweise fehlgeschlagene Messreihe | Wert ist unbrauchbar; ein vorhandener endlicher Diagnosewert kann mit `status=warning` erhalten bleiben |
 | `stale` | Wert vorhanden, aber `age_seconds > max_age_seconds` | Wert ist zu alt für eine Entscheidung |
 | `good` | Wert vorhanden, frisch genug oder kein `max_age_seconds` konfiguriert | Wert ist nutzbar |
 
 Wichtige Detailregeln aus dem Code:
 
-- Ohne konfiguriertes `max_age_seconds` bleibt ein Punkt dauerhaft `good` (Gate inaktiv). Deshalb
-  setzen `config.json` und `config.local.json` für alle 17 `additional_inputs` Werte
-  (IPC: `600` s, lokal: `120` s).
-- Ein frischer, aber unplausibler Wert wird nicht `bad`, sondern `status = "warning"` mit
+- Ohne konfiguriertes `max_age_seconds` ist nur das Alters-Gate inaktiv; Plausibilität und Lesefehler
+  werden weiterhin bewertet. Grenzwerte kommen aus der aktiven Standortrevision, nicht aus alten Pilot-JSONs.
+- Ein frischer, aber unplausibler Wert trägt `quality=bad` und `status=warning` mit
   `plausible=false` und `error="value_out_of_range"`; er darf nicht als Messwert weiterverwendet werden.
 - Ein `stale`-Wert wird nie stillschweigend akzeptiert: `status` wird von `ok` auf `warning`
   herabgestuft und `error="value_stale"` gesetzt.

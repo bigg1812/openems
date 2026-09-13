@@ -4,6 +4,7 @@ import logging
 import socket
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -40,7 +41,7 @@ class HttpAuthTest(unittest.TestCase):
         (dashboard_dir / "dashboard.css").write_text("", encoding="utf-8")
         (dashboard_dir / "dashboard.js").write_text("", encoding="utf-8")
         for path, payload in (
-            (config.health_path, {"status": "healthy", "today_date": "2026-07-14"}),
+            (config.health_path, {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat(), "today_date": "2026-07-14"}),
             (config.state_path, {}),
             (config.price_cache_path, {}),
             (config.spotmarket_plan_path, {"min_consecutive_quarters": 8}),
@@ -149,6 +150,15 @@ class HttpAuthTest(unittest.TestCase):
         self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
         self.assertEqual(headers["X-Frame-Options"], "DENY")
         self.assertIn("default-src 'self'", headers["Content-Security-Policy"])
+
+    def test_public_health_detects_old_cycle_while_http_server_is_running(self) -> None:
+        self.server.health_path.write_text(json.dumps({
+            "status": "healthy",
+            "timestamp": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat(),
+        }), encoding="utf-8")
+        status, payload, _ = self.request("GET", "/api/health")
+        self.assertEqual(status, 200)  # HTTP liveness is distinct from cycle health.
+        self.assertEqual(payload["status"], "stale_runtime")
 
     def test_data_requires_login_and_viewer_cannot_configure(self) -> None:
         status, payload, _ = self.request("GET", "/api/status")

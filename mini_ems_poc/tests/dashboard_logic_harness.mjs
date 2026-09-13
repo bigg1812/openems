@@ -269,6 +269,59 @@ check("Aktiv lesbar: Zusatzpunkt", activeInfo.get("site.outdoor_temperature_c").
 check("Aktiv lesbar: Schreibkanäle nicht dabei", activeInfo.has("ems.lockout_grid"), false);
 check("Aktiv lesbar: leere Konfiguration robust", context.setupActiveChannelInfo(null).size, 0);
 
+/* ---------- Dauerhafter Schreibnachweis (UX24) ---------- */
+
+const completedWrite = {
+  status: "released", desired_value: false, effective_value: true,
+  write_confirmation: { ack_received: true, confirmed: true },
+  release_confirmation: { ack_received: true, confirmed: true },
+};
+const blockedWriteHtml = context.writeLeaseStatusHtml(completedWrite);
+check("Schreibtest: Sollwert bleibt sichtbar", blockedWriteHtml.includes("Angefordert: Aus"), true);
+check("Schreibtest: Readback bleibt sichtbar", blockedWriteHtml.includes("Einmal zurückgelesen: Ein"), true);
+check("Schreibtest: Abweichung bleibt nach Rückgabe sichtbar", blockedWriteHtml.includes("Testwert nicht wirksam"), true);
+check("Schreibtest: ACK getrennt", blockedWriteHtml.includes("BACnet-ACK: bestätigt"), true);
+check("Schreibtest: Rückgabe getrennt", blockedWriteHtml.includes("Rückgabe bestätigt"), true);
+check("Schreibtest: keine unbelegte automatische Rückgabe", blockedWriteHtml.includes("Automatisch"), false);
+const effectiveHtml = context.writeLeaseStatusHtml({ ...completedWrite, effective_value: false });
+check("Schreibtest: wirksam zum Prüfzeitpunkt", effectiveHtml.includes("Testwert beim Rücklesen wirksam"), true);
+const missingReadback = context.writeLeaseStatusHtml({ ...completedWrite, effective_value: null });
+check("Schreibtest: fehlender Readback bleibt unbekannt", missingReadback.includes("Wirksamkeit nicht geprüft"), true);
+const pendingHtml = context.writeLeaseStatusHtml({ status: "writing", desired_value: false, expires_at: 1 });
+check("Schreibtest: vor ACK keine Bestätigung behaupten", pendingHtml.includes("BACnet-ACK: bestätigt"), false);
+const failedReleaseHtml = context.writeLeaseStatusHtml({ ...completedWrite, status: "release_failed", error: "<b>Ausfall</b>" });
+check("Schreibtest: Rückgabefehler sichtbar", failedReleaseHtml.includes("Rückgabe nicht bestätigt"), true);
+check("Schreibtest: Fehlermeldung escaped", failedReleaseHtml.includes("<b>Ausfall</b>"), false);
+check("Schreibtest: Countdown benennt Freigabezeit", context.writeCountdownText(Date.now() / 1000 + 10).includes("Verbleibende Freigabezeit"), true);
+const pendingPoint = context.writePointHtml({ id: "test", name: "EMS_TEST", enabled: true,
+  object_type: "bv", instance: 1, controller_ip: "127.0.0.1", controller_port: 47808,
+  write_priority: 14, last_test: { ...completedWrite, id: "lease", status: "release_failed" } }, true);
+check("Schreibtest: offene Rückgabe kann erneut angefordert werden", pendingPoint.includes("data-write-release"), true);
+check("Schreibtest: neuer Test bei offener Rückgabe gesperrt", /data-write-value="true" disabled/.test(pendingPoint), true);
+
+/* ---------- Eindeutige Preiszeiten, unabhängig von der Browserzeitzone ---------- */
+const pricePayload = { price_cache: { today: { date: "2026-10-25",
+  slots: [-1, -2], slot_starts_utc: ["2026-10-25T00:00:00+00:00", "2026-10-25T01:00:00+00:00"] } },
+  spotmarket_plan: { today: { date: "2026-10-25", windows: [{ start_slot: 8, end_slot_exclusive: 16,
+    start_utc: "2026-10-25T00:00:00Z", end_utc: "2026-10-25T02:00:00Z", start_label: "02:00 +0200", end_label_exclusive: "03:00 +0100" }] } } };
+const timeline = context.buildPriceTimeline(pricePayload, [],
+  { start: new Date("2026-10-24T22:00:00Z"), end: new Date("2026-10-25T23:00:00Z") }, new Date("2026-10-24T22:00:00Z"));
+check("Preis: beide Herbststunden bleiben getrennt", timeline.points.length, 2);
+check("Preis: zweite Herbststunde liegt genau eine Stunde später", timeline.points[1].time - timeline.points[0].time, 3600000);
+check("Preisfenster: reale Dauer über Zeitumstellung", timeline.windows[0].end - timeline.windows[0].start, 7200000);
+const legacyTimeline = context.buildPriceTimeline({price_cache: {today: {date: "2026-10-25", slots: [1, 2]}}}, [],
+  {start: new Date("2026-10-24T22:00:00Z"), end: new Date("2026-10-25T23:00:00Z")}, new Date("2026-10-24T22:00:00Z"));
+check("Preis: alte Cachezeit wird nicht aus Browserzeitzone geraten", legacyTimeline.points.length, 0);
+const releaseWithError = context.writeLeaseStatusHtml({...completedWrite, write_error: "<b>ACK fehlt</b>",
+  release_attempts: [{timestamp: 1789000000, trigger: "write_failure", confirmation: {confirmed: true}}]});
+check("Schreibfehler bleibt trotz bestätigter Rückgabe sichtbar", releaseWithError.includes("Schreibfehler: &lt;b&gt;ACK fehlt&lt;/b&gt;"), true);
+check("Gespeicherte Rückgabeversuche sichtbar", releaseWithError.includes("Rückgabeversuche: 1"), true);
+const legacyPoint = context.writePointHtml({id: "legacy", name: "EMS_TEST", enabled: true, object_type: "bv",
+  last_test: {id: "old", status: "failed", desired_value: false}}, true);
+check("Historischer Fehler: weiterer Write gesperrt", /data-write-value="true" disabled/.test(legacyPoint), true);
+check("Historischer Fehler: keine Zielpriorität erraten", legacyPoint.includes("data-write-release"), false);
+check("Historischer Fehler: Abnahme vor Ort benannt", legacyPoint.includes("Vor Ort prüfen"), true);
+
 /* ---------- Ergebnis ---------- */
 
 if (failures) {

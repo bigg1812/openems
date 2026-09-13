@@ -4,6 +4,11 @@ Mini EMS PoC ist ein kleiner lokaler Energy-Edge-Stack für einen IPC. Er verbin
 Messwerte, Strompreise, einfache Betriebslogik, Historie und Dashboard in einem
 überschaubaren System.
 
+**Nächste Version – Stand 12.09.2026:** Einen Standort zuverlässig einrichten, seinen Zustand korrekt
+erklären und freigegebene Eingriffe einschließlich ihrer Rückgabe lückenlos nachweisen.
+Die [technische Roadmap](ROADMAP.md) ist die aktuelle Aufgabenquelle; sie trennt lokal geprüfte Korrekturen,
+offene Entwicklung und echte IPC-Abnahmen. Cloud-Ausbau folgt nach dieser Stabilisierung.
+
 Der Einstiegspunkt ist bewusst standortunabhängig: Ein reales Projekt bekommt seine
 Punkte, Geräte und Freigaben über die Inbetriebnahme-UI. Alte Pilot-Objekte aus
 frühen Tests sind nicht mehr die Definition des Produkts.
@@ -186,3 +191,6 @@ Rollback läuft über:
 1. Mini EMS läuft produktiv als Release-Paket auf dem IPC, nicht als Git-Checkout.
 2. Standort-Mapping wird über UI, Entwurf, Test und Freigabe gepflegt; `site.sqlite` ist die einzige aktive Konfigurationsquelle.
 3. App-Dateien und Standortdaten bleiben strikt getrennt, damit Updates die Anlage nicht versehentlich überschreiben.
+
+Aktueller lokaler Prüfnachweis: [Validierung 13.09.2026](docs/VALIDIERUNG_2026-09-13.md) –
+Rückgabe-/Preiszeitmodell, 178 Python-Tests, 101 Dashboard-Prüfungen und macOS-Prüfpaket; Windows-/IPC-Abnahme offen.

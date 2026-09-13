@@ -15,6 +15,39 @@ Repo-Datei wird vom Build nicht umgeschrieben, sondern bleibt manuelle Pflege
 
 ### Hinzugefügt
 
+- Stabilisierungsrunde vom 12.09.2026 (lokal, noch nicht auf IPC ausgeliefert): Regressionen für
+  unplausible/nichtendliche Messwerte, alte Health-Dateien und fehlgeschlagene BACnet-Rückgaben.
+- Eigenständiger Mini-EMS-CI-Workflow für Python 3.12 und Dashboard-Logik unter Linux/Windows;
+  erster GitHub-Lauf und Windows-Paketprüfung stehen aus.
+
+### Korrigiert – lokale Stabilisierungsrunde 12.09.2026
+
+- Unplausible oder teilweise fehlgeschlagene Messreihen sind `quality=bad`; NaN/Infinity gelangen nicht in
+  Messwert-Snapshots. Empfangsfrische ist weiterhin kein Nachweis für eine aktuelle Messung im Controller.
+- Health- und Status-API bewerten das Snapshot-Alter bei jeder Anfrage. Alte Zyklen werden `stale_runtime`,
+  fehlende/ungültige Zeitstempel `unknown`; ohne gültigen Watchdog-Schwellwert gilt ein 300-Sekunden-Fallback.
+- Fehlgeschlagene Relinquish-Versuche bleiben offen, sperren Folgetests und Änderungen der Punktfreigabe
+  und werden beim Neustart erneut versucht. Transportausnahmen werden gespeichert; die manuelle API
+  und Oberfläche melden Erfolg nur bei bestätigter Rückgabe.
+- Schreibtests zeigen angeforderten Wert, ACK, einmaligen Readback und Rückgabe dauerhaft getrennt.
+  Eine fehlende Rücklesung wird nicht als belegte Wirksamkeit dargestellt (UX24, lokale Umsetzung).
+
+### Korrigiert und vereinfacht – Fortsetzung 13.09.2026
+
+- Fehlendes Write-ACK und Write-Ausnahmen hinterlassen einen getrennten Schreibfehler und denselben
+  persistenten Rückgabeablauf wie Timer/Neustart. Originalziel und Priorität werden vor dem Write gesichert.
+  Rückgabeversuche werden vor dem I/O angelegt; bei Abbruch bleibt das Ergebnis ausdrücklich unbekannt.
+- Ungeklärte historische Fehlversuche blockieren neue Tests; keine automatisch geratene Zielpriorität.
+  Der Timer berücksichtigt bereits vergangene I/O-Zeit. Irreführende UI-Rückgabeversprechen entfernt.
+- Preisintervalle durchgängig auf UTC-Viertelstunden umgestellt, einschließlich 92/100-Intervall-Tagen,
+  Stundenquellen, Cache, Korrekturen, Plan, manuellen Fenstern, Preisübergabe, Historie und Diagramm.
+  Mehrdeutige alte Cachetage werden verworfen; alte Historie bleibt gekennzeichnet erhalten.
+- Ungenutzten alternativen SMARD-Snapshot-/Stundenaggregationsweg und stillen Best-effort-Relinquish entfernt.
+- Release-Builds markieren auch unversionierte Dateien als `+dirty`; lokale macOS-Paketprüfung durchgeführt.
+  Windows-Build, GitHub-CI und IPC-Abnahme sind damit noch nicht nachgewiesen.
+
+### Frühere, noch nicht vollständig versionierte Änderungen
+
 - Persönliche lokale Viewer-/Admin-Konten mit scrypt-Passworthashes, serverseitigen Sitzungen, Login-Schutz,
   Kontenverwaltung und getrenntem Security-Audit in `identity.sqlite`. Viewer lesen Betrieb, Historie und
   Berichte; Admins konfigurieren. Der lokale Recovery-Befehl setzt bei bestehenden Konten ein temporäres

@@ -60,8 +60,8 @@ if (-not (Test-Path $ReleaseDir)) {
 $BuildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $GitCommit = (& git -C $ProjectDir rev-parse --short=12 HEAD 2>$null)
 if (-not $GitCommit) { $GitCommit = "unknown" }
-& git -C $ProjectDir diff --quiet HEAD 2>$null
-if ($LASTEXITCODE -ne 0) { $GitCommit = "$GitCommit+dirty" }
+$GitChanges = (& git -C $ProjectDir status --porcelain --untracked-files=normal 2>$null)
+if ($LASTEXITCODE -ne 0 -or $GitChanges) { $GitCommit = "$GitCommit+dirty" }
 $Platform = "Windows-$env:PROCESSOR_ARCHITECTURE"
 @(
     "version=$Version",
