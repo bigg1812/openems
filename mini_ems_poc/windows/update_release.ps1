@@ -36,6 +36,7 @@ param(
     [string]$SiteDir = "C:\ProgramData\MiniEMS",
     [string]$TaskName = "MiniEmsPoCRelease",
     [int]$SmoketestTimeoutSeconds = 120,
+    [switch]$VerifyOnly,
     [switch]$Rollback,
     [switch]$RestoreSiteBackup
 )
@@ -45,6 +46,9 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
 if ($RestoreSiteBackup -and -not $Rollback) {
     throw "-RestoreSiteBackup ist nur zusammen mit -Rollback erlaubt."
+}
+if ($VerifyOnly -and ($Rollback -or $RestoreSiteBackup)) {
+    throw "-VerifyOnly kann nicht mit -Rollback kombiniert werden."
 }
 
 function Get-VersionFromDir {
@@ -129,7 +133,7 @@ function Test-PackageChecksums {
         }
     }
     if ($covered.Count -eq 0) { throw "Leeres Paketmanifest; Update abgebrochen." }
-    foreach ($required in @("mini_ems.exe", "run_mini_ems_release.cmd", "windows\install_task.ps1", "windows\smoketest_release.ps1")) {
+    foreach ($required in @("mini_ems.exe", "MiniEMS-Paket.cmd", "VERSION", "run_mini_ems_release.cmd", "windows\install_task.ps1", "windows\package_menu.ps1", "windows\smoketest_release.ps1")) {
         if (-not (Test-Path (Join-Path $Dir $required) -PathType Leaf)) {
             throw "Pflichtdatei im Paket fehlt: $required"
         }
@@ -153,6 +157,15 @@ function Invoke-Smoketest {
     Write-Host "[update] Starte Smoketest (erwartete Version $ExpectedVersion) ..."
     & $smoketest -ExpectedVersion $ExpectedVersion -SiteDir $SiteDir -SinceTime $SinceTime -TimeoutSeconds $SmoketestTimeoutSeconds
     return ($LASTEXITCODE -eq 0)
+}
+
+if ($VerifyOnly) {
+    if (-not $PackagePath -or -not (Test-Path $PackagePath -PathType Container)) {
+        throw "Fuer die Paketpruefung wird ein vorhandener -PackagePath benoetigt."
+    }
+    Test-PackageChecksums -Dir $PackagePath
+    Write-Host "[update] PAKET GEPRUEFT: keine Installation, kein Zugriff auf den Standort."
+    exit 0
 }
 
 # ============================================================================

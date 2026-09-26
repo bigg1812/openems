@@ -7,6 +7,10 @@ Das Paket enthält die Anwendung, das Dashboard, Simulationsressourcen, Zeitzone
 mini_ems.exe --site-dir C:\ProgramData\MiniEMS --supervise
 ```
 
+Für die Bedienung auf dem IPC `MiniEMS-Paket.cmd` doppelt anklicken: Menüpunkt 1 prüft das Paket nur
+in Simulation, Menüpunkt 2 führt das gesicherte Update aus, Menüpunkt 3 stellt die vorherige
+Anwendungsversion wieder her. Git und Python werden dafür auf dem IPC nicht benötigt.
+
 Standortdaten gehören nicht zum Paket und werden bei Updates nicht überschrieben:
 
 - `site.sqlite` – aktive UI-Konfiguration, Mapping-Entwürfe und Revisionen;

@@ -13,6 +13,13 @@ Repo-Datei wird vom Build nicht umgeschrieben, sondern bleibt manuelle Pflege
 
 ## [Unreleased]
 
+### Vereinfacht – Windows-Paket 26.09.2026
+
+- Ein einziger Paket-Einstieg bietet lokale Simulationsprüfung, gesichertes Update und Rückweg per Menü;
+  Git oder Python sind für die Bedienung auf dem IPC nicht nötig. Die Vorprüfung verändert den IPC-Standort nicht.
+- Windows-/Linux-CI baut und prüft das Paket einschließlich Binärstart, Rollen, Wiederanlauf und Restore.
+  Windows-Task/SYSTEM, Update/Rollback auf dem IPC und Anlagenabnahme bleiben offen.
+
 ### Stabilisiert und vereinfacht – lokaler Prüfstand 22.09.2026
 
 - Unabhängiger Prozesswächter (`--supervise`) erkennt Stillstand/Absturz anhand Run-ID und Zyklusfortschritt.

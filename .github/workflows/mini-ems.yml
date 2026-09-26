@@ -49,17 +49,23 @@ jobs:
       - name: Build Linux verification package
         if: runner.os == 'Linux'
         env:
-          MINI_EMS_VERSION: '2026.09.1'
+          MINI_EMS_VERSION: '2026.09.2'
           PYTHON: python
         run: bash mini_ems_poc/packaging/build_release.sh
       - name: Build Windows candidate
         if: runner.os == 'Windows'
-        run: ./mini_ems_poc/packaging/build_release.ps1 -Version 2026.09.1 -Python python
+        run: ./mini_ems_poc/packaging/build_release.ps1 -Version 2026.09.2 -Python python
       - name: Verify binary, roles, crash recovery and site restore
         run: python mini_ems_poc/packaging/verify_release.py --package mini_ems_poc/packaging/dist/mini_ems
+      - name: Windows one-click package check
+        if: runner.os == 'Windows'
+        shell: cmd
+        env:
+          CI: 'true'
+        run: mini_ems_poc\packaging\dist\mini_ems\MiniEMS-Paket.cmd -Mode Check
       - name: Preserve verified candidate
         uses: actions/upload-artifact@v4
         with:
-          name: mini-ems-${{ runner.os }}-2026.09.1-${{ github.sha }}
+          name: mini-ems-${{ runner.os }}-2026.09.2-${{ github.sha }}
           path: mini_ems_poc/packaging/dist/mini_ems/
           retention-days: 14

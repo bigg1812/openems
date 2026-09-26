@@ -93,9 +93,10 @@ Write-Host "[build] wrote VERSION ($Version, $GitCommit)"
 
 # --- Release launcher + notes: package vs. site data ------------------------
 Copy-Item (Join-Path $ProjectDir "run_mini_ems_release.cmd") (Join-Path $ReleaseDir "run_mini_ems_release.cmd") -Force
+Copy-Item (Join-Path $ProjectDir "MiniEMS-Paket.cmd") (Join-Path $ReleaseDir "MiniEMS-Paket.cmd") -Force
 Copy-Item (Join-Path $ScriptDir "RELEASE_HINWEISE.md") (Join-Path $ReleaseDir "RELEASE_HINWEISE.md") -Force
 New-Item -ItemType Directory -Path (Join-Path $ReleaseDir "windows") -Force | Out-Null
-foreach ($script in @("install_task.ps1", "update_release.ps1", "smoketest_release.ps1")) {
+foreach ($script in @("install_task.ps1", "update_release.ps1", "smoketest_release.ps1", "package_menu.ps1")) {
     Copy-Item (Join-Path $ProjectDir "windows\$script") (Join-Path $ReleaseDir "windows\$script") -Force
 }
 & $Python -m pip freeze | Set-Content (Join-Path $ReleaseDir "BUILD_REQUIREMENTS.txt") -Encoding utf8

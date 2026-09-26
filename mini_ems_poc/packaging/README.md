@@ -10,7 +10,8 @@ Python 3.12; Build-Abhängigkeiten aus `requirements-build.txt`. Die Versionen s
 `BUILD_REQUIREMENTS.txt` dokumentiert zusätzlich die tatsächlich installierten Pakete. Das ist ein
 wiederholbarer Build-Ablauf, keine Zusage bitidentischer Binärdateien auf unterschiedlichen Systemen.
 
-Enthalten: Runtime, BACnet-/Modbus-Adapter, Dashboard, uPlot, Schriftdateien, Simulation und IANA-Zeitzonen.
+Enthalten: Runtime, BACnet-/Modbus-Adapter, Dashboard, uPlot, Schriftdateien, Simulation, IANA-Zeitzonen
+und `MiniEMS-Paket.cmd` als einfacher Einstieg für Paketprüfung, Update und Rückweg auf Windows.
 Berichte verwenden den eingebauten HTML-Renderer und die Browser-Druckfunktion für PDF. Die optionalen
 Quellcode-Erweiterungen Jinja2, WeasyPrint und BACpypes3 werden bewusst ausgeschlossen; ihre Installation auf
 dem Build-Rechner verändert das Release-Profil nicht. Nicht benötigte Jinja-Vorlagen werden nicht mitgeliefert.
@@ -25,7 +26,7 @@ Aus dem Repository-Stamm auf macOS/Linux:
 ```bash
 python3.12 -m venv /tmp/mini-ems-build
 /tmp/mini-ems-build/bin/python -m pip install -r mini_ems_poc/packaging/requirements-build.txt
-MINI_EMS_VERSION=2026.09.1 PYTHON=/tmp/mini-ems-build/bin/python bash mini_ems_poc/packaging/build_release.sh
+MINI_EMS_VERSION=2026.09.2 PYTHON=/tmp/mini-ems-build/bin/python bash mini_ems_poc/packaging/build_release.sh
 python3.12 mini_ems_poc/packaging/verify_release.py --package mini_ems_poc/packaging/dist/mini_ems
 ```
 
@@ -34,7 +35,7 @@ Unter Windows, ebenfalls aus dem Repository-Stamm:
 ```powershell
 py -3.12 -m venv mini_ems_poc\.venv
 mini_ems_poc\.venv\Scripts\python.exe -m pip install -r mini_ems_poc\packaging\requirements-build.txt
-mini_ems_poc\packaging\build_release.ps1 -Version 2026.09.1 -Python mini_ems_poc\.venv\Scripts\python.exe
+mini_ems_poc\packaging\build_release.ps1 -Version 2026.09.2 -Python mini_ems_poc\.venv\Scripts\python.exe
 mini_ems_poc\.venv\Scripts\python.exe mini_ems_poc\packaging\verify_release.py --package mini_ems_poc\packaging\dist\mini_ems
 ```
 

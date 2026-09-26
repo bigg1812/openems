@@ -10,7 +10,27 @@ C:\ProgramData\MiniEMS\         Standortdaten; bleiben beim Update erhalten
 `C:\ProgramData\MiniEMS` wird beim Release-Wechsel nicht überschrieben. Dort bleiben insbesondere
 `site.sqlite`, `identity.sqlite`, Betriebsdaten und Logs erhalten.
 
-## Normalfall: neue Version bauen und installieren
+## Einfacher Ablauf auf dem IPC
+
+1. Das **Windows-Paket** aus dem erfolgreichen GitHub-Actions-Lauf herunterladen und das ZIP vollständig
+   in einen eigenen Ordner entpacken. Auf dem IPC ist weder Git noch Python dafür nötig.
+2. `MiniEMS-Paket.cmd` doppelt anklicken und **1 – Paket ohne Anlagenzugriff prüfen** wählen.
+   Das prüft Prüfsummen und einen einmaligen Zyklus in einem temporären Simulationsstandort. Der
+   installierte Task und `C:\ProgramData\MiniEMS` bleiben unberührt. Es ist noch kein Feldtest.
+3. Wenn die Prüfung bestanden ist und der geplante Wartungszeitpunkt erreicht ist, dieselbe Datei erneut
+   öffnen und **2 – Version auf diesem IPC installieren** wählen. Windows fragt nach Administratorrechten;
+   eine abschließende Ja-Eingabe startet das Update. Das Programm sichert Standortdaten und Vorversion,
+   installiert das Paket und prüft danach Version und Gesundheit. Erfolg steht ausdrücklich als
+   `UPDATE BESTANDEN` im Fenster.
+
+Bei einem fehlgeschlagenen Update keine Dateien von Hand kopieren. Im selben Menü stellt **3 – Vorherige
+Version wiederherstellen** die alte Anwendungsversion zurück. Der Standort-Sicherungsstand wird dabei
+bewusst nicht automatisch zurückgespielt. Den Fehlerbefund vor weiteren Versuchen sichern.
+
+Der Menütest vor der Installation zeigt nur, dass das Paket in Simulation startet. Die Prüfung des
+Windows-Tasks unter SYSTEM, die Bedienung im Dashboard und die Anlagenabnahme erfolgen erst auf dem IPC.
+
+## Manueller Wartungspfad: neue Version bauen und installieren
 
 ### 1. Bauen – normale PowerShell
 
@@ -29,8 +49,8 @@ Dann mit einer bewusst gewählten höheren Version bauen und `packaging/verify_r
 wie im Paketbau beschrieben. Es startet ausschließlich temporäre Simulationen, einschließlich
 Prozessabbruch und Restore. Erwartung: Tests `OK`, Paketprüfung `result: passed`, bekannter sauberer Commit.
 
-**Kandidat 22.09.2026:** Lokal auf macOS geprüft, Windows-Ausführung noch offen. Vor dem folgenden
-Produktivablauf zuerst Windows-Paket, Task/SYSTEM, Update/Rollback und Berichtdruck in getrennten
+**Kandidat 26.09.2026:** Das Windows-Paket wurde in GitHub Actions gebaut und mit temporärem
+Simulationsstandort geprüft. Vor dem folgenden Produktivablauf Task/SYSTEM, Update/Rollback und Berichtdruck in getrennten
 Simulationsordnern prüfen. Dafür eigene Tasknamen und einen freien Loopback-Port verwenden; den bestehenden
 Produktivtask und `C:\ProgramData\MiniEMS` nicht für den Versuch verwenden. Danach gilt die
 [gemeinsame Abnahme](UPDATE_WARTUNG.md#nächste-gemeinsame-abnahme-nach-der-stabilisierungsrunde).

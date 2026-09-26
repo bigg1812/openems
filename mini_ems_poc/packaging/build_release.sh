@@ -74,9 +74,10 @@ echo "[build] wrote VERSION (${SEMVER}, ${GIT_COMMIT}${GIT_DIRTY})"
 
 # --- Release launcher + notes: package vs. site data ------------------------
 cp "${PROJECT_DIR}/run_mini_ems_release.cmd" "${RELEASE_DIR}/run_mini_ems_release.cmd"
+cp "${PROJECT_DIR}/MiniEMS-Paket.cmd" "${RELEASE_DIR}/MiniEMS-Paket.cmd"
 cp "${SCRIPT_DIR}/RELEASE_HINWEISE.md" "${RELEASE_DIR}/RELEASE_HINWEISE.md"
 mkdir -p "${RELEASE_DIR}/windows"
-for script in install_task.ps1 update_release.ps1 smoketest_release.ps1; do
+for script in install_task.ps1 update_release.ps1 smoketest_release.ps1 package_menu.ps1; do
   cp "${PROJECT_DIR}/windows/${script}" "${RELEASE_DIR}/windows/${script}"
 done
 "${PYTHON}" -m pip freeze > "${RELEASE_DIR}/BUILD_REQUIREMENTS.txt"
