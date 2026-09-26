@@ -1,12 +1,14 @@
 import logging
 import math
 import time
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional
 
 from .channels import ChannelRegistry
 from .logging_utils import log_event
+from .measurement_quality import timestamp_age
 from .protocol import AdapterError, ProtocolAdapter
 
 # Quality flags carried by every read; surfaced into health.json / SQLite / dashboard.
@@ -53,6 +55,9 @@ class ChannelReadDiagnostic:
     quality: str = QUALITY_GOOD
     age_seconds: Optional[float] = None
     max_age_seconds: Optional[float] = None
+    received_at: Optional[str] = None
+    last_successful_read_at: Optional[str] = None
+    source_timestamp: Optional[str] = None
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -71,6 +76,12 @@ class ChannelReadDiagnostic:
             "quality": self.quality,
             "age_seconds": self.age_seconds,
             "max_age_seconds": self.max_age_seconds,
+            "received_at": self.received_at,
+            "last_successful_read_at": self.last_successful_read_at,
+            "source_timestamp": self.source_timestamp,
+            "source_age_seconds": None,
+            "source_freshness": "unknown",
+            "read_attempted": True,
         }
 
 
@@ -88,6 +99,8 @@ class ChannelReadDiagnosticsService:
         # Injectable clock (aware UTC datetime) so freshness logic is testable
         # without monkeypatching; defaults to the real wall clock.
         self._now = now or _real_now
+        self._latest: Dict[str, dict] = {}
+        self._latest_lock = threading.Lock()
 
     def now(self) -> datetime:
         # Public accessor for the injectable clock so other components (e.g. the
@@ -141,6 +154,8 @@ class ChannelReadDiagnosticsService:
         age_seconds: Optional[float] = None
         if sample_moments:
             age_seconds = max(0.0, round((self._now() - sample_moments[-1]).total_seconds(), 3))
+        else:
+            age_seconds = timestamp_age(self._previous_receipt(channel_id), self._now())
 
         quality = _classify_quality(
             has_value=bool(values) and plausible and not errors,
@@ -170,7 +185,11 @@ class ChannelReadDiagnosticsService:
             quality=quality,
             age_seconds=age_seconds,
             max_age_seconds=max_age_seconds,
+            received_at=collected_samples[-1].timestamp if collected_samples else self._previous_receipt(channel_id),
+            last_successful_read_at=collected_samples[-1].timestamp if collected_samples else self._previous_receipt(channel_id),
         )
+        with self._latest_lock:
+            self._latest[channel_id] = diagnostic.to_dict()
         log_event(
             self.logger,
             logging.INFO if diagnostic.status == "ok" else logging.WARNING,
@@ -190,6 +209,10 @@ class ChannelReadDiagnosticsService:
             max_age_seconds=diagnostic.max_age_seconds,
         )
         return diagnostic
+
+    def _previous_receipt(self, channel_id: str) -> Optional[str]:
+        with self._latest_lock:
+            return self._latest.get(channel_id, {}).get("last_successful_read_at")
 
 
 def _classify_quality(

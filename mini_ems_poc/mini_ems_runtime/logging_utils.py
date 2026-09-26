@@ -1,5 +1,6 @@
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime, timezone
 
 from .config import MiniEmsConfig
@@ -9,16 +10,19 @@ def utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def setup_logging(config: MiniEmsConfig) -> logging.Logger:
+def setup_logging(config: MiniEmsConfig, *, supervisor: bool = False) -> logging.Logger:
     config.log_dir.mkdir(parents=True, exist_ok=True)
-    logger = logging.getLogger("mini_ems")
+    logger = logging.getLogger("mini_ems.supervisor" if supervisor else "mini_ems")
     logger.setLevel(_parse_level(config.logging.level))
-    logger.handlers.clear()
+    for handler in logger.handlers[:]:
+        handler.close()
+        logger.removeHandler(handler)
     logger.propagate = False
 
     formatter = logging.Formatter("%(message)s")
 
-    file_handler = logging.FileHandler(config.log_path, encoding="utf-8")
+    log_path = config.log_dir / "supervisor.log" if supervisor else config.log_path
+    file_handler = RotatingFileHandler(log_path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 

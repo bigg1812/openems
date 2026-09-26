@@ -29,9 +29,37 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
-      # Core runtime and import tests use the standard library and fake devices.
-      # Optional BACpypes3, Jinja/PDF and packaged-release validation are separate work.
+      - name: Pinned build dependencies
+        run: python -m pip install -r mini_ems_poc/packaging/requirements-build.txt
+      # Core runtime and import tests use fake devices; no plant/network discovery.
       - name: Python runtime and HTTP tests (simulation only)
         run: python -m unittest discover -s mini_ems_poc/tests -v
       - name: Dashboard logic
         run: node mini_ems_poc/tests/dashboard_logic_harness.mjs
+      - name: Parse Windows deployment scripts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem mini_ems_poc/windows/*.ps1, mini_ems_poc/packaging/*.ps1 | ForEach-Object {
+            $parseErrors = $null
+            $tokens = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+          }
+      - name: Build Linux verification package
+        if: runner.os == 'Linux'
+        env:
+          MINI_EMS_VERSION: '2026.09.1'
+          PYTHON: python
+        run: bash mini_ems_poc/packaging/build_release.sh
+      - name: Build Windows candidate
+        if: runner.os == 'Windows'
+        run: ./mini_ems_poc/packaging/build_release.ps1 -Version 2026.09.1 -Python python
+      - name: Verify binary, roles, crash recovery and site restore
+        run: python mini_ems_poc/packaging/verify_release.py --package mini_ems_poc/packaging/dist/mini_ems
+      - name: Preserve verified candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-ems-${{ runner.os }}-2026.09.1-${{ github.sha }}
+          path: mini_ems_poc/packaging/dist/mini_ems/
+          retention-days: 14

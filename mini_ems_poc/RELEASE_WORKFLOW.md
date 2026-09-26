@@ -14,29 +14,26 @@ C:\ProgramData\MiniEMS\         Standortdaten; bleiben beim Update erhalten
 
 ### 1. Bauen – normale PowerShell
 
-Eine normale PowerShell öffnen, **nicht als Administrator**. Diesen Block vollständig einfügen:
+Build-Profil, saubere Python-Umgebung und Build-Befehle stehen verbindlich in
+[packaging/README.md](packaging/README.md). Aus dem Repository-Stamm die Tests ausführen:
 
 ```powershell
-$ErrorActionPreference = "Stop"
-Set-Location "C:\dev\openems\mini_ems_poc"
-
-Get-Content "C:\Program Files\MiniEMS\VERSION"
-$Version = Read-Host "Neue höhere Version eingeben (JJJJ.MM.n, zum Beispiel 2026.07.3)"
-
-& ".\.venv\Scripts\python.exe" -m unittest discover -s tests -v
-if ($LASTEXITCODE -ne 0) { throw "Tests fehlgeschlagen. Release wird nicht gebaut." }
-
-& powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File ".\packaging\build_release.ps1" `
-  -Version $Version `
-  -Python ".\.venv\Scripts\python.exe"
-if ($LASTEXITCODE -ne 0) { throw "Release-Build fehlgeschlagen." }
-
-Get-Content ".\packaging\dist\mini_ems\VERSION"
+Set-Location "C:\dev\openems"
+& ".\mini_ems_poc\.venv\Scripts\python.exe" -m unittest discover -s mini_ems_poc/tests -v
+if ($LASTEXITCODE -ne 0) { throw "Tests fehlgeschlagen." }
+node mini_ems_poc/tests/dashboard_logic_harness.mjs
+if ($LASTEXITCODE -ne 0) { throw "Dashboard-Prüfungen fehlgeschlagen." }
 ```
 
-Erwartung: Alle Tests enden mit `OK`, der Build endet mit `[build] done` und die ausgegebene Version ist
-höher als die bisher installierte Version.
+Dann mit einer bewusst gewählten höheren Version bauen und `packaging/verify_release.py` ausführen,
+wie im Paketbau beschrieben. Es startet ausschließlich temporäre Simulationen, einschließlich
+Prozessabbruch und Restore. Erwartung: Tests `OK`, Paketprüfung `result: passed`, bekannter sauberer Commit.
+
+**Kandidat 22.09.2026:** Lokal auf macOS geprüft, Windows-Ausführung noch offen. Vor dem folgenden
+Produktivablauf zuerst Windows-Paket, Task/SYSTEM, Update/Rollback und Berichtdruck in getrennten
+Simulationsordnern prüfen. Dafür eigene Tasknamen und einen freien Loopback-Port verwenden; den bestehenden
+Produktivtask und `C:\ProgramData\MiniEMS` nicht für den Versuch verwenden. Danach gilt die
+[gemeinsame Abnahme](UPDATE_WARTUNG.md#nächste-gemeinsame-abnahme-nach-der-stabilisierungsrunde).
 
 ### 2. Installieren und starten – PowerShell als Administrator
 
@@ -57,7 +54,7 @@ Das Skript erledigt automatisch:
 1. Paket prüfen.
 2. Mini EMS stoppen.
 3. Standortdaten und alte Anwendung sichern.
-4. Neue Anwendung installieren.
+4. Neue Anwendung installieren und begrenzte Task-Wiederholungen übernehmen.
 5. Mini EMS starten.
 6. Version und Health prüfen.
 

@@ -96,8 +96,8 @@ const KPI_CATALOG = [
     value: (h) => formatNumber(h.current_price_ct_kwh, "ct/kWh", 3),
     sub: (h) => `Zeitfenster ${h.current_slot_label || "-"}` },
   { id: "spotmarket", label: "Preissteuerung", accent: "accent-green",
-    value: (h) => formatBool(h.spotmarket_active_now),
-    sub: (h) => (h.spotmarket_active_now ? "Preissteuerung aktiv" : "Normalbetrieb") },
+    value: (h) => h.operation_mode === "monitoring" ? "deaktiviert" : formatBool(h.spotmarket_active_now),
+    sub: (h) => h.operation_mode === "monitoring" ? "Beobachtungsmodus" : h.price_control_status === "blocked" ? "Preisdaten fehlen" : (h.spotmarket_active_now ? "Preissteuerung aktiv" : "Normalbetrieb") },
   { id: "grid_power", label: "Netzleistung", accent: "accent-slate",
     value: (h) => formatNumber(h.grid_active_power_kw, "kW", 2),
     sub: (h) => (h.grid_read_status ? friendlyState(h.grid_read_status) : "derzeit nicht aktiv") },
@@ -137,6 +137,7 @@ const DEFAULT_SITE_CONFIG = {
     environment: "local",
     bacnet_mode: "simulated",
     real_writes_enabled: false,
+    operation_mode: "control",
   },
   simulation: {
     values_file: "sim/sample_values.json",
@@ -307,9 +308,15 @@ function bindUi() {
     button.addEventListener("click", () => applyTheme(button.dataset.themeValue));
   });
   document.getElementById("dashboard-config-button").addEventListener("click", openDashboardConfig);
+  document.getElementById("dashboard-prices").addEventListener("toggle", (event) => {
+    if (event.currentTarget.open) {
+      rebuildPriceChart();
+    }
+  });
   document.getElementById("dashboard-more").addEventListener("toggle", (event) => {
     if (event.currentTarget.open) {
       redrawDashboardCharts();
+      refreshWeather();
     }
   });
   document.getElementById("admin-access-button").addEventListener("click", handleAdminAccessButton);
@@ -830,10 +837,9 @@ async function refreshDashboard() {
   button.disabled = true;
   setLoadingIndicator(true);
   try {
-    const [statusPayload, dailyReport, weather, reportStudio] = await Promise.all([
+    const [statusPayload, dailyReport, reportStudio] = await Promise.all([
       fetchJson("/api/status"),
       fetchJson("/api/report/daily"),
-      fetchOptionalJson("/api/weather", { status: "unavailable" }),
       fetchOptionalJson("/api/report/studio", null),
     ]);
     appState.statusPayload = statusPayload;
@@ -846,7 +852,7 @@ async function refreshDashboard() {
     renderWindows(statusPayload.spotmarket_plan || {});
     renderRecentCycles(statusPayload.recent_cycles || []);
     updateReportQuickView(dailyReport);
-    renderWeather(weather);
+    if (document.getElementById("dashboard-more").open || appState.dashboard.kpis.includes("weather_temp")) refreshWeather();
     renderChannelPicker();
     renderReportChannelList();
     await renderPriceOverview(statusPayload);
@@ -904,8 +910,8 @@ async function fetchOptionalJson(path, fallback) {
 }
 
 function normalizeChannels(rawChannels) {
-  const channels = Array.isArray(rawChannels) && rawChannels.length ? rawChannels : DEFAULT_CHANNELS;
-  const byId = new Map(DEFAULT_CHANNELS.map((channel) => [channel.id, channel]));
+  const channels = Array.isArray(rawChannels) ? rawChannels : DEFAULT_CHANNELS;
+  const byId = new Map();
   channels.forEach((channel) => {
     if (channel && channel.id) {
       const customerCopy = CUSTOMER_CHANNEL_LABELS.get(channel.id) || {};
@@ -945,13 +951,11 @@ function renderStatusHero(message, health) {
     return;
   }
   target.className = `status-hero ${message.level}`;
-  const stand = health && health.timestamp ? `Stand ${formatTimestamp(health.timestamp)}` : "Noch keine Daten";
   target.innerHTML = `
     <div class="status-hero-text">
       <strong>${escapeHtml(message.headline)}</strong>
       <p>${escapeHtml(message.detail)}</p>
     </div>
-    <span class="status-hero-meta">${escapeHtml(stand)}</span>
   `;
 }
 
@@ -960,10 +964,7 @@ function renderStartHints(hints) {
   if (!target) {
     return;
   }
-  if (!hints.length) {
-    target.innerHTML = '<div class="hint-item neutral">Keine besonderen Hinweise.</div>';
-    return;
-  }
+  document.getElementById("dashboard-hint-panel").hidden = hints.length === 0;
   target.innerHTML = hints.map((hint) => `
     <div class="hint-item ${escapeHtml(hint.level)}">${escapeHtml(hint.text)}</div>
   `).join("");
@@ -982,6 +983,7 @@ function renderKpis(payload) {
   };
   const enabled = appState.dashboard.kpis.length ? appState.dashboard.kpis : DEFAULT_DASHBOARD.kpis;
   const cards = enabled
+    .filter((id) => health.operation_mode !== "monitoring" || id !== "spotmarket")
     .map((id) => KPI_CATALOG.find((kpi) => kpi.id === id))
     .filter(Boolean)
     .map((kpi) => `
@@ -991,7 +993,7 @@ function renderKpis(payload) {
         <small>${escapeHtml(kpi.sub(health, ctx))}</small>
       </article>
     `);
-  target.innerHTML = cards.join("") || '<div class="empty-state">Noch keine Kennzahlen ausgewählt. Oben rechts über „Ansicht anpassen“ Kennzahlen hinzufügen.</div>';
+  target.innerHTML = cards.join("") || '<div class="empty-state">Unter „Weitere Anzeigen“ lassen sich Kennzahlen auswählen.</div>';
 }
 
 function applyDashboardWidgets() {
@@ -1146,15 +1148,26 @@ function drawDashboardChart(chart, index) {
   dashboardCharts.push({ id: chart.id, instance, observer });
 }
 
-function renderSignals(payload) {
+function buildSignalRows(payload) {
   const health = payload.health || {};
   const priceCache = payload.price_cache || {};
-  const source = priceCache.price_source_status || {};
+  const source = health.price_source_status || priceCache.price_source_status || {};
   const writeStatus = health.write_status || {};
   const currentPrice = writeStatus.current_price || {};
   const spotmarket = writeStatus.spotmarket_lockout || {};
   const tomorrowSlots = Number(source.tomorrow_slots_found ?? priceCache.tomorrow?.available_slot_count ?? 0);
   const todaySlots = Number(source.today_slots_found ?? priceCache.today?.available_slot_count ?? 0);
+  if (health.operation_mode === "monitoring") {
+    return [
+      { state: "neutral", title: "Beobachtungsmodus", text: "Keine Preis-, Sperr-, Heartbeat- oder Testschreibzugriffe." },
+      { state: health.stale_runtime || health.acquisition_status !== "healthy" ? "warn" : "ok",
+        title: "Messwerterfassung", text: health.stale_runtime ? "Aktueller Lauf nicht nachgewiesen." : health.acquisition_status === "healthy" ? "Lesewerte verfügbar; die Aktualität im Quellgerät ist nicht nachgewiesen." : "Einzelne Messwerte fehlen oder sind veraltet." },
+      { state: source.current_price_available === false ? "warn" : "neutral", title: "Preisdaten",
+        text: source.current_price_available === false ? "Aktueller Preis fehlt. Die Erfassung läuft unabhängig weiter." : "Preise werden angezeigt; keine Übergabe an die Anlage." },
+      { state: Number(health.pending_release_count) > 0 ? "error" : "neutral", title: "Offene Rückgaben",
+        text: Number(health.pending_release_count) > 0 ? "Frühere Schreibtests sind nicht abgeschlossen. Vor Ort klären." : "Keine offenen Rückgaben aus Schreibtests gemeldet." },
+    ];
+  }
   const rows = [
     {
       state: currentPrice.last_error ? "error" : currentPrice.confirmed === false ? "warn" : "ok",
@@ -1167,9 +1180,9 @@ function renderSignals(payload) {
       text: `${formatBool(spotmarket.desired_value)} / ${formatAge(spotmarket.last_confirmed_at)}`,
     },
     {
-      state: todaySlots > 0 ? "ok" : "warn",
+      state: source.current_price_available === false ? "warn" : todaySlots > 0 ? "ok" : "warn",
       title: "Preisdaten",
-      text: todaySlots > 0
+      text: source.current_price_available === false ? "Aktueller Preis fehlt; Messwerterfassung läuft weiter." : todaySlots > 0
         ? `${todaySlots} Werte heute / ${tomorrowSlots || "keine"} Werte morgen`
         : "Noch keine Preise für heute abgerufen. Bitte die Preisquelle prüfen.",
     },
@@ -1179,6 +1192,11 @@ function renderSignals(payload) {
       text: health.safe_mode_reason ? safeModeSignalText(health.safe_mode_reason) : "Anlage läuft normal",
     },
   ];
+  return rows;
+}
+
+function renderSignals(payload) {
+  const rows = buildSignalRows(payload);
   document.getElementById("signal-list").innerHTML = rows.map((row) => `
     <article class="signal-card ${row.state}">
       <strong>${escapeHtml(row.title)}</strong>
@@ -1982,11 +2000,14 @@ async function loadSiteConfigFromBackend() {
 function populateSiteConfigForm(config) {
   const normalized = normalizeSiteConfig(config);
   setInputValue("config-site-name", normalized.site.name);
+  setInputValue("config-site-latitude", normalized.site.latitude ?? "");
+  setInputValue("config-site-longitude", normalized.site.longitude ?? "");
   setSelectValue("config-access-status", normalized.site.access_status);
   setInputValue("config-operator-note", normalized.site.operator_note);
   setSelectValue("config-runtime-environment", normalized.runtime.environment);
   setSelectValue("config-bacnet-mode", normalized.runtime.bacnet_mode);
   setInputChecked("config-real-writes-enabled", normalized.runtime.real_writes_enabled);
+  setSelectValue("config-operation-mode", normalized.runtime.operation_mode);
   setInputValue("config-api-host", normalized.api.host);
   setInputValue("config-api-port", normalized.api.port);
   setInputValue("config-controller-ip", normalized.network.controller_ip);
@@ -2011,10 +2032,6 @@ function populateSiteConfigForm(config) {
   setInputValue("config-grid-clear-threshold", normalized.controllers.grid_lockout.clear_threshold_kw);
   setInputValue("config-grid-clear-cycles", normalized.controllers.grid_lockout.below_threshold_cycles_required);
   setInputValue("config-spotmarket-consecutive", normalized.controllers.spotmarket_lockout.negative_quarters_min_consecutive);
-  setInputValue("config-spotmarket-min-valid", normalized.controllers.spotmarket_lockout.min_valid_quarters);
-  setInputValue("config-invalid-price-sentinel", normalized.controllers.spotmarket_lockout.invalid_price_sentinel ?? "");
-  setInputValue("config-safe-mode-threshold", normalized.safety.comm_error_safe_mode_threshold);
-  setInputChecked("config-fail-safe-output", normalized.safety.fail_safe_output);
   setInputChecked("config-heartbeat-enabled", normalized.ddc_heartbeat.enabled);
   setInputValue("config-heartbeat-instance", normalized.ddc_heartbeat.instance ?? "");
   setInputValue("config-heartbeat-controller-ip", normalized.ddc_heartbeat.controller_ip ?? "");
@@ -2199,6 +2216,8 @@ function buildSiteConfigPayload() {
     patch: {
       site: {
         name: textValue("config-site-name", base.site.name),
+        latitude: optionalNumericValue("config-site-latitude"),
+        longitude: optionalNumericValue("config-site-longitude"),
         access_status: selectValue("config-access-status", base.site.access_status),
         operator_note: textValue("config-operator-note", base.site.operator_note),
       },
@@ -2206,6 +2225,7 @@ function buildSiteConfigPayload() {
         environment,
         bacnet_mode: selectValue("config-bacnet-mode", base.runtime.bacnet_mode),
         real_writes_enabled: checkboxValue("config-real-writes-enabled"),
+        operation_mode: selectValue("config-operation-mode", base.runtime.operation_mode),
       },
       network: {
         controller_ip: textValue("config-controller-ip", base.network.controller_ip),
@@ -2244,15 +2264,12 @@ function buildSiteConfigPayload() {
           below_threshold_cycles_required: integerValue("config-grid-clear-cycles", base.controllers.grid_lockout.below_threshold_cycles_required),
         },
         spotmarket_lockout: {
+          ...base.controllers.spotmarket_lockout,
           negative_quarters_min_consecutive: integerValue("config-spotmarket-consecutive", base.controllers.spotmarket_lockout.negative_quarters_min_consecutive),
-          min_valid_quarters: integerValue("config-spotmarket-min-valid", base.controllers.spotmarket_lockout.min_valid_quarters),
-          invalid_price_sentinel: optionalNumericValue("config-invalid-price-sentinel"),
         },
       },
-      safety: {
-        fail_safe_output: checkboxValue("config-fail-safe-output"),
-        comm_error_safe_mode_threshold: integerValue("config-safe-mode-threshold", base.safety.comm_error_safe_mode_threshold),
-      },
+      // Preserve legacy values for rollback; they are not active runtime controls.
+      safety: { ...base.safety },
       ddc_heartbeat: {
         enabled: checkboxValue("config-heartbeat-enabled"),
         object_type: "av",
@@ -3455,6 +3472,7 @@ async function loadWritePoints() {
       loaded: true,
       points: Array.isArray(payload.points) ? payload.points : [],
       testsAvailable: payload.write_tests_available === true,
+      releaseBlocked: payload.release_blocked === true,
       mode: String(payload.mode || "simulation"),
       testSeconds: Number(payload.write_test_seconds) || 10,
     };
@@ -3490,7 +3508,9 @@ function renderWriteCommissioning() {
   guard.className = `write-guard-message ${testReady ? "ok" : "warn"}`;
   guard.innerHTML = testReady
     ? `<strong>Schreibtests sind freigegeben.</strong><span>Jeder Test verwendet die angezeigte BACnet-Priorität. Nach ${setupState.write.testSeconds || 10} Sekunden wird die Rückgabe versucht; erst ihre Bestätigung schließt den Test ab.</span>`
-    : "<strong>Freigeben ist möglich, Schreiben bleibt aus.</strong><span>Der API-Schreibschutz ist aktiv. Für einen echten Test muss ein Admin ihn in den Betriebseinstellungen bewusst aufheben und Mini EMS neu starten.</span>";
+    : setupState.write.releaseBlocked
+      ? "<strong>Beobachtungsmodus aktiv.</strong><span>Schreibtests und Rückgaben sind gesperrt. Offene Rückgaben bleiben erhalten und müssen vor Ort geklärt werden.</span>"
+      : "<strong>Freigeben ist möglich, Schreiben bleibt aus.</strong><span>Der API-Schreibschutz ist aktiv. Für einen echten Test muss ein Admin ihn in den Betriebseinstellungen bewusst aufheben und Mini EMS neu starten.</span>";
 
   if (!setupState.write.points.length) {
     list.innerHTML = '<div class="empty-state compact">Noch keine BACnet-Schreibpunkte freigegeben.</div>';
@@ -3540,7 +3560,8 @@ function writePointHtml(point, testReady) {
       </div>
       <div class="write-point-actions">
         ${controls}
-        ${active && (lease.status !== "failed" || lease.target) ? `<button class="link-button danger" type="button" data-write-release data-lease-id="${escapeHtml(lease.id)}">Jetzt zurückgeben</button>` : ""}
+        ${active && setupState.write.releaseBlocked ? '<span class="write-state warning">Offene Rückgabe: im Beobachtungsmodus gesperrt. Vor Ort klären.</span>' : ""}
+        ${active && !setupState.write.releaseBlocked && (lease.status !== "failed" || lease.target) ? `<button class="link-button danger" type="button" data-write-release data-lease-id="${escapeHtml(lease.id)}">Jetzt zurückgeben</button>` : ""}
         ${enabled ? '<button class="link-button danger" type="button" data-write-revoke>Freigabe aufheben</button>' : ""}
       </div>
     </article>
@@ -4488,7 +4509,7 @@ function selectedAttribute(value) {
 
 function selectedChannelMeta() {
   const byId = new Map(appState.availableChannels.map((channel) => [channel.id, channel]));
-  return [...appState.selectedChannels].map((id) => byId.get(id) || { id, label: "Datenpunkt", unit: "", group: "EMS" });
+  return [...appState.selectedChannels].map((id) => byId.get(id)).filter(Boolean);
 }
 
 function renderReportChannelList() {
@@ -5001,9 +5022,25 @@ function renderRecentCycles(rows) {
   `).join("");
 }
 
+async function refreshWeather() {
+  if (appState.weatherLoading) return;
+  appState.weatherLoading = true;
+  try {
+    const weather = await fetchOptionalJson("/api/weather", { status: "unavailable" });
+    renderWeather(weather);
+    if (appState.statusPayload) renderKpis(appState.statusPayload);
+  } finally {
+    appState.weatherLoading = false;
+  }
+}
+
 function renderWeather(payload) {
   appState.weather = payload;
   const target = document.getElementById("weather-panel");
+  if (payload?.status === "not_configured") {
+    target.innerHTML = '<div class="empty-state">Für diesen Standort ist keine Wetterabfrage eingerichtet.</div>';
+    return;
+  }
   if (!payload || payload.status !== "ok") {
     target.innerHTML = '<div class="empty-state">Wetterdaten sind derzeit nicht verfügbar. Sie werden beim nächsten Abruf erneut geladen.</div>';
     return;
@@ -5065,6 +5102,9 @@ function normalizeHistoryRows(rows) {
 }
 
 function historyValue(row) {
+  if (row.quality && row.quality !== "good") {
+    return Number.NaN;
+  }
   return toNumber(row.average_value ?? row.last_value ?? row.value ?? row.desired_value);
 }
 
@@ -5135,6 +5175,32 @@ function buildMainMessage(payload) {
       level: "warn",
       headline: "Keine aktuellen Daten vom System.",
       detail: "Das System hat sich seit einiger Zeit nicht gemeldet. Die angezeigten Werte können veraltet sein. Bitte den Betrieb der Steuerung prüfen.",
+    };
+  }
+  if (health.storage_status === "error") {
+    return {
+      level: "alert",
+      headline: "Speicherung gestört.",
+      detail: "Aktuelle Messwerte und Betriebsdaten werden nicht vollständig gespeichert. Bitte den Service verständigen.",
+    };
+  }
+  if (health.supervision_status === "unavailable") {
+    return {
+      level: "warn",
+      headline: "Betriebsüberwachung gestört.",
+      detail: "Der automatische Wiederanlauf ist nicht bestätigt. Bitte den Service verständigen.",
+    };
+  }
+  if (health.operation_mode === "monitoring") {
+    const pending = Number(health.pending_release_count) > 0;
+    const bad = health.acquisition_status === "degraded";
+    return {
+      level: pending ? "alert" : bad ? "warn" : "ok",
+      headline: pending ? "Beobachtungsmodus: Rückgaben offen." : bad ? "Beobachtung aktiv, einzelne Messwerte fehlen." : "Beobachtungsmodus aktiv.",
+      detail: pending
+        ? "Es bestehen offene Rückgaben aus früheren Schreibtests. Diese bleiben gespeichert; bitte vor Ort klären."
+        : "Messwerte werden erfasst. Schreibzugriffe und automatische Rückgaben sind gesperrt."
+          + (health.price_source_status?.current_price_available === false ? " Aktuelle Strompreise fehlen; die Erfassung läuft weiter." : ""),
     };
   }
   if (status === "safe_mode" || health.safe_mode_reason) {
@@ -5264,7 +5330,7 @@ function buildStartHints(payload) {
   }
 
   // Preise für morgen.
-  if (health.tomorrow_prices_available === false) {
+  if (health.operation_mode !== "monitoring" && health.tomorrow_prices_available === false) {
     hints.push({ level: "neutral", text: "Die Strompreise für morgen werden noch erwartet." });
   }
 
@@ -5282,8 +5348,8 @@ function pickWindow(window) {
 }
 
 function collectQualityChannels(health, quality) {
-  const inputs = health && typeof health.additional_inputs === "object" && health.additional_inputs !== null
-    ? health.additional_inputs
+  const inputs = health && typeof (health.measurements || health.additional_inputs) === "object" && (health.measurements || health.additional_inputs) !== null
+    ? (health.measurements || health.additional_inputs)
     : {};
   return Object.entries(inputs)
     .filter(([, entry]) => entry && typeof entry === "object" && typeof entry.quality === "string" && entry.quality.toLowerCase() === quality)
@@ -5306,10 +5372,9 @@ function describeQualityChannels(entries) {
 }
 
 function updateOperatorMessageForPage(page, payload = appState.statusPayload || {}) {
-  const message = page === "dashboard"
-    ? buildMainMessage(payload).headline
-    : PAGE_SUBTITLES[page] || "Mini EMS Leitstand";
+  const message = PAGE_SUBTITLES[page] || "Mini EMS Leitstand";
   setText("operator-message", message);
+  document.getElementById("operator-message").hidden = page === "dashboard";
 }
 
 function protocolValue(value) {
@@ -5357,6 +5422,12 @@ function formatPointSummary(channel) {
 }
 
 function buildPriceWindowSummary(health, plan) {
+  if (health.operation_mode === "monitoring") {
+    return "Im Beobachtungsmodus werden keine Preisfenster zur Steuerung angewendet.";
+  }
+  if (health.price_control_status === "blocked") {
+    return "Aktuelle Preisdaten fehlen. Die Preissteuerung pausiert; Messwerte werden weiter erfasst.";
+  }
   const todayWindows = plan.today?.windows || [];
   const tomorrowWindows = plan.tomorrow?.windows || [];
   const active = health.spotmarket_active_now ? "Die Preissteuerung ist aktuell aktiv." : "Die Anlage läuft aktuell ohne aktive Preissteuerung.";
@@ -5413,7 +5484,7 @@ function windowLabel(window) {
 }
 
 function channelQuality(channelId) {
-  const inputs = appState.statusPayload?.health?.additional_inputs;
+  const inputs = appState.statusPayload?.health?.measurements || appState.statusPayload?.health?.additional_inputs;
   if (!inputs || typeof inputs !== "object") {
     return null;
   }
@@ -5473,6 +5544,12 @@ function friendlyState(value) {
   }
   if (key === "ok" || key === "healthy") {
     return "in Ordnung";
+  }
+  if (key === "degraded" || key === "warning") {
+    return "eingeschränkt";
+  }
+  if (key === "error" || key === "bad") {
+    return "gestört";
   }
   if (key === "active" || key === "on") {
     return "aktiv";

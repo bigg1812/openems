@@ -1,6 +1,9 @@
 import logging
+import os
+import uuid
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from zoneinfo import ZoneInfo
 
 from .channels import (
     CURRENT_PRICE_CHANNEL,
@@ -13,12 +16,13 @@ from .channels import (
 from .config import MiniEmsConfig, OutputPolicyConfig
 from .controllers import ControllerOutcome, GridLockoutController
 from .logging_utils import log_event, utcnow_iso
+from .measurement_quality import age_diagnostic
 from .operator_status import build_operator_message
 from .price_cache import CachedDay, PublishedPriceSnapshot, SpotmarketPriceCacheService
 from .price_time import slot_start
 from .price_provider_smard import PriceProviderError
 from .protocol import ProtocolAdapter
-from .read_diagnostics import ChannelReadDiagnostic, ChannelReadDiagnosticsService
+from .read_diagnostics import ChannelReadDiagnosticsService
 from .runtime_db import RuntimeDatabase
 from .spotmarket_plan import SpotmarketManualOverrideStore, SpotmarketPlanWriter
 from .state_store import StateStore, write_json_atomic
@@ -37,6 +41,7 @@ class CycleRunner:
         spotmarket_override_store: SpotmarketManualOverrideStore,
         read_diagnostics: ChannelReadDiagnosticsService,
         runtime_db: RuntimeDatabase,
+        pending_releases: Optional[Callable[[], int]] = None,
     ):
         self.config = config
         self.registry = registry
@@ -48,6 +53,13 @@ class CycleRunner:
         self.spotmarket_override_store = spotmarket_override_store
         self.read_diagnostics = read_diagnostics
         self.runtime_db = runtime_db
+        self.pending_releases = pending_releases or (lambda: 0)
+        self._price_error = None
+        # Only scheduled acquisition populates this cache. Manual diagnostics
+        # may use different plausibility limits and must not replace these values.
+        self._input_cache: Dict[str, dict] = {}
+        self.run_id = os.environ.get("MINI_EMS_RUN_ID")
+        self._cycle_prefix = self.run_id or uuid.uuid4().hex
         self.grid_controller = GridLockoutController(config.controllers.grid_lockout)
         self.state = state_store.load()
         if not self.state.health.safe_mode_active:
@@ -57,6 +69,7 @@ class CycleRunner:
     def run_cycle(self) -> Dict[str, object]:
         cycle_id = self._next_cycle_id()
         timestamp = utcnow_iso()
+        self._price_error = None
         self.state.health.last_cycle_id = cycle_id
         self.state.health.last_cycle_at = timestamp
 
@@ -76,6 +89,8 @@ class CycleRunner:
             cycle_id=cycle_id,
             timestamp=timestamp,
         )
+
+        input_reads = self._collect_inputs(force_confirmation=force_confirmation)
 
         if heartbeat_errors:
             self.state.health.consecutive_comm_errors += 1
@@ -100,8 +115,12 @@ class CycleRunner:
 
         try:
             price_snapshot = self.price_service.refresh()
-            manual_override = self.spotmarket_override_store.load_for_date(price_snapshot.today_date_iso)
+            manual_override = (self.spotmarket_override_store.load_for_date(price_snapshot.today_date_iso)
+                               if self.config.runtime.operation_mode != "monitoring" else None)
         except PriceProviderError as error:
+            self._price_error = str(error)
+            if self.config.runtime.operation_mode == "monitoring":
+                return self._finish_monitoring(cycle_id, timestamp, input_reads, None)
             self.state.health.consecutive_comm_errors += 1
             snapshot = self._handle_safe_mode(
                 cycle_id=cycle_id,
@@ -122,25 +141,19 @@ class CycleRunner:
             self._persist(snapshot, input_reads=input_reads, price_snapshot=None, spotmarket_plan=None)
             return snapshot
 
+        if self.config.runtime.operation_mode == "monitoring":
+            return self._finish_monitoring(cycle_id, timestamp, input_reads, price_snapshot)
+
         if self.config.controllers.grid_lockout.enabled:
-            grid_point = self.registry.get(GRID_ACTIVE_POWER_CHANNEL)
-            grid_read = self.read_diagnostics.read_float_channel(
-                GRID_ACTIVE_POWER_CHANNEL,
-                samples=1,
-                delay_seconds=self.config.timing.inter_read_delay_seconds,
-                plausible_min=grid_point.plausible_min,
-                plausible_max=grid_point.plausible_max,
-                max_age_seconds=grid_point.max_age_seconds,
-            )
-            input_reads[GRID_ACTIVE_POWER_CHANNEL] = grid_read.to_dict()
+            grid_read = input_reads[GRID_ACTIVE_POWER_CHANNEL]
             # Conservative policy: a stale grid read demotes status to "warning"
             # (see read_diagnostics) and is treated exactly like a read error -> safe_mode.
-            if grid_read.status != "ok" or grid_read.value is None:
+            if grid_read["status"] != "ok" or grid_read["value"] is None:
                 self.state.health.consecutive_comm_errors += 1
                 snapshot = self._handle_safe_mode(
                     cycle_id=cycle_id,
                     timestamp=timestamp,
-                    reason="grid_read: {0}".format(grid_read.error or "grid active power unavailable"),
+                    reason="grid_read: {0}".format(grid_read.get("error") or "grid active power unavailable"),
                     price_snapshot=price_snapshot,
                     input_reads=input_reads,
                     controller_outcomes=controller_outcomes,
@@ -156,7 +169,7 @@ class CycleRunner:
                 self._persist(snapshot, input_reads=input_reads, price_snapshot=price_snapshot, spotmarket_plan=None)
                 return snapshot
 
-            grid_outcome = self.grid_controller.evaluate(grid_read.value, self.state.grid_lockout)
+            grid_outcome = self.grid_controller.evaluate(grid_read["value"], self.state.grid_lockout)
             controller_outcomes["grid_lockout"] = grid_outcome.to_dict()
             if not grid_outcome.valid or grid_outcome.safe_mode_required:
                 self.state.health.consecutive_comm_errors += 1
@@ -189,36 +202,6 @@ class CycleRunner:
                 safe_mode_required=False,
             )
             controller_outcomes["grid_lockout"] = grid_outcome.to_dict()
-
-        for channel_id in self.registry.additional_input_channel_ids():
-            point = self.registry.get(channel_id)
-            if not self._should_read_additional_input(point, force_confirmation=force_confirmation):
-                continue
-            diagnostic = self.read_diagnostics.read_float_channel(
-                channel_id,
-                samples=1,
-                delay_seconds=self.config.timing.inter_read_delay_seconds,
-                plausible_min=point.plausible_min,
-                plausible_max=point.plausible_max,
-                max_age_seconds=point.max_age_seconds,
-            )
-            input_reads[channel_id] = diagnostic.to_dict()
-            # Conservative policy: a stale additional input is surfaced as a warning
-            # (and as quality=stale in the input_reads/health payload) but is NOT
-            # escalated to full safe_mode, mirroring existing additional-input handling.
-            if diagnostic.status != "ok":
-                log_event(
-                    self.logger,
-                    logging.WARNING,
-                    "cycle.input_warning",
-                    cycle_id=cycle_id,
-                    channel_id=channel_id,
-                    status=diagnostic.status,
-                    quality=diagnostic.quality,
-                    age_seconds=diagnostic.age_seconds,
-                    max_age_seconds=diagnostic.max_age_seconds,
-                    error=diagnostic.error,
-                )
 
         spotmarket_plan = self.spotmarket_plan_writer.write_plan(
             generated_at=price_snapshot.last_update_at,
@@ -369,13 +352,63 @@ class CycleRunner:
         self._persist(snapshot, input_reads=input_reads, price_snapshot=price_snapshot, spotmarket_plan=spotmarket_plan)
         return snapshot
 
+    def _collect_inputs(self, *, force_confirmation: bool) -> Dict[str, dict]:
+        channel_ids = list(self.registry.additional_input_channel_ids())
+        if self.config.controllers.grid_lockout.enabled or self.config.runtime.operation_mode == "monitoring":
+            channel_ids.insert(0, GRID_ACTIVE_POWER_CHANNEL)
+        inputs = {}
+        for channel_id in dict.fromkeys(channel_ids):
+            point = self.registry.get(channel_id)
+            cached = None
+            if channel_id != GRID_ACTIVE_POWER_CHANNEL and not self._should_read_additional_input(
+                point, force_confirmation=force_confirmation,
+            ):
+                cached = self._input_cache.get(channel_id)
+            if cached is not None:
+                inputs[channel_id] = {**age_diagnostic(cached, self.read_diagnostics.now()), "read_attempted": False}
+                continue
+            diagnostic = self.read_diagnostics.read_float_channel(
+                channel_id, samples=1, delay_seconds=self.config.timing.inter_read_delay_seconds,
+                plausible_min=point.plausible_min, plausible_max=point.plausible_max,
+                max_age_seconds=point.max_age_seconds,
+            )
+            inputs[channel_id] = diagnostic.to_dict()
+            inputs[channel_id]["protocol"] = point.protocol
+            self._input_cache[channel_id] = inputs[channel_id]
+        return inputs
+
+    def _finish_monitoring(self, cycle_id, timestamp, input_reads, price_snapshot):
+        reasons = []
+        if not input_reads or any(item.get("quality") != "good" for item in input_reads.values()):
+            reasons.append("measurement_quality")
+        if self.pending_releases():
+            reasons.append("pending_releases")
+        self.state.health.safe_mode_active = False
+        self.state.health.safe_mode_reason = None
+        self.state.health.safe_outputs_confirmed = False
+        self.state.health.consecutive_comm_errors = 0
+        self.state.health.last_successful_cycle_id = cycle_id
+        self.state.health.last_successful_at = timestamp
+        if not reasons:
+            self.state.health.last_healthy_cycle_id = cycle_id
+            self.state.health.last_healthy_at = timestamp
+        snapshot = self._build_snapshot(
+            timestamp=timestamp, cycle_id=cycle_id, status="degraded" if reasons else "healthy",
+            degraded_reason="; ".join(reasons) or None, price_snapshot=price_snapshot,
+            input_reads=input_reads, controller_outcomes={}, desired_outputs={}, write_results={},
+            spotmarket_plan=None, spotmarket_active_now=None, spotmarket_source=None,
+            spotmarket_next_window=None, spotmarket_override=None,
+        )
+        self._persist(snapshot, input_reads=input_reads, price_snapshot=price_snapshot, spotmarket_plan=None)
+        return snapshot
+
     def _apply_edge_heartbeat(
         self,
         *,
         cycle_id: str,
         timestamp: str,
     ) -> Tuple[Dict[str, object], Dict[str, object], List[str]]:
-        if not self.config.ddc_heartbeat.enabled:
+        if self.config.runtime.operation_mode == "monitoring" or not self.config.ddc_heartbeat.enabled:
             return {}, {}, []
 
         channel_id = EDGE_HEARTBEAT_CHANNEL
@@ -663,15 +696,15 @@ class CycleRunner:
         spotmarket_override: Dict[str, object] | None,
         safe_mode_reason: Optional[str] = None,
     ) -> Dict[str, object]:
-        current_price = price_snapshot.current_price_ct_kwh if price_snapshot is not None else 0.0
+        current_price = price_snapshot.current_price_ct_kwh if price_snapshot is not None else None
         current_slot_label = price_snapshot.current_slot_label if price_snapshot is not None else "--:--"
         current_slot_index = price_snapshot.current_slot_index if price_snapshot is not None else None
-        today_date = price_snapshot.today_date_iso if price_snapshot is not None else "unknown"
+        today_date = price_snapshot.today_date_iso if price_snapshot is not None else datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone(ZoneInfo("Europe/Berlin")).date().isoformat()
         tomorrow_date = price_snapshot.tomorrow_date_iso if price_snapshot is not None else None
         tomorrow_prices_available = price_snapshot.tomorrow_prices_available if price_snapshot is not None else False
         today_available_slot_count = price_snapshot.today_available_slot_count if price_snapshot is not None else 0
         tomorrow_available_slot_count = price_snapshot.tomorrow_available_slot_count if price_snapshot is not None else 0
-        price_source_status = price_snapshot.price_source_status if price_snapshot is not None else {}
+        price_source_status = {**price_snapshot.price_source_status, "current_price_available": True} if price_snapshot is not None else {"current_price_available": False, "error": self._price_error}
         grid_read = input_reads.get(GRID_ACTIVE_POWER_CHANNEL, {})
         watchdog = self._watchdog_snapshot()
 
@@ -685,7 +718,11 @@ class CycleRunner:
             "consecutive_comm_errors": self.state.health.consecutive_comm_errors,
             "desired_outputs": desired_outputs,
             "write_results": write_results,
-            "outputs": self._outputs_snapshot(),
+            "outputs": {} if self.config.runtime.operation_mode == "monitoring" else self._outputs_snapshot(),
+            "operation_mode": self.config.runtime.operation_mode,
+            "pending_release_count": self.pending_releases(),
+            "acquisition_status": "healthy" if input_reads and all(item.get("quality") == "good" for item in input_reads.values()) else "degraded",
+            "price_control_status": "disabled" if self.config.runtime.operation_mode == "monitoring" else "blocked" if price_snapshot is None else "available",
             "input_reads": input_reads,
             "controller_outcomes": controller_outcomes,
             "grid_active_power_kw": grid_read.get("value"),
@@ -718,6 +755,8 @@ class CycleRunner:
                 status == "safe_mode",
                 safe_mode_reason,
                 degraded_reason=degraded_reason,
+                monitoring=self.config.runtime.operation_mode == "monitoring",
+                pending_release_count=self.pending_releases(),
             ),
         }
 
@@ -735,8 +774,12 @@ class CycleRunner:
         price_snapshot: PublishedPriceSnapshot | None,
         spotmarket_plan: Dict[str, object] | None,
     ) -> None:
-        self.state_store.save(self.state)
-        write_json_atomic(self.config.health_path, self._build_health_payload(snapshot))
+        snapshot["storage_status"] = "ok"
+        snapshot["storage_errors"] = {}
+        try:
+            self.state_store.save(self.state)
+        except OSError as error:
+            self._record_storage_error(snapshot, "state", error)
         try:
             self.runtime_db.record_cycle_bundle(
                 snapshot=snapshot,
@@ -754,13 +797,23 @@ class CycleRunner:
                 spotmarket_plan=spotmarket_plan,
             )
         except Exception as error:
-            log_event(
-                self.logger,
-                logging.ERROR,
-                "runtime_db.write_failed",
-                cycle_id=snapshot.get("cycle_id"),
-                error=str(error),
-            )
+            self._record_storage_error(snapshot, "history", error)
+        # Publish only after persistence was attempted. A live cycle must not
+        # claim successful storage merely because its measurements were valid.
+        write_json_atomic(self.config.health_path, self._build_health_payload(snapshot))
+
+    def _record_storage_error(self, snapshot: dict, destination: str, error: Exception) -> None:
+        snapshot["storage_status"] = "error"
+        snapshot["storage_errors"][destination] = str(error)
+        if snapshot["status"] == "healthy":
+            snapshot["status"] = "degraded"
+        snapshot["operator_message"] = (
+            "Speicherung gestört. Aktuelle Messwerte und Betriebsdaten werden nicht vollständig gespeichert. "
+            "Bitte den Service verständigen."
+        )
+        log_event(self.logger, logging.ERROR,
+                  "runtime_db.write_failed" if destination == "history" else "state_store.write_failed",
+                  cycle_id=snapshot.get("cycle_id"), error=str(error))
 
     def _build_health_payload(self, snapshot: Dict[str, object]) -> Dict[str, object]:
         desired_outputs = snapshot.get("desired_outputs")
@@ -827,7 +880,18 @@ class CycleRunner:
                 ),
             },
         }
-        if self.config.ddc_heartbeat.enabled:
+        payload["run_id"] = self.run_id
+        for key in ("operation_mode", "pending_release_count", "acquisition_status", "price_control_status", "price_source_status", "storage_status", "storage_errors"):
+            payload[key] = snapshot.get(key)
+        payload["measurements"] = {
+            channel: {key: item.get(key) for key in (
+                "value", "quality", "status", "error", "age_seconds", "max_age_seconds",
+                "received_at", "last_successful_read_at", "source_timestamp", "source_age_seconds", "source_freshness",
+            )} for channel, item in input_reads.items()
+        }
+        if self.config.runtime.operation_mode == "monitoring":
+            payload["write_status"] = {}
+        elif self.config.ddc_heartbeat.enabled:
             payload["write_status"]["edge_heartbeat"] = self._build_health_channel_status(
                 channel_id=EDGE_HEARTBEAT_CHANNEL,
                 desired_value=desired_outputs.get(EDGE_HEARTBEAT_CHANNEL),
@@ -867,11 +931,12 @@ class CycleRunner:
         additional_inputs: Dict[str, object] = {}
         for channel_id in self.registry.additional_input_channel_ids():
             point = self.registry.get(channel_id)
-            if not point.include_in_health:
+            if not point.include_in_health and self.config.runtime.operation_mode != "monitoring":
                 continue
             diagnostic = input_reads.get(channel_id)
             diagnostic = diagnostic if isinstance(diagnostic, dict) else {}
             additional_inputs[channel_id] = {
+                **diagnostic,
                 "value": diagnostic.get("value"),
                 "status": diagnostic.get("status"),
                 "error": diagnostic.get("error"),
@@ -935,10 +1000,7 @@ class CycleRunner:
                 "stale_runtime": False,
             }
 
-        stale_runtime = (
-            (last_cycle_age_seconds is not None and last_cycle_age_seconds > max_cycle_age_seconds)
-            or (last_healthy_age_seconds is not None and last_healthy_age_seconds > max_cycle_age_seconds)
-        )
+        stale_runtime = last_cycle_age_seconds is None or last_cycle_age_seconds > max_cycle_age_seconds
         return {
             "last_cycle_age_seconds": last_cycle_age_seconds,
             "last_healthy_age_seconds": last_healthy_age_seconds,
@@ -948,7 +1010,8 @@ class CycleRunner:
 
     def _next_cycle_id(self) -> str:
         self.state.health.cycle_counter += 1
-        return "cycle-{0:06d}".format(self.state.health.cycle_counter)
+        # A missing/unwritable state file must never reuse an earlier history key.
+        return "cycle-{0}-{1:06d}".format(self._cycle_prefix, self.state.health.cycle_counter)
 
 
 def _price_handoff_key(price_snapshot: PublishedPriceSnapshot) -> str:

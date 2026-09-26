@@ -3,6 +3,7 @@ import logging
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from mini_ems_poc.mini_ems_runtime.config import validate_raw_config
 from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
@@ -131,6 +132,47 @@ class ConfigApiTest(unittest.TestCase):
             read_diagnostics=None,
             site_store=self.site_store,
         )
+
+    def test_weather_without_coordinates_makes_no_external_request(self):
+        server = self._build_server(make_raw_config())
+        with patch("mini_ems_poc.mini_ems_runtime.http_api.urlopen") as fetch:
+            self.assertEqual(server._get_weather_payload()["status"], "not_configured")
+            fetch.assert_not_called()
+        self.assertFalse((self.base_dir / "data/weather").exists())
+
+    def test_weather_uses_site_cache_and_never_reuses_another_location(self):
+        raw = make_raw_config()
+        raw["site"] = {"name": "Test A", "latitude": 48.0, "longitude": 9.0}
+        server = self._build_server(raw)
+        server.dashboard_dir = self.base_dir / "read-only-package/dashboard"
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'{"current":{"temperature_2m":12}}'
+        with patch("mini_ems_poc.mini_ems_runtime.http_api.urlopen", return_value=response) as fetch:
+            first = server._get_weather_payload()
+            self.assertEqual(first["site"], "Test A")
+            self.assertEqual(server._get_weather_payload(), first)
+            self.assertEqual(fetch.call_count, 1)
+            raw["site"] = {"name": "Test B", "latitude": 52.0, "longitude": 13.0}
+            self.site_store.save_revision(raw, action="test.location", actor="test")
+            self.assertEqual(server._get_weather_payload()["site"], "Test B")
+            self.assertEqual(fetch.call_count, 2)
+            self.assertIn("latitude=52.0&longitude=13.0", fetch.call_args.args[0].full_url)
+        self.assertTrue((self.base_dir / "data/weather/open_meteo_weather_cache.json").exists())
+        self.assertFalse(server.dashboard_dir.parent.exists())
+
+    def test_weather_coordinates_require_a_complete_finite_pair(self):
+        for latitude, longitude in ((48, None), (91, 9), (48, 181), (float("nan"), 9), (True, 9)):
+            raw = make_raw_config()
+            raw["site"] = {"latitude": latitude, "longitude": longitude}
+            with self.assertRaisesRegex(ValueError, "Wetterstandort"):
+                validate_raw_config(raw, base_dir=self.base_dir)
+
+    def test_watchdog_cannot_expire_during_the_normal_cycle_pause(self):
+        for maximum in (0, 30, float("nan"), float("inf")):
+            raw = make_raw_config()
+            raw["watchdog"] = {"max_cycle_age_seconds": maximum}
+            with self.assertRaisesRegex(ValueError, "greater than cycle_seconds"):
+                validate_raw_config(raw, base_dir=self.base_dir)
 
     def test_validate_accepts_safe_patch_without_saving(self) -> None:
         server = self._build_server(make_raw_config())

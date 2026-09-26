@@ -20,6 +20,11 @@ if [ -z "${SEMVER}" ]; then
   exit 2
 fi
 
+if [[ ! "${SEMVER}" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]+$ ]]; then
+  echo "[build] FEHLER: Ungültige Version. Erwartet wird JJJJ.MM.n." >&2
+  exit 2
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SPEC="${SCRIPT_DIR}/mini_ems.spec"
@@ -70,6 +75,11 @@ echo "[build] wrote VERSION (${SEMVER}, ${GIT_COMMIT}${GIT_DIRTY})"
 # --- Release launcher + notes: package vs. site data ------------------------
 cp "${PROJECT_DIR}/run_mini_ems_release.cmd" "${RELEASE_DIR}/run_mini_ems_release.cmd"
 cp "${SCRIPT_DIR}/RELEASE_HINWEISE.md" "${RELEASE_DIR}/RELEASE_HINWEISE.md"
+mkdir -p "${RELEASE_DIR}/windows"
+for script in install_task.ps1 update_release.ps1 smoketest_release.ps1; do
+  cp "${PROJECT_DIR}/windows/${script}" "${RELEASE_DIR}/windows/${script}"
+done
+"${PYTHON}" -m pip freeze > "${RELEASE_DIR}/BUILD_REQUIREMENTS.txt"
 
 # --- CHANGELOG snapshot into the package (repo CHANGELOG is NOT rewritten) ---
 # The [Unreleased] heading becomes the versioned snapshot heading in the copy

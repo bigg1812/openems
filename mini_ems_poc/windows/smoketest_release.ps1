@@ -34,6 +34,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $HealthPath = Join-Path $SiteDir "runtime\health.json"
+$SupervisorPath = Join-Path $SiteDir "runtime\supervisor.json"
 $LogPath    = Join-Path $SiteDir "logs\mini_ems.log"
 $SinceUtc   = $SinceTime.ToUniversalTime()
 
@@ -71,15 +72,36 @@ while ((Get-Date) -lt $deadline) {
             $lastCycleUtc = Convert-IsoToUtc $lastCycleValue
             $runtimeStatus = [string]$health.runtime_status
             $status = [string]$health.status
+            $maxAge = 300
+            if ($health.max_cycle_age_seconds -gt 0) { $maxAge = [double]$health.max_cycle_age_seconds }
             if (-not $lastCycleUtc) {
                 $lastReason = "timestamp/last_cycle_at fehlt oder ist unlesbar"
             } elseif ($lastCycleUtc -le $SinceUtc) {
                 $lastReason = "Zykluszeitpunkt ($lastCycleValue) ist nicht neuer als der Startzeitpunkt"
+            } elseif ($lastCycleUtc -gt [datetime]::UtcNow -or ([datetime]::UtcNow - $lastCycleUtc).TotalSeconds -gt $maxAge) {
+                $lastReason = "Zykluszeitpunkt liegt in der Zukunft oder ist veraltet"
             } elseif ($runtimeStatus -ne "live") {
                 $lastReason = "runtime_status ist '$runtimeStatus' (erwartet 'live')"
             } elseif ($status -ne "healthy") {
                 $lastReason = "status ist '$status' (erwartet 'healthy')"
+            } elseif ($health.storage_status -and $health.storage_status -ne "ok") {
+                $lastReason = "Speicherung ist gestoert"
             } else {
+                if ($health.run_id) {
+                    try {
+                        $supervisor = Get-Content $SupervisorPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                        $observed = Convert-IsoToUtc $supervisor.timestamp
+                        if ($supervisor.status -ne "running" -or $supervisor.run_id -ne $health.run_id -or
+                            -not $observed -or $observed -lt $SinceUtc -or $observed -gt [datetime]::UtcNow -or
+                            ([datetime]::UtcNow - $observed).TotalSeconds -gt $maxAge -or $supervisor.reason) {
+                            throw "Prozesswaechter meldet keinen frischen, fehlerfreien Lauf"
+                        }
+                    } catch {
+                        $lastReason = "Supervisor nicht bestaetigt: $($_.Exception.Message)"
+                        Start-Sleep -Seconds 1
+                        continue
+                    }
+                }
                 $healthOk = $true
                 break
             }
@@ -108,6 +130,9 @@ try {
 }
 
 if ($statusResponse) {
+    if ($statusResponse.status -ne "healthy") {
+        $errors.Add("Health-API meldet '$($statusResponse.status)' statt 'healthy'")
+    }
     $actualVersion = [string]$statusResponse.app_version.version
     if ($actualVersion -eq $ExpectedVersion) {
         Write-Host "[smoketest] OK: app_version = $actualVersion (wie erwartet)."
@@ -129,7 +154,11 @@ if ($statusResponse) {
 if (Test-Path $LogPath) {
     $newErrors = 0
     $sampleError = ""
-    foreach ($line in Get-Content -Path $LogPath -Encoding UTF8) {
+    $logFiles = @(Get-ChildItem -Path ($LogPath + "*") -File)
+    if ($health.run_id) {
+        $logFiles += @(Get-ChildItem -Path (Join-Path $SiteDir "logs\supervisor.log*") -File)
+    }
+    foreach ($line in Get-Content -Path $logFiles.FullName -Encoding UTF8) {
         if ($line -notmatch '"level":\s*"ERROR"') { continue }
         try {
             $entry = $line | ConvertFrom-Json
@@ -148,7 +177,7 @@ if (Test-Path $LogPath) {
         $errors.Add("$newErrors neue ERROR-Zeile(n) im Log seit dem Startzeitpunkt (z. B. '$sampleError')")
     }
 } else {
-    Write-Warning "[smoketest] Logdatei $LogPath nicht gefunden - ERROR-Pruefung uebersprungen."
+    $errors.Add("Logdatei $LogPath fehlt; Fehlerfreiheit ist nicht nachgewiesen")
 }
 
 # --- Ergebnis ---------------------------------------------------------------

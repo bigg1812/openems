@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -176,6 +177,7 @@ class RuntimeConfig:
     environment: str = "ipc"
     bacnet_mode: str = "real"
     real_writes_enabled: bool = True
+    operation_mode: str = "control"
 
 
 @dataclass(frozen=True)
@@ -326,6 +328,7 @@ def build_default_site_config(admin_token: str) -> Dict[str, Any]:
             "environment": "local",
             "bacnet_mode": "simulated",
             "real_writes_enabled": False,
+            "operation_mode": "control",
         },
         "simulation": {
             "values_file": "sim/sample_values.json",
@@ -422,6 +425,13 @@ def build_default_site_config(admin_token: str) -> Dict[str, Any]:
 def validate_raw_config(raw: Dict[str, Any], *, base_dir: Path) -> MiniEmsConfig:
     if not isinstance(raw, dict):
         raise ValueError("Config root must be a JSON object")
+
+    site = _optional_dict(raw.get("site"))
+    coordinates = (site.get("latitude"), site.get("longitude"))
+    if any(value is not None for value in coordinates):
+        for value, limit in zip(coordinates, (90, 180)):
+            if type(value) not in (int, float) or not math.isfinite(value) or abs(value) > limit:
+                raise ValueError("Wetterstandort braucht gültige Breite (-90 bis 90) und Länge (-180 bis 180).")
 
     network = _require_dict(raw, "network")
     points = _require_dict(raw, "points")
@@ -544,6 +554,7 @@ def validate_raw_config(raw: Dict[str, Any], *, base_dir: Path) -> MiniEmsConfig
             environment=str(runtime.get("environment", "ipc")).lower(),
             bacnet_mode=str(runtime.get("bacnet_mode", "real")).lower(),
             real_writes_enabled=bool(runtime.get("real_writes_enabled", runtime.get("writes_enabled", True))),
+            operation_mode=str(runtime.get("operation_mode", "control")).lower(),
         ),
         simulation=SimulationConfig(
             values_file=str(simulation.get("values_file", "sim/sample_values.json")),
@@ -732,8 +743,13 @@ def _validate_config(config: MiniEmsConfig) -> None:
         raise ValueError("local environment must use simulated BACnet mode")
     if config.runtime.bacnet_mode == "simulated" and config.runtime.real_writes_enabled:
         raise ValueError("simulated BACnet mode requires real_writes_enabled=false")
-    if config.runtime.bacnet_mode == "real" and not config.runtime.real_writes_enabled:
-        raise ValueError("real_writes_enabled=false is only supported with simulated BACnet mode")
+    if config.runtime.operation_mode not in ("control", "monitoring"):
+        raise ValueError("runtime.operation_mode must be 'control' or 'monitoring'")
+    if config.runtime.operation_mode == "monitoring" and config.runtime.real_writes_enabled:
+        raise ValueError("Beobachtungsmodus erfordert real_writes_enabled=false.")
+    if (config.runtime.bacnet_mode == "real" and not config.runtime.real_writes_enabled
+            and config.runtime.operation_mode != "monitoring"):
+        raise ValueError("real_writes_enabled=false requires monitoring mode for real BACnet")
     if config.network.controller_port <= 0 or config.network.controller_port > 65535:
         raise ValueError("controller_port must be between 1 and 65535")
     if config.network.local_port <= 0 or config.network.local_port > 65535:
@@ -790,9 +806,10 @@ def _validate_config(config: MiniEmsConfig) -> None:
             raise ValueError("ddc_heartbeat.fallback_timeout_seconds must be > 0")
     if (
         config.watchdog.max_cycle_age_seconds is not None
-        and config.watchdog.max_cycle_age_seconds <= 0
+        and (not math.isfinite(config.watchdog.max_cycle_age_seconds)
+             or config.watchdog.max_cycle_age_seconds <= config.timing.cycle_seconds)
     ):
-        raise ValueError("watchdog.max_cycle_age_seconds must be > 0")
+        raise ValueError("watchdog.max_cycle_age_seconds must be finite and greater than cycle_seconds")
     allowed_confirmation_modes = {"ack_only", "ack_or_readback"}
     allowed_criticalities = {"critical", "noncritical"}
     for channel_id in (

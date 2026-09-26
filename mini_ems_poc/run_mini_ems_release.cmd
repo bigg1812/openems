@@ -28,15 +28,10 @@ if not exist "%MINI_EMS_EXE%" (
 
 cd /d "%APP_DIR%"
 
-:restart
 echo [%DATE% %TIME%] Starting Mini EMS release runtime with site dir "%SITE_DIR%" >> "%STDOUT_LOG%"
 "%MINI_EMS_EXE%" ^
   --site-dir "%SITE_DIR%" ^
-  --loop >> "%STDOUT_LOG%" 2>&1
+  --supervise >> "%STDOUT_LOG%" 2>&1
 
 set "EXIT_CODE=%ERRORLEVEL%"
-if "%EXIT_CODE%"=="0" exit /b 0
-
-echo [%DATE% %TIME%] Mini EMS release runtime exited with code %EXIT_CODE%; restarting in 5 seconds >> "%STDOUT_LOG%"
-timeout /t 5 /nobreak >nul
-goto restart
+exit /b %EXIT_CODE%

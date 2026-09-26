@@ -1,10 +1,15 @@
 # Mini EMS - Product & UX Roadmap
 
-## Aktuelle Priorität – 13.09.2026
+## Aktuelle Priorität – 22.09.2026
 
 Die nächste Version soll einen Standort zuverlässig einrichten, seinen Zustand korrekt erklären und
 freigegebene Eingriffe einschließlich ihrer Rückgabe lückenlos nachweisen. Technische Aufgaben und
 Feldabnahmen stehen ausschließlich in [ROADMAP.md](ROADMAP.md), einschließlich R1–R12.
+
+Lokal umgesetzt: Standardübersicht mit Zustand und wenigen Kennzahlen, eingeklappte Preis-/Detailansichten,
+keine leeren Hinweiskarten und keine ungenutzten Pilotkanäle in der Analyse. Optionale Wetterdaten laden erst
+bei Bedarf. Wirkungslosen Parametern wurde die Bedienoberfläche entzogen; bestehende Werte bleiben erhalten.
+Browsernachweis und Grenzen: [Validierung 22.09.2026](docs/VALIDIERUNG_2026-09-22.md).
 
 1. **UX24:** Schreibnachweis lokal überarbeitet und getestet; reale IPC-Abnahme bleibt offen.
 2. **UX23:** Fachfremden Bedienversuch nach der technischen Stabilisierung durchführen.
@@ -479,8 +484,9 @@ Leitentscheidungen:
 
 ## Empfohlener nächster Schritt
 
-Technische Stabilisierung nach R1–R4 der `ROADMAP.md`, danach Paketprüfung und gemeinsame
-IPC-Abnahme von Rollen, Zugriffspfad und UX24 (R5/R6/R7). Der reale Test vom 14.07.2026 bleibt
+Lokale Vorbereitung ist geprüft. Als Nächstes Windows-Paket/Task in Simulation abnehmen, dann den
+freigegebenen VPN-Zugriff und wenige Anlagenlesepunkte prüfen (R5/R7/R8c). Aktive Schreibtests nach UX24
+folgen erst mit Betreiberfreigabe und geklärtem Anlagenfallback (R3c/R6). Der reale Test vom 14.07.2026 bleibt
 als Einzelbeobachtung erhalten; er belegt nicht pauschal das heutige Release.
 
 UX23 benötigt anschließend einen fachfremden Bedienversuch. UX17 folgt einem konkreten Gerät und R12.

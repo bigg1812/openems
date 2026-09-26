@@ -1,0 +1,10 @@
+# Python 3.12; runtime uses stdlib plus bundled IANA timezone data.
+PyInstaller==6.21.0
+pyinstaller-hooks-contrib==2026.6
+altgraph==0.17.5
+packaging==26.2
+setuptools==83.0.0
+tzdata==2026.4
+macholib==1.16.4; sys_platform == "darwin"
+pefile==2023.2.7; sys_platform == "win32"
+pywin32-ctypes==0.2.3; sys_platform == "win32"

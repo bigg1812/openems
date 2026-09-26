@@ -12,7 +12,7 @@ from mini_ems_poc.mini_ems_runtime.config import PriceSourceConfig
 from mini_ems_poc.mini_ems_runtime.cycle import _price_handoff_key
 from mini_ems_poc.mini_ems_runtime.price_cache import CachedDay, PriceCacheFile, SpotmarketPriceCacheService
 from mini_ems_poc.mini_ems_runtime.price_provider_smard import PriceProviderError, SmardPriceProvider
-from mini_ems_poc.mini_ems_runtime.runtime_db import RuntimeDatabase
+from mini_ems_poc.mini_ems_runtime.runtime_db import RuntimeDatabase, _bucket_bounds_utc
 from mini_ems_poc.mini_ems_runtime.simulation import SimulatedSpotmarketPriceService
 from mini_ems_poc.mini_ems_runtime.spotmarket_plan import SpotmarketManualOverrideStore, SpotmarketPlanWriter
 
@@ -60,6 +60,20 @@ class PriceIntervalsTest(unittest.TestCase):
         self.assertEqual(price_time.slot_label(day, 8), "02:00 +0200")
         self.assertEqual(price_time.slot_label(day, 12), "02:00 +0100")
         self.assertEqual(len(json.loads(service.path.read_text())["today"]["slots_by_label"]), 100)
+
+    def test_history_buckets_keep_both_autumn_hours_separate_and_days_complete(self):
+        for zone in (price_time.BERLIN, None):
+            with patch.object(price_time, "BERLIN", zone):
+                price_time.day_bounds.cache_clear()
+                first = _bucket_bounds_utc(datetime.fromisoformat("2026-10-25T02:35:00+02:00"), "1h")
+                second = _bucket_bounds_utc(datetime.fromisoformat("2026-10-25T02:35:00+01:00"), "1h")
+                self.assertEqual(first[1], second[0])
+                self.assertEqual((first[1] - first[0]).total_seconds(), 3600)
+                self.assertEqual((second[1] - second[0]).total_seconds(), 3600)
+                for instant, hours in (("2026-03-29T12:00:00+02:00", 23), ("2026-10-25T12:00:00+01:00", 25)):
+                    start, end = _bucket_bounds_utc(datetime.fromisoformat(instant), "1d")
+                    self.assertEqual((end - start).total_seconds(), hours * 3600)
+        price_time.day_bounds.cache_clear()
 
     def test_spring_does_not_invent_nonexistent_hour_and_hour_source_expands_to_quarters(self):
         day = "2026-03-29"

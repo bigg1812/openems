@@ -574,7 +574,8 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertEqual(snapshot["status"], "safe_mode")
         self.assertIn("mehrdeutig", snapshot["safe_mode_reason"])
         self.assertNotIn(CURRENT_PRICE_CHANNEL, snapshot["desired_outputs"])
-        self.assertEqual(fake_socket.sent_packets, [])
+        self.assertEqual(len(fake_socket.sent_packets), 1)  # Collection continues; this is a ReadProperty.
+        self.assertEqual(fake_socket.sent_packets[0][0][9], 0x0C)
 
     def test_write_failure_triggers_safe_mode(self) -> None:
         fake_socket = FakeSocket(
@@ -695,7 +696,7 @@ class CycleRunnerTest(unittest.TestCase):
             snapshot["write_results"][EDGE_HEARTBEAT_CHANNEL]["confirmed_value"],
             1.0,
         )
-        self.assertEqual(len(fake_socket.sent_packets), 1)
+        self.assertEqual(len(fake_socket.sent_packets), 2)  # Heartbeat plus continued measurement attempt.
         health = json.loads(self.config.health_path.read_text(encoding="utf-8"))
         self.assertIn("edge_heartbeat", health["write_status"])
 
@@ -724,7 +725,7 @@ class CycleRunnerTest(unittest.TestCase):
         self.assertEqual(snapshot["status"], "safe_mode")
         self.assertIn("edge_heartbeat", snapshot["safe_mode_reason"])
         self.assertEqual(set(snapshot["desired_outputs"]), {EDGE_HEARTBEAT_CHANNEL})
-        self.assertEqual(len(fake_socket.sent_packets), 1)
+        self.assertEqual(len(fake_socket.sent_packets), 2)  # Heartbeat plus continued measurement attempt.
 
     @patch("mini_ems_poc.mini_ems_runtime.price_cache.berlin_now", new=lambda: datetime.fromisoformat("2026-04-02T10:45:00+02:00"))
     def test_price_cache_falls_back_to_cached_current_slot_when_smard_is_unavailable(self) -> None:

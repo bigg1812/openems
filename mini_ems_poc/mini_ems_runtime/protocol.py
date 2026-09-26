@@ -108,11 +108,12 @@ class ProtocolRoutingAdapter:
     as before).
     """
 
-    def __init__(self, adapters: Dict[str, "ProtocolAdapter"]):
+    def __init__(self, adapters: Dict[str, "ProtocolAdapter"], *, allow_writes: bool = True):
         if not adapters:
             raise ValueError("ProtocolRoutingAdapter requires at least one adapter")
         self._adapters = dict(adapters)
         self._io_lock = threading.RLock()
+        self._allow_writes = allow_writes
 
     def read_float(self, point: PointConfig) -> float:
         with self._io_lock:
@@ -124,6 +125,7 @@ class ProtocolRoutingAdapter:
         desired_value: object,
         confirmation_mode: str,
     ) -> WriteConfirmation:
+        self._require_writes()
         with self._io_lock:
             return self._adapter_for(point).write_with_confirmation(
                 point,
@@ -136,11 +138,16 @@ class ProtocolRoutingAdapter:
         point: PointConfig,
         confirmation_mode: str,
     ) -> WriteConfirmation:
+        self._require_writes()
         with self._io_lock:
             return self._adapter_for(point).relinquish_with_confirmation(
                 point,
                 confirmation_mode,
             )
+
+    def _require_writes(self) -> None:
+        if not self._allow_writes:
+            raise PermissionError("Beobachtungsmodus: Anlagenaktionen einschließlich Rückgaben sind gesperrt.")
 
     def close(self) -> None:
         # Adapters may be registered under several protocol names (e.g. one

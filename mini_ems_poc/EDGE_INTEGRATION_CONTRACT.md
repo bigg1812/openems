@@ -1,6 +1,6 @@
 # Edge Integration Contract
 
-## Aktuelle Korrekturen – 13.09.2026
+## Aktuelle Korrekturen – 22.09.2026
 
 Aufgaben und Abnahmegrenzen stehen in [ROADMAP.md](ROADMAP.md), R1–R4 und R6. Lokal implementiert:
 
@@ -10,10 +10,10 @@ Aufgaben und Abnahmegrenzen stehen in [ROADMAP.md](ROADMAP.md), R1–R4 und R6. 
   ungültige/fehlende Zeitstempel `unknown`; gültiger Snapshot-Schwellwert, sonst 300 Sekunden.
   HTTP 200 bedeutet API erreichbar. Die gespeicherte Datei bleibt historischer Zyklusnachweis.
 - `release_failed` bleibt eine offene Rückgabe und sperrt neue Tests sowie Änderungen der Punktfreigabe.
-  Rückgabeversuche erfolgen auf Admin-Anforderung, beim Neustart oder geordneten Beenden. Fehler bleiben
+  Im Steuerungsmodus erfolgen Rückgabeversuche auf Admin-Anforderung, beim Neustart oder geordneten Beenden. Fehler bleiben
   gespeichert. Das Protokoll-ACK belegt keine physische Safety-Reaktion; die Feldabnahmen R3c/R6 bleiben offen.
-- API-Read-only und echte Anlagenbeobachtung ohne Writes sind unterschiedliche Grenzen. Ein eigenständiger
-  realer Monitoringmodus fehlt noch (R8). Lokale Entwicklung bleibt ausschließlich simuliert.
+- API-Read-only und echte Anlagenbeobachtung ohne Writes sind unterschiedliche Grenzen. Der eigenständige
+  Beobachtungsmodus ist lokal geprüft (R8a/R8b); die reale Standortabnahme steht aus. Lokale Entwicklung bleibt ausschließlich simuliert.
 
 Die folgenden historischen Pilotbeispiele sind kein Nachweis für die aktuell installierte IPC-Version.
 
@@ -32,6 +32,67 @@ Der Vertrag ist bewusst hardware- und betriebssystemneutral formuliert. Der Wind
 aktuelle Pilot- und Kundenpfad; das Modell selbst muss später auch auf Linux-IPC, Gateway oder
 Container laufen können (siehe `ROADMAP.md`, Abschnitt "Container: bewusste spätere Deployment-Option").
 
+## Beobachtungsmodus und unabhängige Erfassung
+
+`runtime.operation_mode` kennt `control` (Standard für bestehende Standorte) und `monitoring`.
+`monitoring` verlangt `runtime.real_writes_enabled=false`; auf IPC ist dabei `bacnet_mode=real` erlaubt.
+Lokale Entwicklung verlangt weiterhin `environment=local`, `bacnet_mode=simulated` und keine realen Writes.
+Der Modus gilt nach Neustart und ist unabhängig vom API-Schreibschutz `api.read_only`.
+
+Im Beobachtungsmodus laufen ausschließlich Reads und lokale Verarbeitung. Reguläre Preis-/Sperrausgaben,
+Heartbeat, Schreibtests und Relinquish sind gesperrt, auch direkt am Protokollrouter. Offene Leases werden
+weder gelöscht noch automatisch als zurückgegeben markiert. `pending_release_count>0` bedeutet einen
+ungeklärten Zustand und `status=degraded`. Vor Moduswechsel Rückgaben klären; vorhandene DDC-Prioritäten
+können andernfalls weiter wirken. Eine spätere Rückgabe braucht Vor-Ort-Klärung oder freigegebenen Steuerungsbetrieb.
+Alte Preispläne bleiben als Datei erhalten, werden im Beobachtungsstatus aber nicht als aktive Pläne ausgegeben.
+
+Messwerte werden vor der Preisentscheidung gelesen und auch ohne Preis gespeichert. SMARD wird durch
+höchstens einen Hintergrundabruf aktualisiert; nach Abschluss gilt eine Pause von 60 Sekunden. Ein hängender
+Preisabruf erzeugt keine weiteren Worker und blockiert den Erfassungszyklus nicht. Dieser liest den Cache
+für das jeweils aktuelle UTC-Intervall neu. Ohne passenden Wert, auch beim Kaltstart, bleibt der Preis `null`.
+Im Steuerungsmodus blockiert dies die preisabhängigen Ausgaben (`safe_mode`); der bisherige Heartbeat bleibt
+preisunabhängig. In Beobachtung bleibt die Erfassung aktiv. Ein erfolgreicher Cache-Fallback verbirgt keinen
+Fehler der Preisquelle. Simulation verwendet weiterhin lokale Preisdateien.
+
+`health` und Zyklus-Snapshots unterscheiden `operation_mode`, `acquisition_status`, `price_control_status`
+(`available`, `blocked`, `disabled`) und `price_source_status.current_price_available`. `healthy` in Beobachtung
+besagt: konfigurierte Lesewerte sind gültig und keine Testrückgaben offen; es bestätigt keine Anlagenwirkung.
+Lesen mehrerer Controller bleibt sequenziell und unterliegt deren konfigurierten Timeouts/Retry-Grenzen.
+Der Release-Launcher nutzt zusätzlich `--supervise`: ein eigener Prozess überwacht die Run-ID, frische
+Health und voranschreitende Zyklus-IDs. Drei Startversuche einschließlich Erststart je 15 Minuten sind
+persistent begrenzt. Fachliche Störungen lösen bei fortschreitenden Zyklen keinen Neustart aus.
+Die API meldet fehlende/veraltete Supervisor-Nachweise als `supervision_status=unavailable`.
+Lokale Statusdatei/Logs sind keine externe Ausfallalarmierung; Windows-/Alarmweg-Abnahme bleibt offen.
+
+`storage_status=error` und `storage_errors` benennen State-/Datenbankfehler. Health wird erst nach diesen
+Schreibversuchen veröffentlicht. Scheitert auch Health, bleibt der alte Nachweis stehen und altert.
+Neue Zyklus-IDs enthalten eine pro Start eindeutige Kennung; ein verlorener State überschreibt keine alten Zyklen.
+
+## Zeitbasis der Messwerte und Historie
+
+- `received_at`: Zeitpunkt des letzten empfangenen endlichen Werts; kein Controller-Zeitstempel.
+- `last_successful_read_at`: letzter erfolgreicher Protokoll-Read, auch wenn der Wert unplausibel ist.
+  Fachliche Gültigkeit steht getrennt in `quality`; fehlgeschlagene Reads übernehmen keinen Altwert als gültig.
+- `age_seconds`: Alter seit Empfang, bei ausgelassenen Lesezyklen und API-Anfragen neu bewertet.
+  Grenzüberschreitung ergibt `quality=stale`; `bad` bleibt auch bei jungem Empfang `bad`.
+- `source_timestamp`/`source_age_seconds`: optionale Quellzeit und deren Alter. Die aktuellen Adapter liefern
+  keine Quellzeit: `null`, `source_freshness=unknown`. Gleiche, erneut empfangene Werte beweisen keine Quellfrische.
+- `measurements` in Health enthält kompakte Qualitätsmetadaten aller zyklisch gelesenen Eingänge;
+  `additional_inputs` bleibt für die bisherige Auswahl erhalten und umfasst in Beobachtung alle Zusatzeingänge. `/api/health` bleibt ohne Messwerte öffentlich.
+- Rohhistorie ergänzt `quality`, `received_at`, `last_successful_read_at`, `source_timestamp` per additiver
+  SQLite-Migration. Historische Zeilen behalten `null` statt erfundener Qualitätsangaben. Ihr `timestamp`
+  bleibt der Zykluszeitpunkt. Ausgelassene Reads erzeugen keine neuen Messzeilen; ihr alternder Zustand bleibt
+  im Zyklus-Snapshot sichtbar. Rollups bleiben Aggregate gültiger Messungen ohne eigene Quellzeitbehauptung.
+- Nach Neustart gibt es keinen übernommenen Lesecache; die Laufzeit liest erneut. Bei Ausfall ist der aktuelle
+  Wert unbekannt. Vorherige erfolgreiche Empfangszeiten bleiben in der historischen Datenbank erhalten.
+- Tagesberichte benennen Beobachtung, Läufe ohne aktuellen Preis und Qualität der gespeicherten Reads.
+  Dies ist keine Messung der zeitlichen Datenabdeckung oder ein Nachweis von Energieeinsparungen.
+
+Fünf-Minuten-/Stundenaggregate verwenden feste UTC-Grenzen, Tagesaggregate den Berliner Kalendertag
+mit 23/24/25 Stunden. Bereits gespeicherte Altaggregate werden nicht rückwirkend neu berechnet.
+
+Lokale Nachweise: [Validierung 22.09.2026](docs/VALIDIERUNG_2026-09-22.md).
+
 ## Zeitbasis der Preise und Migration
 
 - `time_model=utc_quarterhours_v1`: `slots` ist chronologisch, mit 15 Minuten je Element.
@@ -43,7 +104,7 @@ Container laufen können (siehe `ROADMAP.md`, Abschnitt "Container: bewusste sp�
   Das Dashboard verwendet diese Zeitpunkte und konstruiert sie nicht aus der Zeitzone des Browsers.
 - Cache ohne Zeitmodell: Normale 96er-Tage sind übernehmbar; normale 24er-Stundentage werden vervierfacht.
   Alte Zeitumstellungstage werden nicht verwendet. Ohne Quellzugriff und ohne passenden aktuellen Cachewert
-  greift der bestehende `safe_mode`-Pfad; fehlende Preise werden nicht als Null eingesetzt.
+  greift im Steuerungsmodus der `safe_mode`-Pfad; Erfassung bleibt aktiv. Fehlende Preise werden als `null`, nicht als 0 ausgegeben.
 - SQLite: Alte `price_slots` bleiben unverändert. Neue Werte stehen in `price_intervals` mit UTC-Primärschlüssel.
   Tagesberichte bevorzugen die neue Serie vollständig; sonst ist `price_ct_kwh.time_model=legacy_clock_slots`.
   Alte Fenster haben keine rekonstruierte UTC-Grenze; neue Fenster speichern beide UTC-Grenzen.

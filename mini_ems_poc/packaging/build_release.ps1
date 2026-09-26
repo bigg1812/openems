@@ -82,7 +82,12 @@ Write-Host "[build] wrote VERSION ($Version, $GitCommit)"
 # --- Release launcher + notes: package vs. site data ------------------------
 Copy-Item (Join-Path $ProjectDir "run_mini_ems_release.cmd") (Join-Path $ReleaseDir "run_mini_ems_release.cmd") -Force
 Copy-Item (Join-Path $ScriptDir "RELEASE_HINWEISE.md") (Join-Path $ReleaseDir "RELEASE_HINWEISE.md") -Force
-Copy-Item (Join-Path $ProjectDir "windows") (Join-Path $ReleaseDir "windows") -Recurse -Force
+New-Item -ItemType Directory -Path (Join-Path $ReleaseDir "windows") -Force | Out-Null
+foreach ($script in @("install_task.ps1", "update_release.ps1", "smoketest_release.ps1")) {
+    Copy-Item (Join-Path $ProjectDir "windows\$script") (Join-Path $ReleaseDir "windows\$script") -Force
+}
+& $Python -m pip freeze | Set-Content (Join-Path $ReleaseDir "BUILD_REQUIREMENTS.txt") -Encoding utf8
+if ($LASTEXITCODE -ne 0) { throw "Build dependency inventory failed" }
 
 # --- CHANGELOG snapshot into the package (repo CHANGELOG is NOT rewritten) ---
 # The [Unreleased] heading becomes the versioned snapshot heading in the copy

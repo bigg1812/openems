@@ -91,14 +91,16 @@
         <div class="kpi-grid" id="kpi-grid"></div>
 
         <!-- Konkrete Hinweise: Preisfenster, Datenqualität, Übergabe (UX4) -->
-        <article class="hint-panel" aria-label="Hinweise für heute">
+        <article class="hint-panel" id="dashboard-hint-panel" aria-label="Hinweise für heute" hidden>
           <span class="micro-label">Heute wichtig</span>
           <div class="hint-list" id="dashboard-hints">
             <div class="hint-item neutral">Hinweise werden geladen.</div>
           </div>
         </article>
 
-        <div class="dashboard-layout">
+        <details class="dashboard-more" id="dashboard-prices">
+          <summary>Strompreise und Planung</summary>
+          <div class="dashboard-layout dashboard-more-body">
           <article class="tool-panel wide" data-widget="price">
             <div class="panel-head">
               <div>
@@ -130,7 +132,8 @@
               </div>
             </div>
           </article>
-        </div>
+          </div>
+        </details>
 
         <details class="dashboard-more" id="dashboard-more">
           <summary>Weitere Anzeigen</summary>
@@ -254,7 +257,7 @@
           </div>
           <div class="report-quick-actions">
             <a class="button primary" id="report-open-link" href="/api/report/html" target="_blank" rel="noreferrer">Bericht anzeigen</a>
-            <a class="button" id="report-pdf-quick-link" href="/api/report/pdf" target="_blank" rel="noreferrer">PDF herunterladen</a>
+            <a class="button" id="report-pdf-quick-link" href="/api/report/pdf" target="_blank" rel="noreferrer">Drucken / PDF</a>
             <a class="button" id="report-csv-link" href="/api/report/daily.csv" target="_blank" rel="noreferrer">Daten als CSV</a>
           </div>
           <div class="report-day-summary">
@@ -316,7 +319,7 @@
                 <div class="report-builder-actions">
                   <button class="button" id="report-preview-button" type="submit">Vorschau berechnen</button>
                   <a class="button" id="report-html-link" href="/api/report/html" target="_blank" rel="noreferrer">Bericht öffnen</a>
-                  <a class="button" id="report-pdf-link" href="/api/report/pdf" target="_blank" rel="noreferrer">PDF herunterladen</a>
+                  <a class="button" id="report-pdf-link" href="/api/report/pdf" target="_blank" rel="noreferrer">Drucken / PDF</a>
                 </div>
               </form>
 
@@ -591,6 +594,14 @@
                   <input id="config-operator-note" type="text" value="Keine echte Schalthandlung aus dieser Oberfläche.">
                 </label>
               </div>
+              <details class="dashboard-more">
+                <summary>Wetterstandort (optional)</summary>
+                <p>Nur bei Bedarf einrichten. Die Koordinaten werden für die Wetterabfrage an Open-Meteo gesendet. Leere Felder deaktivieren den Abruf.</p>
+                <div class="config-field-grid">
+                  <label>Breitengrad<input id="config-site-latitude" type="number" min="-90" max="90" step="any"></label>
+                  <label>Längengrad<input id="config-site-longitude" type="number" min="-180" max="180" step="any"></label>
+                </div>
+              </details>
             </article>
 
             <article class="tool-panel config-card">
@@ -644,12 +655,19 @@
                   <input id="config-real-writes-enabled" type="checkbox">
                   <span>Schreibfreigabe am IPC vorbereiten</span>
                 </label>
+                <label>
+                  Betriebsart
+                  <select id="config-operation-mode">
+                    <option value="control">Steuerungsbetrieb</option>
+                    <option value="monitoring">Nur beobachten – keine Anlagenaktionen</option>
+                  </select>
+                </label>
                 <label class="check config-check">
                   <input id="config-api-read-only" type="checkbox">
                   <span>Anlagenaktionen über Netzwerk sperren</span>
                 </label>
               </div>
-              <p class="config-note">Diese Oberfläche löst selbst keine BACnet-Schaltaktion aus. Sie bereitet nur die spätere Server-Konfiguration vor.</p>
+              <p class="config-note">Änderungen der Betriebsart gelten nach dem Neustart. Im Beobachtungsmodus muss die Schreibfreigabe aus sein. Bestehende Anlagenprioritäten und offene Rückgaben vor einem Wechsel vor Ort klären; sie werden nicht automatisch zurückgegeben.</p>
             </article>
 
             <article class="tool-panel config-card">
@@ -723,7 +741,7 @@
               <div class="panel-head">
                 <div>
                   <h3>Reglerparameter</h3>
-                  <p>Grenzwerte und Mindestdaten für Netzschutz und Preissteuerung.</p>
+                  <p>Grenzwerte für Netzleistung und Preissteuerung. Den Anlagenfallback legt die lokale Steuerung fest.</p>
                 </div>
               </div>
               <div class="config-field-grid">
@@ -746,22 +764,6 @@
                 <label>
                   Negative Viertelstunden in Folge
                   <input id="config-spotmarket-consecutive" type="number" min="1" value="8">
-                </label>
-                <label>
-                  Mindestwerte pro Tag
-                  <input id="config-spotmarket-min-valid" type="number" min="1" value="96">
-                </label>
-                <label>
-                  Ersatzwert bei ungültigem Preis
-                  <input id="config-invalid-price-sentinel" type="number" step="0.001" placeholder="leer lassen">
-                </label>
-                <label>
-                  Kommunikationsfehler bis sicherer Modus
-                  <input id="config-safe-mode-threshold" type="number" min="1" value="2">
-                </label>
-                <label class="check config-check">
-                  <input id="config-fail-safe-output" type="checkbox">
-                  <span>Bei Fehlern sichere Ausgangswerte erzwingen</span>
                 </label>
               </div>
             </article>

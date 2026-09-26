@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, Optional
 
-from .config import GridLockoutConfig, SpotMarketLockoutConfig
+from .config import GridLockoutConfig
 
 
 @dataclass
@@ -48,6 +48,7 @@ class GridLockoutState:
 
 @dataclass
 class SpotMarketLockoutState:
+    # Legacy state.json round-trip only; current control uses SpotmarketPlanWriter.
     mode: str = "normal"
     longest_negative_block_quarters: int = 0
 
@@ -154,82 +155,3 @@ class GridLockoutController:
                 "below_threshold_counter": state.below_threshold_counter,
             },
         )
-
-
-class SpotMarketLockoutController:
-    def __init__(self, config: SpotMarketLockoutConfig):
-        self.config = config
-
-    def evaluate(self, prices: Sequence[Optional[float]], state: SpotMarketLockoutState) -> ControllerOutcome:
-        if len(prices) != 96:
-            return ControllerOutcome(
-                name="spotmarket_lockout",
-                valid=False,
-                desired_value=False,
-                reason="Expected 96 quarter-hour prices, got {0}".format(len(prices)),
-                state_name=state.mode,
-                safe_mode_required=True,
-            )
-
-        invalid_quarters: List[int] = []
-        valid_prices: List[float] = []
-        longest_block = 0
-        current_block = 0
-        negative_quarters: List[int] = []
-
-        for quarter_index, price in enumerate(prices):
-            if price is None or self._is_invalid_sentinel(price):
-                invalid_quarters.append(quarter_index)
-                current_block = 0
-                continue
-            valid_prices.append(price)
-            if price <= 0:
-                negative_quarters.append(quarter_index)
-                current_block += 1
-                if current_block > longest_block:
-                    longest_block = current_block
-            else:
-                current_block = 0
-
-        state.longest_negative_block_quarters = longest_block
-
-        if len(valid_prices) < self.config.min_valid_quarters:
-            state.mode = "invalid_input"
-            return ControllerOutcome(
-                name="spotmarket_lockout",
-                valid=False,
-                desired_value=False,
-                reason="Only {0}/96 valid quarter-hour prices available".format(len(valid_prices)),
-                state_name=state.mode,
-                metrics={
-                    "valid_quarters": len(valid_prices),
-                    "invalid_quarters": invalid_quarters,
-                },
-                safe_mode_required=True,
-            )
-
-        desired_value = longest_block >= self.config.negative_quarters_min_consecutive
-        state.mode = "lockout_active" if desired_value else "normal"
-        return ControllerOutcome(
-            name="spotmarket_lockout",
-            valid=True,
-            desired_value=desired_value,
-            reason=(
-                "Negative price block reached threshold"
-                if desired_value
-                else "Negative price block below threshold"
-            ),
-            state_name=state.mode,
-            metrics={
-                "valid_quarters": len(valid_prices),
-                "invalid_quarters": invalid_quarters,
-                "negative_quarters": negative_quarters,
-                "longest_negative_block_quarters": longest_block,
-            },
-        )
-
-    def _is_invalid_sentinel(self, value: float) -> bool:
-        sentinel = self.config.invalid_price_sentinel
-        if sentinel is None:
-            return False
-        return abs(value - sentinel) < 1e-9

@@ -14,6 +14,7 @@
 # parent. The build/dist working dirs live under packaging/ (see build scripts).
 
 import os
+from PyInstaller.utils.hooks import collect_data_files
 
 PROJECT_DIR = os.path.abspath(os.path.join(SPECPATH, os.pardir))
 
@@ -22,26 +23,22 @@ PROJECT_DIR = os.path.abspath(os.path.join(SPECPATH, os.pardir))
 # lookups (report template, weather cache) work unchanged when frozen.
 datas = [
     (os.path.join(PROJECT_DIR, "dashboard"), "dashboard"),
-    (
-        os.path.join(PROJECT_DIR, "mini_ems_runtime", "templates"),
-        os.path.join("mini_ems_runtime", "templates"),
-    ),
     # sim/ is optional and only needed for a simulated test run on the IPC.
     (os.path.join(PROJECT_DIR, "sim"), "sim"),
-]
+] + collect_data_files("tzdata")
 
 a = Analysis(
     [os.path.join(PROJECT_DIR, "mini_ems.py")],
     pathex=[PROJECT_DIR],
     binaries=[],
     datas=datas,
-    hiddenimports=[],
+    hiddenimports=["tzdata"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # weasyprint is an optional PDF backend (import is guarded in http_api.py);
-    # leaving it out keeps the package lean. Everything else is stdlib.
-    excludes=["weasyprint", "tkinter"],
+    # Fixed lean profile, independent of optional packages on the build host.
+    # Reports use the stdlib HTML renderer and browser print/PDF.
+    excludes=["weasyprint", "jinja2", "bacpypes3", "tkinter"],
     noarchive=False,
 )
 

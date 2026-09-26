@@ -34,6 +34,8 @@ function check(name, actual, expected) {
 }
 
 /* ---------- Vorbelegung aus der aktiven Konfiguration ---------- */
+check("Leerer Standort erfindet keine Pilotkanäle", context.normalizeChannels([]).length, 0);
+check("Analyse zeigt nur vom Standort gelieferte Kanäle", context.normalizeChannels([{id: "grid.active_power_kw"}]).length, 1);
 
 const siteConfig = {
   network: { controller_ip: "192.168.1.100", controller_port: 47808 },
@@ -321,6 +323,40 @@ const legacyPoint = context.writePointHtml({id: "legacy", name: "EMS_TEST", enab
 check("Historischer Fehler: weiterer Write gesperrt", /data-write-value="true" disabled/.test(legacyPoint), true);
 check("Historischer Fehler: keine Zielpriorität erraten", legacyPoint.includes("data-write-release"), false);
 check("Historischer Fehler: Abnahme vor Ort benannt", legacyPoint.includes("Vor Ort prüfen"), true);
+
+/* ---------- Beobachtung und Preisunabhängigkeit ---------- */
+const observationHealth = {
+  status: "healthy", operation_mode: "monitoring", acquisition_status: "healthy",
+  pending_release_count: 0, price_source_status: { current_price_available: false },
+};
+check("Beobachtung: keine behauptete Preissteuerung", vm.runInContext('KPI_CATALOG.find(kpi => kpi.id === "spotmarket").value({operation_mode: "monitoring"})', context), "deaktiviert");
+check("Speicherfehler hat Vorrang vor gesunder Beobachtung", context.buildMainMessage({health: {
+  status: "degraded", operation_mode: "monitoring", acquisition_status: "healthy", storage_status: "error",
+}}).headline, "Speicherung gestört.");
+check("Beobachtung ohne unnötigen Morgenpreis-Hinweis", context.buildStartHints({health: {
+  status: "healthy", operation_mode: "monitoring", tomorrow_prices_available: false,
+}}).length, 0);
+check("Lebende Messwerterfassung verdeckt keinen verlorenen Wächter", context.buildMainMessage({health: {
+  status: "degraded", operation_mode: "monitoring", supervision_status: "unavailable",
+}}).headline, "Betriebsüberwachung gestört.");
+check("Beobachtung: Preisfenster nicht angewendet", context.buildPriceWindowSummary(observationHealth, {}).includes("keine Preisfenster zur Steuerung"), true);
+check("Beobachtung: klare Betriebsart", context.buildMainMessage({health: observationHealth}).headline, "Beobachtungsmodus aktiv.");
+check("Beobachtung: Preise fehlen, Erfassung läuft", context.buildMainMessage({health: observationHealth}).detail.includes("Erfassung läuft weiter"), true);
+check("Beobachtung: offene Rückgabe bleibt Alarm", context.buildMainMessage({health: {...observationHealth, pending_release_count: 1}}).level, "alert");
+check("Beobachtung: veraltete Runtime bleibt sichtbar", context.buildMainMessage({health: {...observationHealth, stale_runtime: true}}).headline, "Keine aktuellen Daten vom System.");
+const observationRows = context.buildSignalRows({health: observationHealth});
+check("Beobachtung: keine erfundene Bestätigung", observationRows.some((row) => row.text.includes("bestätigt")), false);
+check("Beobachtung: Preisfehler im Signal", observationRows.find((row) => row.title === "Preisdaten").state, "warn");
+check("Historie: schlechte Messwerte nicht auswerten", Number.isNaN(context.historyValue({value: 999, quality: "bad"})), true);
+check("Historie: veraltete Messwerte nicht auswerten", Number.isNaN(context.historyValue({value: 5, quality: "stale"})), true);
+check("Historie: gültige Null bleibt Null", context.historyValue({value: 0, quality: "good"}), 0);
+check("Preisanzeige: unbekannt bleibt unbekannt", context.formatNumber(null, "ct/kWh", 3).includes("0,000"), false);
+check("Qualität: auch Kernmesspunkt sichtbar", context.collectQualityChannels({measurements: {"grid.active_power_kw": {quality: "bad"}}}, "bad").length, 1);
+vm.runInContext('setupState.write.releaseBlocked = true;', context);
+const blockedRelease = context.writePointHtml({id: "pending", name: "EMS_TEST", enabled: true, object_type: "bv",
+  last_test: {id: "lease", status: "release_failed", target: {}, desired_value: true}}, false);
+check("Beobachtung: keine Rückgabeaktion", blockedRelease.includes("data-write-release"), false);
+check("Beobachtung: offene Rückgabe erklärt", blockedRelease.includes("Vor Ort klären"), true);
 
 /* ---------- Ergebnis ---------- */
 

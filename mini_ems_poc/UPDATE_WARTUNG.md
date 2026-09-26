@@ -18,20 +18,25 @@ per Git synchronisiert: lokale Simulation und reale Anlage behalten getrennte Da
 
 ## Nächste gemeinsame Abnahme nach der Stabilisierungsrunde
 
-Die lokalen Nachweise stehen in [Validierung 13.09.2026](docs/VALIDIERUNG_2026-09-13.md), der Aufgabenstatus
-in [ROADMAP.md](ROADMAP.md). Vor Produktivfreigabe:
+Die lokalen Nachweise stehen in [Validierung 22.09.2026](docs/VALIDIERUNG_2026-09-22.md), der Aufgabenstatus
+in [ROADMAP.md](ROADMAP.md). Der nächste Schritt ist die Windows-/VPN-Prüfung:
 
-1. Windows-/Linux-CI bestätigen und ein Windows-Paket aus dem geprüften Commit bauen. Zuerst in einem
-   separaten Simulations-SiteDir auf Windows starten; Python-Laufzeit, Migration, Preiszeitmodell und Login prüfen.
-2. Am IPC installierte `VERSION`, App-Commit, Task/Prozess, SiteDir und echten Zugriffsweg aufnehmen.
-   Backup/Restore gemäß dieser Anleitung vorbereiten. `identity.sqlite` gehört zum Standortbackup.
-3. Offene/historische Test-Leases vor dem Update feststellen. Alte `failed`-Leases ohne gespeicherte
-   Zielpriorität vor Ort klären; diese neue Version gibt sie nicht anhand einer geratenen Priorität zurück.
-4. Nach Update Version/Commit, frische Health, Rollen, Caddy/HTTPS, Schutzstatus und erhaltene Standortrevision prüfen.
-5. Nur im vereinbarten Testfenster auf einem freigegebenen ungefährlichen Punkt testen: gewünschter Wert,
-   Protokollbestätigung, Readback, höhere Priorität, Rückgabe und Kommunikationsfehler. Danach Rückgabe nachweisen.
-6. DDC-Heartbeat, IPC-Ausfall, Kommunikationsverlust und Wiederanlauf mit Betreiber/MSR fachlich abnehmen (R6).
-   Einen Ausfallversuch erst durchführen, wenn seine sichere Anlagenreaktion und Verantwortlichen feststehen.
+1. Windows-/Linux-CI bestätigen und ein Windows-Paket aus dem geprüften Commit bauen. Zuerst
+   `packaging/verify_release.py` mit temporären Simulationen ausführen. Danach Task/SYSTEM, Update/Rollback,
+   Preiszeitmodell und Berichtdruck mit eigenen Testordnern, Tasknamen und Loopback-Port prüfen.
+2. Über freigegebenen VPN-Zugang zuerst nur den bestehenden IPC-Stand aufnehmen: installierte `VERSION`,
+   App-Commit, Task/Prozesse, SiteDir, Standortrevision und Zugriffsweg. Backup/Restore vorbereiten;
+   `identity.sqlite` und offene Rückgaben gehören zum Standortnachweis.
+3. Offene/historische Test-Leases vor Update und Moduswechsel feststellen. Alte `failed`-Leases ohne
+   Zielpriorität vor Ort klären. Beobachtungsmodus gibt bestehende Prioritäten nicht automatisch zurück.
+4. Nach freigegebenem Update Version/Commit, frische Health und Supervisor-Nachweis, Rollen, Caddy/HTTPS,
+   gesperrte Anlagenaktionen und erhaltene Standortrevision prüfen. Im Beobachtungsmodus beginnen.
+5. Wenige vorab vereinbarte Lesepunkte über ein begrenztes Zeitfenster beobachten (R8c). Punktliste,
+   Leseintervalle, Datenalter, Speicherbudget und verantwortliche Person festhalten. Ausfälle nur in Simulation
+   erzeugen; am Standort Datenlücken, Wiederanlauf und Bedienbarkeit auswerten.
+6. Erst für späteren Steuerungsbetrieb: DDC-Heartbeat/Fallback, IPC-/Kommunikationsverlust und
+   Ersatzbetrieb mit Betreiber/MSR fachlich klären (R6). Aktiven Test auf ungefährlichem Punkt separat
+   freigeben: Wert, ACK, Readback, Prioritätskonflikt und bestätigte Rückgabe (R3c).
 
 Ein Paket-Smoketest ersetzt diese fachliche Abnahme nicht. Testergebnisse stets mit Datum, Paket-Commit,
 Standort und Nachweisart festhalten. Aus der lokalen Entwicklungsumgebung erfolgen keine realen Writes.
@@ -53,7 +58,7 @@ Zu den Standortdaten gehören `site.sqlite`, `identity.sqlite`, Betriebsdaten, L
 1. prüft Paket und Prüfsummen,
 2. stoppt Task und Prozess,
 3. sichert Standortdaten und bisherige Anwendung,
-4. installiert das neue Paket,
+4. installiert das neue Paket und aktualisiert den Release-Task mit begrenzten Wiederholungen,
 5. startet Mini EMS,
 6. prüft Version und Health.
 
@@ -107,8 +112,9 @@ Dashboard:
 https://192.168.244.10/dashboard
 ```
 
-Erwartet werden eine laufende Release-Version, HTTP `200`, `api_read_only: true` und die unveränderte
-`site.sqlite`.
+Erwartet werden die passende Release-Version, `status: healthy`, `storage_status: ok`, im überwachten
+Betrieb `supervision_status: ok`, `api_read_only: true` und die erhaltene Standortrevision. HTTP `200` allein
+beweist nur die erreichbare API. Offene Rückgaben und Speicherfehler dürfen nicht als gesund gelten.
 
 ## Admin-Zugang lokal zurücksetzen
 
@@ -127,6 +133,23 @@ Start-ScheduledTask -TaskName MiniEmsPoCRelease
 Bei einem neuen Standort wird ein neuer einmaliger Freigabecode ausgegeben. Wenn bereits Konten existieren,
 wird für das erste aktive Admin-Konto ein temporäres Passwort erzeugt. Danach sofort ein eigenes Passwort
 setzen.
+
+## Aufbewahrung im begrenzten Pilot
+
+Runtime- und Supervisor-Log rotieren bei je 5 MiB mit drei Sicherungen. Das Launcher-Stdout-Log enthält
+Start-/Fehlermeldungen und den Erstzugang, aber im überwachten Betrieb keine doppelten Zykluslogs;
+es wird nicht automatisch rotiert und gehört zur Wartung.
+
+Die Historie wird noch nicht automatisch gelöscht. Der lokale Lasttest mit zehn Punkten im 30-Sekunden-Takt
+benötigte für sieben simulierte Tage rund 137 MiB; das ist eine Größenordnung für genau dieses Testprofil,
+keine allgemeine Kapazitätszusage. Vor dem Beobachtungslauf freien Speicher prüfen, Laufzeit begrenzen und
+Größe regelmäßig kontrollieren. Für unbeaufsichtigten Dauerbetrieb sind ein extern erreichbarer Alarmweg,
+Speicherbudget und eine vereinbarte Aufbewahrungs-/Löschregel noch erforderlich.
+
+Für ein vollständiges dateibasiertes Standortbackup Runtime und Supervisor stoppen und ihr Ende prüfen;
+dann den gesamten SiteDir kopieren. Einzelne aktive SQLite-Dateien nicht blind kopieren. Bei
+Wiederherstellung eine getrennte Kopie verwenden und Integrität, Revision, Konten und Historie prüfen.
+Automatische Löschjobs sind nicht Bestandteil dieses Kandidaten.
 
 ## Alte Sicherungen aufräumen
 

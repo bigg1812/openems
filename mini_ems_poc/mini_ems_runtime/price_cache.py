@@ -1,6 +1,6 @@
 import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -78,6 +78,20 @@ class SpotmarketPriceCacheService:
     def __init__(self, path: Path, provider: SmardPriceProvider):
         self.path = Path(path)
         self.provider = provider
+
+    def read_cached_snapshot(self, *, error: Optional[str], refreshing: bool) -> PublishedPriceSnapshot:
+        """Read only local data and select the current interval, without network I/O."""
+        now = berlin_now()
+        cache = self._load_cache()
+        snapshot = self._snapshot_from_cache(
+            cache, now_local=now, today=now.date(), tomorrow=now.date() + timedelta(days=1),
+            error=PriceProviderError(error or "Hintergrundaktualisierung"),
+        )
+        if snapshot is None:
+            raise PriceProviderError(error or "Kein nutzbarer Preis für das aktuelle Intervall.")
+        status = dict(snapshot.price_source_status if error else cache.price_source_status or {})
+        status.update(refreshing=refreshing, current_price_available=True)
+        return replace(snapshot, price_source_status=status)
 
     def refresh(self) -> PublishedPriceSnapshot:
         now_local = berlin_now()

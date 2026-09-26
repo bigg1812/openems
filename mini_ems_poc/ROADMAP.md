@@ -1,6 +1,7 @@
 # Mini EMS – Technische Roadmap
 
-**Stand: 12.09.2026.** Maßgebliche Aufgabenliste für den lokalen Entwicklungsstand.
+**Planungsstand: 22.09.2026.** Maßgebliche Aufgabenliste für den lokalen Entwicklungsstand.
+Lokal geprüfte Umsetzung und ausstehende Windows-/Feldnachweise werden getrennt geführt.
 Die [Produkt-/UX-Roadmap](PRODUCT_UX_ROADMAP.md) führt die Bedienaufgaben;
 [das Archiv](docs/archive/ROADMAP_vor_2026-09-12.md) bewahrt die frühere Planung mit S-/H-/C-IDs.
 Neue Prioritäten hier ersetzen die dortigen Empfehlungen. Ein älteres Häkchen ist kein Release- oder Feldnachweis.
@@ -26,6 +27,12 @@ Plattformkern folgen erst nach einem verlässlich abgenommenen Standortablauf.
 - **Prüfung 12./13.09.2026:** Lokale Regressionen, HTTP-Integration, Dashboard-Harness und macOS-Paketbau.
   Der gebaute Prozess wurde im Browser mit getrenntem Simulationsstandort geprüft. Details und Grenzen:
   [Validierungsnachweis](docs/VALIDIERUNG_2026-09-13.md). Kein Windows-Release installiert, keine Live-Anlagenzugriffe.
+- **Prüfung 20.09.2026:** R8a/R8b/R1b mit 196 Python-Tests, 116 Dashboard-Prüfungen in zwei Zeitzonen,
+  macOS-Testpaket sowie Browser-/Neustartprüfung lokal nachgewiesen.
+  [Validierungsnachweis](docs/VALIDIERUNG_2026-09-20.md); Windows-/Standortabnahme bleibt offen.
+- **Prüfung 22.09.2026:** Prozesswächter, Speicherfehler, minimierte UI, Standortwetter und schlankes Paketprofil;
+  211 Python-Tests, 121 Dashboard-Prüfungen je Zeitzone, 201.600 Messwerte im beschleunigten Historientest.
+  [Validierungsnachweis](docs/VALIDIERUNG_2026-09-22.md) einschließlich Browser- und Paketprüfung.
 - IPC-Update vom 12.07.2026: Betreiberbestätigung vorhanden, keine Konsolennachweise im Repo.
 - UX24 enthält die lokale Notiz über reale BV-/AV-Tests vom 14.07.2026. Das ist zusätzliche Felderfahrung,
   keine vollständige Rollen-/Release-/Zweitrechner-Abnahme. Installierte Version am 12.09.2026 nicht live geprüft.
@@ -33,11 +40,13 @@ Plattformkern folgen erst nach einem verlässlich abgenommenen Standortablauf.
 
 ## Reihenfolge und Statusregeln
 
-1. R1–R4: Datenqualität, Betriebszustand, Schreibnachweis und Zeitmodell.
-2. R5–R7: Version/Abnahme, DDC-Fallback und reproduzierbare Prüfung/Auslieferung.
-3. R8–R11: Beobachtungsmodus, Dokumentation, Codegrenzen und Standortannahmen.
-4. UX23 und R12: fachfremder Bedienversuch und konkreter weiterer Gerätetyp.
-5. Erst dann S9/C1: kleiner read-only Export.
+1. R8a/R8b und R1b sind lokal geprüft: preisunabhängige Erfassung, Beobachtungsmodus und Messwertalter.
+   Nachweis und Grenzen: [Validierung 20.09.2026](docs/VALIDIERUNG_2026-09-20.md).
+2. R2b/R7 sind lokal geprüft. Jetzt CI bestätigen und Windows-Paket, Task sowie Update/Rollback in Simulation abnehmen.
+3. R5 und R8c: installierten Stand/Zugriff prüfen und einen begrenzten Beobachtungslauf am Standort auswerten.
+4. Vor Steuerungsbetrieb: offene Feldabnahme R3c und DDC-Fallback R6 abschließen; R4 am Windows-Paket bestätigen.
+5. R9–R11 begleitend im betroffenen Umfang; danach UX23, ein erster Diagnosefall R13 und bei konkretem Bedarf R12.
+6. Erst nach der Stabilisierung S9/C1: kleiner read-only Export.
 
 **Status:** `lokal geprüft` bedeutet implementiert und lokal getestet; `vorbereitet` bedeutet noch nicht in der
 Zielumgebung nachgewiesen; `offen` ist unerledigte Arbeit. Feldabnahmen bleiben ausdrücklich separat offen.
@@ -49,11 +58,13 @@ Zielumgebung nachgewiesen; `offen` ist unerledigte Arbeit. Feldabnahmen bleiben 
 - [x] **R1a – lokal geprüft:** Unplausible Werte tragen `quality=bad`; NaN/Infinity werden vor Speicherung
   und API-Ausgabe verworfen. Teilweise fehlgeschlagene Messreihen sind nicht mehr `good`.
 - **Nachweis:** Regressionen in `tests/test_review_hardening.py` sowie bestehende Runtime-/Adaptertests.
-- [ ] **R1b – offen:** Zeitmodell der Messwerte vervollständigen. Empfangszeit, letzter erfolgreicher Read und
-  gegebenenfalls Quellzeit unterscheiden; Alter zwischen Lesezyklen weiterführen. Ein erneut gelesener
-  eingefrorener Controllerwert wird durch einen neuen Empfangszeitstempel allein nicht frisch.
-- **Abnahme R1b:** Bei ausgelassenen Reads steigt das Alter; Kommunikationsausfall und unplausible Werte bleiben
-  sichtbar; Messwertalter und Quellenalter werden nicht verwechselt. Alte Freshness-Häkchen gelten nur für die Grundlage.
+- [x] **R1b – lokal geprüft:** Empfangszeit und letzter erfolgreicher Read sind in Diagnose, API und Rohhistorie
+  enthalten. Ausgelassene Reads altern weiter, erzeugen aber keine neuen Messungen. Nach Neustart wird neu
+  gelesen; ein fehlgeschlagener Read übernimmt keinen alten Wert als gültig. API-Anfragen bewerten das Alter erneut.
+- **Grenze:** Die aktuellen Adapter liefern keine Quellzeit. `source_timestamp=null` und
+  `source_freshness=unknown` machen dies ausdrücklich sichtbar. Ein erneut gelesener eingefrorener
+  Controllerwert ist damit nicht als aktuelle Messung nachgewiesen; dessen Erkennung bleibt gerätespezifisch.
+- **Nachweis:** `tests/test_monitoring.py`, Dashboard-Harness und additive Migration bestehender SQLite-Historie.
 
 ### R2. Health unabhängig vom Zyklus bewerten
 
@@ -64,10 +75,15 @@ Zielumgebung nachgewiesen; `offen` ist unerledigte Arbeit. Feldabnahmen bleiben 
   Dies verändert weder Anlagenwerte noch die gespeicherte Health-Datei. HTTP 200 bedeutet erreichbare API;
   der Payload-Status bewertet den Zyklus. Frischer `safe_mode` bleibt ein fachlicher Fehler bei lebender Runtime.
 - **Nachweis:** Direkte API-Regressionen und HTTP-Test mit laufendem Testserver und altem Snapshot.
-- [ ] **R2b – offen:** Prozessüberwachung, Alarmweg und Wiederanlauf unabhängig von Runtime/API festlegen;
-  zyklusinterne Watchdog-Semantik und API-Bewertung vollständig vereinheitlichen.
-- **Abnahme R2b:** Hängender Zyklus, abgestürzter Prozess und fachlich gestörter, aber laufender Zyklus sind
-  unterscheidbar; Alarm und Wiederanlauf am Windows-Paket nachgewiesen.
+- [x] **R2b – lokaler Teil geprüft:** Separater Supervisor erkennt Stillstand und Prozessabbruch, überwacht
+  nur passende Run-IDs und begrenzt Neustarts persistent auf drei Startversuche in 15 Minuten.
+  Lebende gestörte Zyklen bleiben sichtbar; fehlende Supervisor-Lebendigkeit wird separat in der API erkannt.
+- [x] State-/Datenbankfehler werden vor dem Health-Nachweis bewertet; fehlgeschlagene Health-Schreibvorgänge
+  bleiben als ausbleibender Fortschritt erkennbar. Regressionsfälle in `tests/test_operational_readiness.py`.
+- [ ] **Zielumgebung offen:** Windows-Task/SYSTEM, Wiederanlauf und Störmeldung am nativen Paket prüfen.
+  Lokale Supervisor-Datei/Log/API sind vorhanden; ein externer Alarmempfänger ist noch nicht eingerichtet.
+- **Abnahme:** Hänger, Absturz und fachlicher Fehler bleiben unterscheidbar. Für unbeaufsichtigten Betrieb
+  muss eine benannte Person Ausfallmeldungen auch bei nicht erreichbarer Runtime erhalten.
 
 ### R3. BACnet-Rückgabe als offene Verpflichtung behandeln
 
@@ -121,57 +137,84 @@ Zielumgebung nachgewiesen; `offen` ist unerledigte Arbeit. Feldabnahmen bleiben 
 - [ ] Netzleistungsabhängige Sperre, Vorzeichen, Grenzwerte und Reaktion der realen DDC klären.
 - [ ] DDC-Heartbeat/Fallback bei IPC-Ausfall und Kommunikationsverlust nachweisen; Wirkung bestehender Prioritäten prüfen.
 - [ ] `fail_safe_output` und `comm_error_safe_mode_threshold` fachlich entscheiden: implementieren oder aus dem aktiven
-  Einstellmodell entfernen. Aktuell werden sie eingelesen/angezeigt, aber nicht entsprechend im Zyklus ausgewertet.
+  Einstellmodell entfernen. Sie bleiben nur als Altwerte lesbar; die wirkungslosen UI-Einstellungen wurden entfernt. Eine entsprechende Zykluswirkung ist nicht implementiert.
 - **Abnahme:** Betreiber/MSR bestätigen Reaktion, Timeout, Ersatzbetrieb und Wiederanlauf am Standort.
   `safe_mode` allein beweist keinen sicheren physischen Anlagenzustand.
 
 ### R7. Tests und Release reproduzierbar ausführen
 
-- [x] **Vorbereitet:** `.github/workflows/mini-ems.yml` führt Python-3.12-Tests und Dashboard-Logik unter Linux/Windows aus.
-  Workflow-Datei angelegt; GitHub-Ausführung steht aus. Lokale Prüfungen ersetzen den Windows-Nachweis nicht.
-- [ ] Ersten CI-Lauf auf beiden Betriebssystemen bestätigen.
-- [ ] Abhängigkeiten und optionale Funktionen festschreiben: insbesondere BACpypes3, Template/PDF und Build-Werkzeuge.
-- [x] Lokales macOS-Paket mit PyInstaller gebaut; Simulation, Login, Preisdiagramm, Schreibtest und persistentes Ergebnis geprüft. Buildkennzeichen berücksichtigt jetzt auch unversionierte Dateien.
-- [ ] Windows-Release automatisiert bauen und mit frischem Standort, Login, Health und Update/Restore testen.
-- [ ] Aufbewahrungsregeln, Datenbankwachstum und Wiederherstellung mit realistischem Datenvolumen prüfen.
-- **Abnahme:** Gleiches Paketverhalten auf sauberem Rechner; Version/Commit und Prüfergebnisse sind zuordenbar.
+- [x] **Vorbereitet:** CI führt Tests, PowerShell-Syntaxprüfung, Paketbau und Binary-Prüfung unter Linux/Windows
+  aus; Artefakte werden nur nach Erfolg aufbewahrt. Erster tatsächlicher GitHub-Lauf bleibt offen.
+- [x] Build-Abhängigkeiten festgeschrieben; `BUILD_REQUIREMENTS.txt` protokolliert das Build-Environment.
+  Verbindliches Profil: eingebauter HTML-Renderer, Browserdruck für PDF, keine optionalen Jinja2/WeasyPrint/BACpypes3-Pakete.
+- [x] Lokales macOS-Paket: Erststart, Rollen, Health, erzwungener Child-Absturz, Wiederanlauf, Site-Restore,
+  SQLite-Integrität und unveränderte Paketprüfsummen automatisiert geprüft.
+- [x] Beschleunigte Historienlast: sieben Tage mit 30-Sekunden-Takt und zehn Punkten, 20.160 Zyklen,
+  201.600 Messwerte, rund 137 MiB. Tagesbericht-Abfrage 0,34 Sekunden; Backup/Restore intakt.
+- [x] Aufbewahrung für den begrenzten Pilot festgelegt: rotierte Runtime-/Supervisor-Logs, vollständiges
+  Standortbackup bei gestoppter Runtime; Historie bleibt erhalten. Keine automatische Datenlöschung implementiert.
+- [ ] Windows-Paket auf sauberem Rechner sowie Task/SYSTEM, Update und Rollback mit getrenntem SiteDir prüfen.
+- [ ] Vor dauerhaft unbeaufsichtigtem Betrieb: externe Alarmierung, Speicherbudget und automatische
+  Aufbewahrung mit dem Betreiber festlegen. Der Lasttest ist kein siebentägiger Echtzeit-Dauertest.
+- **Abnahme:** Paket, Commit, Betriebssystem und Prüfergebnisse sind eindeutig zuordenbar.
 
 ## P3 – Produkt vereinfachen und Standortbindung lösen
 
 ### R8. Reale Anlage ohne zyklische Writes beobachten
 
-- [ ] Eigenen Anlagen-Monitoringmodus implementieren. Aktuell verbietet die Validierung
-  `bacnet_mode=real` mit `real_writes_enabled=false`; `api.read_only` ersetzt diesen Modus nicht.
-- **Abnahme:** Echte Reads erlaubt, alle regulären Writes unterbunden; Übergang zur Steuerung explizit freigegeben.
-  Lokale Entwicklung bleibt ausschließlich Simulation. Umgang mit bereits offenen Rückgaben ist separat definiert.
+- [x] **R8a – lokal geprüft:** Erlaubte Reads und Historie laufen auch ohne nutzbaren aktuellen Preis weiter.
+  SMARD aktualisiert im Hintergrund mit höchstens einem laufenden Abruf; der Zyklus liest nur den lokalen Cache
+  und wählt das aktuelle UTC-Intervall neu. Preisfehler und gesperrte preisabhängige Entscheidungen bleiben sichtbar.
+  Im Steuerungsmodus bleibt der bisherige Heartbeat-Pfad erhalten; er ist nicht preisabhängig.
+- [x] **R8b – lokal geprüft:** `runtime.operation_mode=monitoring` und `real_writes_enabled=false` erlauben
+  ausdrücklich reinen Lesebetrieb, auf IPC auch mit `bacnet_mode=real`. Der lokale Modus bleibt simuliert.
+  Reguläre Ausgaben, Heartbeat, Schreibtests und Relinquish sind im Beobachtungsmodus gesperrt; zusätzlich
+  schützt der Protokollrouter vor versehentlichen Schreibaufrufen. Bestehende Konfigurationen bleiben `control`.
+  Offene Leases bleiben gespeichert und werden als Störung angezeigt. Klärung vor Ort oder Rückgabe im
+  ausdrücklich freigegebenen Steuerungsbetrieb; keine automatische Erledigung durch Moduswechsel.
+- **Lokal nachgewiesene Fälle R8a/R8b:** Preisquelle langsam/ausgefallen ohne nutzbaren Cache, einzelner Controller
+  nicht erreichbar und Prozessneustart reproduzierbar geprüft. Verfügbare Messpunkte werden weiterhin
+  erfasst; Ausfälle bleiben in Historie, Oberfläche und Bericht erkennbar. Messwertalter folgt R1b.
+  Siehe [Validierung 20.09.2026](docs/VALIDIERUNG_2026-09-20.md); Standortnachweis weiterhin offen.
+  Keine regulären Writes, auch keine zyklischen Preis-, Sperr- oder Heartbeat-Ausgaben; Schreibtests bleiben gesperrt.
+  Vor dem Moduswechsel offene Rückgaben sichtbar machen und ihren Umgang ausdrücklich festlegen;
+  bestehende Rückgabeverpflichtungen dürfen weder verschwinden noch stillschweigend als erledigt gelten.
+- [ ] **R8c – Begrenzter Standortnachweis:** Nach R5/R7 wenige freigegebene Lesepunkte über einen vorab
+  festgelegten Zeitraum beobachten, als Startvorschlag sieben Tage. Version, Punktliste, Leseintervalle,
+  zulässiges Datenalter, erwartete Datenabdeckung und Auswertungsverantwortung vor Beginn festhalten.
+  Datenlücken, Wiederanlauf, verständliche Zustände und Einrichtungs-/Betreuungsaufwand dokumentieren.
+  Fehler gezielt in Simulation prüfen; keine ungeplanten Störungen an der Kundenanlage erzeugen.
+- **Grenze:** Lokale Entwicklung bleibt ausschließlich Simulation. Ein bestandener Beobachtungslauf belegt
+  weder Steuerungsfreigabe noch Energieeinsparung; für Steuerungsbetrieb bleiben R3c/R6 erforderlich.
 
 ### R9. Aktive Dokumentation konsolidieren
 
 - [x] Aktuelle Prioritäten und Review-Befunde hier zusammengeführt, frühere technische Planung vollständig archiviert.
 - [x] Produktroadmap, README, Betriebsanleitungs-Einstieg/-Empfehlung und Integrationsvertrag an die erste Runde angeglichen.
-- [ ] Betriebsanleitung vollständig auf `--site-dir` und externe Standortdaten umstellen; Pilot-/JSON-Historie auslagern.
-- [ ] Release-/Update-/Packaging-/Proxy-Anleitungen entdoppeln: ein maßgeblicher Ort je Anleitung, andere Stellen verlinken.
+- [x] Betriebsanleitung auf `--site-dir` und externe Standortdaten gekürzt; alte Pilot-/JSON-Anweisungen bleiben in der Git-Historie.
+- [x] Paketbau zentral unter `packaging/README.md`, Installation unter `RELEASE_WORKFLOW.md`, Abnahme/Wartung unter `UPDATE_WARTUNG.md`; README verlinkt den Build.
 - [ ] BACnet-Evaluierung und lange OpenEMS-Vergleiche als datierte Entscheidungen/Referenzen führen.
 - [ ] Changelog-Releasegrenzen und UX-Status anhand R5 nachziehen; Pilot-Demo kürzen und Viewer/Admin trennen.
 - **Abnahme:** Keine konkurrierenden Startanweisungen; aktuelle Aufgaben stehen nur hier bzw. in der UX-Roadmap.
 
 ### R10. Altcode entfernen und große Dateien fachlich aufteilen
 
-- [ ] Nutzung prüfen, dann alten `SpotMarketLockoutController` samt verwaisten Zustands-/Testresten entfernen.
+- [x] Ungenutzten `SpotMarketLockoutController` und drei ausschließlich dafür bestehende Tests entfernt; altes Zustandsformat bleibt für Rückwärtskompatibilität lesbar.
 - [x] Unbenutzten zweiten SMARD-Snapshot-/Stundenaggregationsweg samt ausschließlich dort verwendeten Helfern entfernt; der Runtime-Pfad ist `scan_recent_slot_maps`.
-- [ ] Alten `dashboard_proxy.py` und `windows/install_service.ps1` aus unterstützten Auslieferungspfaden entfernen;
-  verbleibende Nutzer/Migrationsbedürfnisse vorher prüfen.
+- [x] Legacy-Service-/Proxy-Helfer werden nicht mit ausgeliefert. Historische Quellcodehilfen bleiben bis zur Klärung früherer Installationen erhalten.
 - [ ] Festen Pilotimport `objectlist_import.py` aus dem allgemeinen Laufzeitkern herausnehmen.
-- [ ] Einen verbindlichen Report-Renderer wählen; `runtime_db.py` von Reportdarstellung trennen.
+- [x] Paket nutzt den eingebauten HTML-Renderer. Darstellung/Formatierung liegen in `reporting.py`; Datenabfragen bleiben in `runtime_db.py`.
 - [ ] `http_api.py`, `dashboard.js` und `cycle.py` entlang vorhandener Aufgaben aufteilen; externe Preisabfragen
-  zeitlich vom Anlagenzyklus entkoppeln. Kein Frameworkwechsel allein wegen Dateigröße.
+  im Rahmen von R8a vom Anlagenzyklus entkoppeln. Zunächst nur die für den Arbeitsblock nötigen Grenzen schaffen;
+  kein Frameworkwechsel allein wegen Dateigröße. Python und SQLite bleiben Grundlage dieses Arbeitsblocks.
 - **Abnahme:** Verhalten bleibt durch passende Tests belegt; keine zweite aktive Konfigurationsquelle;
   Entfernung erst nach Referenz-/Kompatibilitätsprüfung.
 
 ### R11. Standortannahmen beseitigen
 
-- [ ] Wetterkoordinaten/-name aus Standortdaten beziehen und Wettercache in den SiteDir verlegen.
-- [ ] Feste Energiekanäle und Pilotmetadaten als Energie-Fachmodell kenntlich machen; gemeinsame Kanalmetadaten verbessern.
+- [x] Wetter verwendet validierte optionale Standortkoordinaten/-namen und Cache im SiteDir. Ohne Koordinaten kein externer Abruf; Standortwechsel invalidiert alte Wetterdaten.
+- [x] Analyse bietet nur bekannte Kanäle mit tatsächlich gespeicherten Messungen an; keine unkonfigurierten Pilotpunkte im Standardangebot.
+- [ ] Metadatenkatalog für beliebige neue semantische Kanäle erweitern; das bestehende Energie-Fachmodell bleibt eine bewusste Grenze.
 - **Abnahme:** Zwei unterschiedlich konfigurierte Simulationsstandorte mischen weder Namen noch Dateien oder Werte.
 
 ### R12. Konkreten zweiten Gerätetyp durchgängig einrichten
@@ -179,6 +222,18 @@ Zielumgebung nachgewiesen; `offen` ist unerledigte Arbeit. Feldabnahmen bleiben 
 - [ ] Modbus read-only in den geführten Mapping-/Test-/Aktivierungspfad aufnehmen (UX17).
 - [ ] Optionalen BACpypes3-Discovery-Pfad mit installierter Abhängigkeit und freigegebenem Standort tatsächlich prüfen.
 - **Abnahme:** Ein konkretes Gerät wird nachvollziehbar importiert, zugeordnet und getestet; Discovery erzeugt nur Kandidaten.
+
+### R13. Ersten beobachtenden Diagnosefall fachlich prüfen
+
+- [ ] Nach belastbarem Beobachtungslauf genau einen zum Standort passenden Befund auswählen, zum Beispiel
+  „Betrieb außerhalb der Nutzungszeit“, sofern Betriebsrückmeldung, Zeitprogramm und Sonderfreigaben verfügbar sind.
+- [ ] Eine Regelbeschreibung mit benötigten Punkten, gültigen Betriebszuständen, Datenqualität, Dauer/Grenzwerten,
+  Rücksetzbedingung, Testfällen und konkreter Prüfempfehlung erstellen. Fehlende Voraussetzungen ergeben
+  „nicht auswertbar“, keinen Normalzustand und keinen erfundenen Fehlerbefund.
+- **Abnahme:** Normalbetrieb, echte Abweichung, zulässige Ausnahme und fehlende/veraltete Daten reproduzierbar
+  prüfen; Befunde mit Standortverantwortlichen auf Verständlichkeit und Fehlalarme bewerten. Keine automatischen Eingriffe.
+- **Lernquelle:** [open-control-library](https://github.com/jscott3201/open-control-library) als Vorlage für
+  Regelbeschreibungen und Testvektoren. Übernommene Logik braucht eigene fachliche Prüfung am Anwendungsfall.
 
 ## Nach der Stabilisierung: begrenzter Export und Repository-Trennung
 
@@ -204,8 +259,17 @@ noch die lokale Anlagenrückgabe. Kein Containerumbau in dieser Runde.
 
 ## Nächster Arbeitsblock
 
-R3b/R4 sind lokal umgesetzt. Als Nächstes: geprüften Quellstand versionieren, ersten Windows-/Linux-CI-Lauf
-bestätigen, daraus Windows-Paket bauen und mit getrenntem Simulationsstandort prüfen (R7). Dann gemeinsame
-IPC-Abnahme R5/R3c und fachlicher DDC-Fallback R6 gemäß [Update und Wartung](UPDATE_WARTUNG.md).
-R1b/R2b/R8 sowie die übrigen offenen Punkte bleiben eigenständige Aufgaben; sie sind durch diese Runde
-nicht erledigt. UX23 benötigt weiterhin eine fachfremde Testperson.
+**Lokale Vorbereitung abgeschlossen:** R1b/R8a/R8b, lokaler Teil von R2b/R7 sowie die dafür nötige
+Bereinigung von UI, Reports, Paket und Dokumentation. [Prüfnachweis](docs/VALIDIERUNG_2026-09-22.md).
+
+**Jetzt sinnvoll: Windows-/VPN-Abnahme vorbereiten.** Zuerst den geprüften Quellstand versionieren,
+Windows-/Linux-CI bestätigen und das Windows-Paket in einem separaten Simulationsstandort prüfen.
+Task/SYSTEM, Update/Rollback, Berichtdruck und Windows-Zeitmodell gehören dazu. Ein macOS-Paket ist kein Windows-Paket.
+
+Danach über den freigegebenen VPN-Zugang den bestehenden IPC-Stand zunächst nur lesen (R5): Version,
+Prozesse/Task, Standortrevision, offene Rückgaben, Backup und Zugriffspfad. Erst anschließend den begrenzten
+Beobachtungslauf mit wenigen vereinbarten Lesepunkten starten (R8c). Für spätere aktive Eingriffe bleiben
+R3c/R6 und eine ausdrückliche Betreiberfreigabe erforderlich. Ein VPN ersetzt diese Grenzen nicht.
+
+Nach dem Beobachtungsnachweis folgen ein Bedienversuch mit fachfremder Testperson (UX23) und genau ein
+passender Diagnosefall (R13). Neue Protokolle, Cloud und ein Stackwechsel sind keine Voraussetzung hierfür.

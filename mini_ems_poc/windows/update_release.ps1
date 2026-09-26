@@ -88,16 +88,21 @@ function Test-PackageChecksums {
         throw "SHA256SUMS nicht gefunden im Paket: $sumsFile"
     }
     $mismatch = 0
+    $covered = @{}
     foreach ($line in Get-Content -Path $sumsFile -Encoding UTF8) {
         if (-not $line.Trim()) { continue }
         # Format aus dem Build: "<hash>  ./<relpfad-mit-slashes>"
         if ($line -notmatch '^([0-9a-fA-F]{64})\s+\.?/?(.+)$') {
-            Write-Warning "[update] SHA256SUMS-Zeile nicht interpretierbar, uebersprungen: $line"
-            continue
+            throw "Ungueltige SHA256SUMS-Zeile; Update abgebrochen: $line"
         }
         $expected = $Matches[1].ToLower()
         $rel = $Matches[2].Trim().Replace('/', '\')
-        $target = Join-Path $Dir $rel
+        $target = [IO.Path]::GetFullPath((Join-Path $Dir $rel))
+        $root = [IO.Path]::GetFullPath($Dir).TrimEnd('\') + '\'
+        if (-not $target.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) -or $covered.ContainsKey($target)) {
+            throw "Paketpfad ausserhalb des Pakets oder doppelt im Manifest: $rel"
+        }
+        $covered[$target] = $true
         if (-not (Test-Path $target)) {
             Write-Warning "[update] Datei aus SHA256SUMS fehlt im Paket: $rel"
             $mismatch++
@@ -118,6 +123,17 @@ function Test-PackageChecksums {
             $mismatch++
         }
     }
+    foreach ($file in Get-ChildItem -Path $Dir -Recurse -File) {
+        if ($file.FullName -ne [IO.Path]::GetFullPath($sumsFile) -and -not $covered.ContainsKey($file.FullName)) {
+            throw "Paketdatei ohne Pruefsumme: $($file.FullName)"
+        }
+    }
+    if ($covered.Count -eq 0) { throw "Leeres Paketmanifest; Update abgebrochen." }
+    foreach ($required in @("mini_ems.exe", "run_mini_ems_release.cmd", "windows\install_task.ps1", "windows\smoketest_release.ps1")) {
+        if (-not (Test-Path (Join-Path $Dir $required) -PathType Leaf)) {
+            throw "Pflichtdatei im Paket fehlt: $required"
+        }
+    }
     if ($mismatch -gt 0) {
         throw "$mismatch Paketdatei(en) mit falscher oder fehlender Pruefsumme. Update abgebrochen, es wurde nichts veraendert."
     }
@@ -132,8 +148,7 @@ function Invoke-Smoketest {
     }
     $smoketest = Join-Path $ScriptDir "smoketest_release.ps1"
     if (-not (Test-Path $smoketest)) {
-        Write-Warning "[update] smoketest_release.ps1 nicht gefunden - Smoketest uebersprungen."
-        return $true
+        throw "smoketest_release.ps1 fehlt; Update kann nicht als bestanden gelten."
     }
     Write-Host "[update] Starte Smoketest (erwartete Version $ExpectedVersion) ..."
     & $smoketest -ExpectedVersion $ExpectedVersion -SiteDir $SiteDir -SinceTime $SinceTime -TimeoutSeconds $SmoketestTimeoutSeconds
@@ -281,6 +296,12 @@ if ($PSCmdlet.ShouldProcess($AppDir, "Neues Paket kopieren")) {
     New-Item -ItemType Directory -Path $AppDir -Force | Out-Null
     Copy-Item -Path (Join-Path $PackagePath '*') -Destination $AppDir -Recurse -Force
     Write-Host "[update] Neues Paket nach $AppDir kopiert."
+}
+
+# Update existing task settings too: legacy tasks may still allow 999 restarts.
+if ($PSCmdlet.ShouldProcess($TaskName, "Release-Task mit begrenzten Neustarts registrieren")) {
+    & (Join-Path $AppDir "windows\install_task.ps1") -Mode release -TaskName $TaskName `
+        -AppDir $AppDir -SiteDir $SiteDir -StartNow:$false
 }
 
 # 6. Task starten (Startzeitpunkt fuer den Smoketest merken)

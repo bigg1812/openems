@@ -1,8 +1,11 @@
+import base64
 import copy
+import hashlib
 import json
 import logging
 import math
 import os
+import re
 import threading
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
@@ -19,6 +22,7 @@ from .commissioning import CommissioningService
 from .config import ApiConfig, validate_raw_config
 from .identity import IdentityStore, IdentityUser, ROLE_ADMIN
 from .logging_utils import log_event
+from .measurement_quality import age_diagnostic, timestamp_age
 from .mapping_config import build_mapping_config_patch
 from .pointlist_import import import_pointlist_payload
 from .read_diagnostics import ChannelReadDiagnosticsService
@@ -512,7 +516,9 @@ class MiniEmsApiServer:
                 self.send_response(status)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Cache-Control", "no-store")
-                self._send_security_headers()
+                styles = re.findall(r"<style>(.*?)</style>", payload, re.DOTALL) if content_type.startswith("text/html") else []
+                style_hashes = [base64.b64encode(hashlib.sha256(css.encode("utf-8")).digest()).decode("ascii") for css in styles]
+                self._send_security_headers(style_hashes)
                 self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
                 self.wfile.write(raw)
@@ -563,8 +569,12 @@ class MiniEmsApiServer:
                 self.end_headers()
                 self.wfile.write(raw)
 
-            def _send_security_headers(self) -> None:
-                self.send_header("Content-Security-Policy", _CONTENT_SECURITY_POLICY)
+            def _send_security_headers(self, style_hashes=()) -> None:
+                policy = _CONTENT_SECURITY_POLICY
+                if style_hashes:
+                    sources = " ".join("'sha256-{0}'".format(digest) for digest in style_hashes)
+                    policy = policy.replace("style-src 'self'", "style-src 'self' " + sources)
+                self.send_header("Content-Security-Policy", policy)
                 self.send_header("Referrer-Policy", "no-referrer")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("X-Frame-Options", "DENY")
@@ -621,6 +631,8 @@ class MiniEmsApiServer:
             "timestamp": health.get("timestamp"),
             "app_version": self.app_version,
             "api_read_only": bool(self.api_config.read_only),
+            "storage_status": health.get("storage_status", "unknown"),
+            "supervision_status": health.get("supervision_status", "not_enabled"),
         }
 
     def _get_health_payload(self) -> Dict[str, object]:
@@ -650,6 +662,33 @@ class MiniEmsApiServer:
         health["runtime_status"] = "unknown" if not valid_timestamp else "stale_runtime" if stale else "live"
         if stale:
             health["status"] = health["runtime_status"]
+        now = datetime.now(timezone.utc)
+        if health.get("run_id"):
+            supervisor = self._load_json(self.health_path.with_name("supervisor.json"), {})
+            supervisor = supervisor if isinstance(supervisor, dict) else {}
+            supervisor_age = timestamp_age(supervisor.get("timestamp"), now)
+            observed = (supervisor.get("run_id") == health["run_id"] and
+                        supervisor.get("status") == "running" and
+                        supervisor_age is not None and supervisor_age <= limit)
+            health["supervision_status"] = "ok" if observed else "unavailable"
+            if not observed and health.get("status") == "healthy":
+                health["status"] = "degraded"
+        for key in ("measurements", "additional_inputs"):
+            values = health.get(key)
+            if isinstance(values, dict):
+                health[key] = {channel: age_diagnostic(value, now) if isinstance(value, dict) else value
+                               for channel, value in values.items()}
+        inputs = health.get("measurements")
+        if isinstance(inputs, dict) and inputs:
+            health["acquisition_status"] = "healthy" if all(
+                isinstance(item, dict) and item.get("quality") == "good" for item in inputs.values()
+            ) else "degraded"
+        if self.commissioning_service is not None:
+            health["pending_release_count"] = len(self.commissioning_service.store.unfinished_leases())
+        if not stale and health.get("operation_mode") == "monitoring" and (
+            health.get("acquisition_status") == "degraded" or health.get("pending_release_count", 0)
+        ):
+            health["status"] = "degraded"
         return health
 
     def bootstrap_identity(self, payload: Dict[str, object]):
@@ -714,7 +753,8 @@ class MiniEmsApiServer:
         health = self._get_health_payload()
         state = self._load_json(self.state_path, {})
         price_cache = self._load_json(self.price_cache_path, {})
-        spotmarket_plan = self._load_json(self.spotmarket_plan_path, {})
+        spotmarket_plan = ({} if health.get("operation_mode") == "monitoring"
+                           else self._load_json(self.spotmarket_plan_path, {}))
         return {
             "health": health,
             "state": state,
@@ -730,16 +770,23 @@ class MiniEmsApiServer:
         }
 
     def _get_weather_payload(self) -> Dict[str, object]:
-        cache_path = self.dashboard_dir.parent / "data" / "weather" / "open_meteo_weather_cache.json"
+        site = self._read_site_config().get("site", {}) if self.site_store else {}
+        if site.get("latitude") is None or site.get("longitude") is None:
+            return {"status": "not_configured", "site": site.get("name", "Standort")}
+        location = {key: site.get(key) for key in ("name", "latitude", "longitude")}
+        cache_path = self.site_store.site_dir / "data/weather/open_meteo_weather_cache.json"
         cached = self._load_json(cache_path, {})
+        if cached.get("location") != location:
+            cached = {}
         cached_at = _parse_epoch_seconds(cached.get("fetched_at"))
         now = datetime.now(timezone.utc)
-        if cached and cached_at is not None and now.timestamp() - cached_at < 900:
+        if cached and cached_at is not None and 0 <= now.timestamp() - cached_at < 900:
             return cached
 
         url = (
             "https://api.open-meteo.com/v1/forecast"
-            "?latitude=48.7758&longitude=9.1829"
+            "?latitude={0}&longitude={1}".format(float(site["latitude"]), float(site["longitude"]))
+            +
             "&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m"
             "&hourly=temperature_2m,precipitation_probability,cloud_cover"
             "&forecast_days=1&timezone=Europe%2FBerlin"
@@ -753,9 +800,11 @@ class MiniEmsApiServer:
                 cached["stale"] = True
                 cached["error"] = str(error)
                 return cached
-            return {"status": "unavailable", "error": str(error), "site": "Stuttgart"}
+            return {"status": "unavailable", "error": str(error), "site": site.get("name", "Standort")}
 
         payload = _normalize_weather_payload(raw)
+        payload["site"] = site.get("name") or "Standort"
+        payload["location"] = location
         payload["fetched_at"] = now.isoformat().replace("+00:00", "Z")
         _write_json_preserve_order(cache_path, payload)
         return payload
@@ -1265,6 +1314,7 @@ def _safe_site_config_view(raw: Dict[str, object], config) -> Dict[str, object]:
             "environment": config.runtime.environment,
             "bacnet_mode": config.runtime.bacnet_mode,
             "real_writes_enabled": config.runtime.real_writes_enabled,
+            "operation_mode": config.runtime.operation_mode,
         },
     )
     api = dict(view.get("api") if isinstance(view.get("api"), dict) else {})
@@ -1359,7 +1409,7 @@ def _normalize_weather_payload(raw: Dict[str, object]) -> Dict[str, object]:
     code = current.get("weather_code")
     return {
         "status": "ok",
-        "site": "Stuttgart",
+        "site": "Standort",
         "source": "Open-Meteo",
         "current": {
             "time": current.get("time"),

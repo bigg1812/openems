@@ -373,7 +373,10 @@ class CommissioningService:
         return {
             "points": self.store.list_points(),
             "write_test_seconds": WRITE_TEST_SECONDS,
-            "write_tests_available": not self.config.api.read_only,
+            "write_tests_available": not self.config.api.read_only and self.config.runtime.operation_mode != "monitoring",
+            "operation_mode": self.config.runtime.operation_mode,
+            "pending_release_count": len(self.store.unfinished_leases()),
+            "release_blocked": self.config.runtime.operation_mode == "monitoring",
             "mode": "simulation" if self.config.runtime.bacnet_mode == "simulated" else "anlage",
         }
 
@@ -415,6 +418,7 @@ class CommissioningService:
 
     def start_test(self, payload: Dict[str, object], actor: IdentityUser) -> Dict[str, object]:
         _require_admin(actor)
+        self._require_control_mode()
         if self.config.api.read_only:
             raise PermissionError("Anlagenaktionen sind gesperrt. Bitte den Schreibschutz zuerst bewusst aufheben.")
         if self.config.runtime.bacnet_mode == "real":
@@ -481,6 +485,11 @@ class CommissioningService:
         return {"released": lease["status"] == "released", "lease": lease}
 
     def recover_unfinished(self) -> None:
+        if self.config.runtime.operation_mode == "monitoring":
+            if self.store.unfinished_leases():
+                log_event(self.logger, 40, "commissioning.recovery_deferred",
+                          reason="monitoring", pending_release_count=len(self.store.unfinished_leases()))
+            return
         for lease in self.store.unfinished_leases():
             try:
                 self._release(lease["id"], actor_user_id=None, trigger="restart")
@@ -497,6 +506,8 @@ class CommissioningService:
     def shutdown(self) -> None:
         for timer in list(self._timers.values()):
             timer.cancel()
+        if self.config.runtime.operation_mode == "monitoring":
+            return
         for lease in self.store.unfinished_leases():
             try:
                 self._release(lease["id"], actor_user_id=None, trigger="shutdown")
@@ -508,6 +519,7 @@ class CommissioningService:
             lease = self.store.get_lease(lease_id)
             if lease["status"] == "released":
                 return lease
+            self._require_control_mode()
             if lease["status"] == "failed" and not lease.get("target"):
                 raise ValueError("Historischer Fehlversuch ohne gesicherte Zielpriorität: Rückgabe vor Ort prüfen.")
             point = self.store.get_point(lease["point_id"])
@@ -540,6 +552,13 @@ class CommissioningService:
             details={"point_id": point.point_id, "lease_id": lease_id, "confirmed": confirmation.confirmed},
         )
         return released
+
+    def _require_control_mode(self) -> None:
+        if self.config.runtime.operation_mode == "monitoring":
+            raise PermissionError(
+                "Beobachtungsmodus: Schreibtests und Rückgaben sind gesperrt. "
+                "Offene Rückgaben vor Ort klären oder im freigegebenen Steuerungsbetrieb abschließen."
+            )
 
     def _read_effective_value(self, point: PointConfig) -> Optional[object]:
         try:

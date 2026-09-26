@@ -2,14 +2,27 @@ from typing import Optional
 
 
 def build_operator_message(
-    current_price_ct_kwh: float,
+    current_price_ct_kwh: Optional[float],
     current_slot_label: str,
     today_date_iso: str,
     tomorrow_prices_available: bool,
     safe_mode_active: bool,
     safe_mode_reason: Optional[str],
     degraded_reason: Optional[str] = None,
+    monitoring: bool = False,
+    pending_release_count: int = 0,
 ) -> str:
+    if monitoring:
+        message = "Beobachtungsmodus: Messwerte werden erfasst; Anlagenaktionen sind gesperrt."
+        if degraded_reason:
+            message += " Es bestehen offene Hinweise zum Betrieb."
+        if pending_release_count:
+            message += " Offene Rückgaben müssen vor Ort geklärt werden."
+        if current_price_ct_kwh is None:
+            message += " Aktuelle Strompreise fehlen; die Messwerterfassung läuft weiter."
+        return message
+    if current_price_ct_kwh is None:
+        return "Aktuelle Strompreise fehlen. Die Steuerung pausiert; verfügbare Messwerte werden weiter erfasst."
     if safe_mode_active:
         return "Current spot price for {0} on {1} is {2:.4f} ct/kWh. Write status failed. Reason: {3}.".format(
             current_slot_label,

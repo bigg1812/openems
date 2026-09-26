@@ -3,13 +3,16 @@ import json
 import logging
 import os
 import secrets
+import signal
 import sys
 import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+from dataclasses import replace
 
 from .bacnet import BacnetAdapter, BacnetCommunicationError
+from .background_prices import BackgroundPriceService
 from .channels import ChannelRegistry
 from .commissioning import CommissioningService, CommissioningStore
 from .config import (
@@ -33,10 +36,14 @@ from .simulation import SimulatedBacnetAdapter, SimulatedModbusAdapter, Simulate
 from .spotmarket_plan import SpotmarketManualOverrideStore, SpotmarketPlanWriter
 from .state_store import StateStore
 from .site_store import SiteConfigStore
+from .supervisor import site_lock, supervise_runtime
 
 
 def main() -> int:
     args = _parse_args()
+    for name in ("SIGTERM", "SIGBREAK"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), _request_stop)
     site_dir = _site_dir_from_args(args)
     site_store = SiteConfigStore(site_dir)
     identity_store = IdentityStore(site_dir)
@@ -65,7 +72,22 @@ def main() -> int:
     if startup_message:
         print(startup_message, file=sys.stderr)
     config = validate_raw_config(raw, base_dir=site_dir)
-    logger = setup_logging(config)
+    if args.supervise or os.environ.get("MINI_EMS_RUN_ID"):
+        config = replace(config, logging=replace(config.logging, stdout=False))
+    logger = setup_logging(config, supervisor=args.supervise)
+    if args.supervise:
+        command = ([sys.executable] if is_frozen() else
+                   [sys.executable, str(Path(__file__).resolve().parents[1] / "mini_ems.py")])
+        return supervise_runtime(config, logger, command + ["--site-dir", str(site_dir), "--loop"])
+    with site_lock(site_dir / "runtime" / "runtime.lock"):
+        return _run_runtime(config, logger, site_store, identity_store, once=args.once)
+
+
+def _request_stop(signum, frame):
+    raise KeyboardInterrupt
+
+
+def _run_runtime(config, logger, site_store, identity_store, *, once):
     registry = ChannelRegistry.from_points_config(
         config.points,
         config.additional_inputs,
@@ -115,6 +137,7 @@ def main() -> int:
         ),
         read_diagnostics=read_diagnostics,
         runtime_db=runtime_db,
+        pending_releases=lambda: len(commissioning.store.unfinished_leases()),
     )
     api_server = MiniEmsApiServer(
         api_config=config.api,
@@ -142,9 +165,10 @@ def main() -> int:
         logger,
         logging.INFO,
         "app.started",
-        site_dir=str(site_dir),
+        site_dir=str(config.base_dir),
         site_revision=site_store.active_revision(),
-        mode="once" if args.once else "loop",
+        mode="once" if once else "loop",
+        operation_mode=config.runtime.operation_mode,
         environment=config.runtime.environment,
         bacnet_mode=config.runtime.bacnet_mode,
         real_writes_enabled=config.runtime.real_writes_enabled,
@@ -152,9 +176,9 @@ def main() -> int:
     )
 
     try:
-        if args.once:
-            runner.run_cycle()
-            return 0
+        if once:
+            snapshot = runner.run_cycle()
+            return 1 if snapshot.get("storage_status") == "error" else 0
 
         api_server.start()
         while True:
@@ -181,6 +205,8 @@ def main() -> int:
     finally:
         api_server.stop()
         commissioning.shutdown()
+        if isinstance(runner.price_service, BackgroundPriceService):
+            runner.price_service.close()
         adapter.close()
 
 
@@ -199,7 +225,7 @@ def _build_protocol_adapter(config, logger):
         return ProtocolRoutingAdapter({
             PROTOCOL_BACNET: SimulatedBacnetAdapter(config.simulation_values_path, logger),
             PROTOCOL_MODBUS_TCP: SimulatedModbusAdapter(config.simulation_values_path, logger),
-        })
+        }, allow_writes=config.runtime.operation_mode != "monitoring")
     return ProtocolRoutingAdapter({
         PROTOCOL_BACNET: BacnetAdapter(config.network, logger),
         PROTOCOL_MODBUS_TCP: ModbusTcpAdapter(
@@ -207,7 +233,8 @@ def _build_protocol_adapter(config, logger):
             response_timeout_seconds=config.network.response_timeout_seconds,
             retries=config.network.retries,
         ),
-    })
+    }, allow_writes=(config.runtime.operation_mode != "monitoring"
+                      and config.runtime.real_writes_enabled and config.runtime.environment != "local"))
 
 
 def _build_price_service(config, logger):
@@ -218,10 +245,10 @@ def _build_price_service(config, logger):
             resolution=config.price_source.resolution,
             logger=logger,
         )
-    return SpotmarketPriceCacheService(
+    return BackgroundPriceService(SpotmarketPriceCacheService(
         config.price_cache_path,
         SmardPriceProvider(config.price_source),
-    )
+    ))
 
 
 def _parse_args() -> argparse.Namespace:
@@ -254,8 +281,10 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run continuously with the configured cycle time.",
     )
+    mode.add_argument("--supervise", action="store_true",
+                      help="Supervise a runtime child with bounded restart and independent liveness checks.")
     args = parser.parse_args()
-    if not args.once and not args.loop:
+    if not args.once and not args.loop and not args.supervise:
         args.once = True
     return args
 

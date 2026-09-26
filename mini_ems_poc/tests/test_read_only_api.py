@@ -16,6 +16,8 @@ Die Tests laufen gegen einen echten HTTP-Server auf 127.0.0.1 mit ephemerem Port
 damit die zentrale Sperre im Request-Handling (do_GET/do_POST) real durchlaufen wird.
 """
 
+import base64
+import hashlib
 import http.client
 import json
 import logging
@@ -195,6 +197,26 @@ class ReadOnlyApiTestBase(unittest.TestCase):
 
 class ReadOnlyDefaultOffTest(ReadOnlyApiTestBase):
     read_only = False
+
+    def test_report_styles_are_allowed_by_hash_without_allowing_inline_scripts(self) -> None:
+        connection = http.client.HTTPConnection(self.host, self.port, timeout=5)
+        try:
+            connection.request("GET", "/api/report/html?title=%3Cscript%3Ealert(1)%3C%2Fscript%3E",
+                               headers={"Cookie": self.admin_cookie})
+            response = connection.getresponse()
+            html = response.read().decode("utf-8")
+            self.assertEqual(response.status, 200)
+            styles = re.findall(r"<style>(.*?)</style>", html, re.DOTALL)
+            self.assertTrue(styles)
+            policy = response.getheader("Content-Security-Policy")
+            for css in styles:
+                digest = base64.b64encode(hashlib.sha256(css.encode("utf-8")).digest()).decode("ascii")
+                self.assertIn("'sha256-{0}'".format(digest), policy)
+            self.assertIn("script-src 'self';", policy)
+            self.assertNotIn("unsafe-inline", policy)
+            self.assertNotIn("<script>alert(1)</script>", html)
+        finally:
+            connection.close()
 
     def test_status_field_defaults_to_false(self) -> None:
         status, raw = self._request("GET", "/api/status")

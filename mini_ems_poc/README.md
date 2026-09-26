@@ -4,7 +4,7 @@ Mini EMS PoC ist ein kleiner lokaler Energy-Edge-Stack für einen IPC. Er verbin
 Messwerte, Strompreise, einfache Betriebslogik, Historie und Dashboard in einem
 überschaubaren System.
 
-**Nächste Version – Stand 12.09.2026:** Einen Standort zuverlässig einrichten, seinen Zustand korrekt
+**Nächste Version – Stand 22.09.2026:** Einen Standort zuverlässig einrichten, seinen Zustand korrekt
 erklären und freigegebene Eingriffe einschließlich ihrer Rückgabe lückenlos nachweisen.
 Die [technische Roadmap](ROADMAP.md) ist die aktuelle Aufgabenquelle; sie trennt lokal geprüfte Korrekturen,
 offene Entwicklung und echte IPC-Abnahmen. Cloud-Ausbau folgt nach dieser Stabilisierung.
@@ -27,6 +27,18 @@ Mini EMS übernimmt im Kern diese Aufgaben:
 Das Ziel ist kein schweres Voll-EMS, sondern ein nachvollziehbarer lokaler Stack:
 messen, bewerten, handeln, speichern und erklären.
 
+## Beobachten ohne Anlagenaktionen
+
+`runtime.operation_mode=monitoring` erfasst Messwerte und Historie auch bei fehlenden Strompreisen.
+Schreibzugriffe einschließlich Heartbeat, Schreibtests und automatischer Rückgaben sind gesperrt.
+Die Betriebsart wird in der Standortkonfiguration gespeichert und gilt nach Neustart. Bestehende Standorte
+bleiben ohne Änderung im Modus `control`. `api.read_only` ist eine separate API-Zugriffsgrenze.
+
+Empfangszeit und Messwertalter sind nachvollziehbar; ohne Quellzeit bleibt die Aktualität im Gerät unbekannt.
+Offene Rückgaben aus früheren Schreibtests bleiben sichtbar und müssen vor dem Moduswechsel geklärt werden.
+Umsetzung und Grenzen stehen im [Integrationsvertrag](EDGE_INTEGRATION_CONTRACT.md) und im
+[lokalen Prüfnachweis vom 22.09.2026](docs/VALIDIERUNG_2026-09-22.md). Windows-/Feldabnahme stehen aus.
+
 ## Aktueller Betriebsweg
 
 Der produktive Betrieb läuft über ein versioniertes Release-Paket, nicht über einen
@@ -42,7 +54,7 @@ Die App wird als One-Dir-Paket gebaut und enthält unter anderem:
 - `mini_ems.exe`
 - `run_mini_ems_release.cmd`
 - `dashboard/`
-- `mini_ems_runtime/templates/`
+- `BUILD_REQUIREMENTS.txt`
 - `VERSION`
 - `SHA256SUMS`
 - `CHANGELOG.md`
@@ -71,8 +83,8 @@ daraus einen Mapping-Entwurf, validiert ihn und übernimmt ihn erst nach Freigab
 Vor der Übernahme werden Backup, gespeicherter Entwurf und Audit-Eintrag angelegt.
 
 Der Zugriff ist lokal kontobasiert: Viewer lesen Dashboard, Analyse und Berichte; Admins verwalten Standort,
-Konten und separat freigegebene BACnet-Inbetriebnahmepunkte. Ein Schreibtest ist auf zehn Sekunden begrenzt und
-gibt seine BACnet-Priorität automatisch zurück. `api.read_only` kann Anlagenaktionen unabhängig von der Rolle
+Konten und separat freigegebene BACnet-Inbetriebnahmepunkte. Ein Schreibtest plant die Rückgabe seiner BACnet-Priorität nach zehn Sekunden.
+Ein fehlgeschlagener Rückgabeversuch bleibt offen; der Timer ersetzt keinen Anlagenfallback. `api.read_only` kann Anlagenaktionen unabhängig von der Rolle
 vollständig sperren.
 
 Mini EMS PoC ist absichtlich kein vollwertiges Multi-Site-EMS. Der Edge-Kern ist für unterschiedliche Standorte
@@ -124,19 +136,9 @@ Im lokalen Modus gilt:
 
 Release-Build und Update sind getrennte Schritte.
 
-Build auf Windows:
-
-```powershell
-cd C:\dev\openems\mini_ems_poc
-.\.venv\Scripts\python.exe -m pip install pyinstaller
-powershell -ExecutionPolicy Bypass -File packaging\build_release.ps1 -Version 2026.07.1 -Python C:\dev\openems\mini_ems_poc\.venv\Scripts\python.exe
-```
-
-Das Paket entsteht unter:
-
-```text
-mini_ems_poc\packaging\dist\mini_ems
-```
+Der verbindliche Build-Ablauf mit festgeschriebenen Abhängigkeiten und Binary-Prüfung steht in
+[packaging/README.md](packaging/README.md). Das Windows-Paket muss zuerst in einem getrennten
+Simulationsstandort geprüft werden. Installation und Erststart: [RELEASE_WORKFLOW.md](RELEASE_WORKFLOW.md).
 
 Ein bestehender IPC-Stand wird bevorzugt per Skript aktualisiert:
 
@@ -157,7 +159,7 @@ Rollback läuft über:
 
 | Pfad | Bedeutung |
 | --- | --- |
-| `mini_ems.py` | CLI-Einstieg für Einzelzyklus und Loop im Checkout-Betrieb. |
+| `mini_ems.py` | CLI-Einstieg für Einzelzyklus, Loop und Prozessüberwachung im Checkout-Betrieb. |
 | `mini_ems_runtime/` | Runtime-Code für Config, Adapter, Zyklus, API, Persistenz und Reports. |
 | `dashboard/` | Browser-UI für Dashboard, Einrichtung, Diagnose und Systemstatus. |
 | `<Standortordner>/site.sqlite` | Aktive Konfiguration, Mapping-Entwürfe und Revisionen; produktiv unter `C:\ProgramData\MiniEMS`. |
@@ -174,7 +176,7 @@ Rollback läuft über:
 | [MINI_EMS_ANLEITUNG.md](./MINI_EMS_ANLEITUNG.md) | Technische Anleitung zu Architektur, Runtime, API, UI-Konfiguration und Betrieb. |
 | [RELEASE_WORKFLOW.md](./RELEASE_WORKFLOW.md) | Erstinstallation auf einem neuen IPC: Paket bauen, Ordner anlegen, Task registrieren, starten. |
 | [UPDATE_WARTUNG.md](./UPDATE_WARTUNG.md) | Update, Healthcheck, Rollback, Wartungsroutine und Versionierung. |
-| [packaging/README.md](./packaging/README.md) | Release-Paket bauen, Layout, `VERSION`, `SHA256SUMS`, späterer Nuitka-Pfad. |
+| [packaging/README.md](./packaging/README.md) | Release-Paket bauen, festes Build-Profil, Paketlayout und Binary-Prüfung. |
 | [HOSTING_SICHERHEIT.md](./HOSTING_SICHERHEIT.md) | Sicherheitsgrenze, Rollen, Netzwerkzugriff, Program-Files/ProgramData-Trennung und Proxy. |
 | [EMS-Mapping.md](./EMS-Mapping.md) | Protokoll- und Kanal-Mapping, OpenEMS-Vorbilder, Mapping-Vorlagen und Freigabeweg. |
 | [EDGE_INTEGRATION_CONTRACT.md](./EDGE_INTEGRATION_CONTRACT.md) | Verbindlicher Integrationsvertrag für Messwertqualität, Rechte, Ausfallverhalten und Mapping. |
@@ -192,5 +194,6 @@ Rollback läuft über:
 2. Standort-Mapping wird über UI, Entwurf, Test und Freigabe gepflegt; `site.sqlite` ist die einzige aktive Konfigurationsquelle.
 3. App-Dateien und Standortdaten bleiben strikt getrennt, damit Updates die Anlage nicht versehentlich überschreiben.
 
-Aktueller lokaler Prüfnachweis: [Validierung 13.09.2026](docs/VALIDIERUNG_2026-09-13.md) –
-Rückgabe-/Preiszeitmodell, 178 Python-Tests, 101 Dashboard-Prüfungen und macOS-Prüfpaket; Windows-/IPC-Abnahme offen.
+Aktueller lokaler Prüfnachweis: [Validierung 22.09.2026](docs/VALIDIERUNG_2026-09-22.md) –
+211 Python-Tests, 121 Dashboard-Prüfungen je Zeitzone, Historienlasttest und macOS-Prüfpaket.
+Windows-Task, Update/Rollback und Feldabnahme stehen aus.

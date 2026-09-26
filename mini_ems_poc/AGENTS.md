@@ -123,6 +123,11 @@ scope; do not silently turn it into immediate implementation work.
 > `ROADMAP.md` ("Aktueller IPC-Stand"), `RELEASE_WORKFLOW.md`, `UPDATE_WARTUNG.md`,
 > `HOSTING_SICHERHEIT.md` Teil 4.
 
+> **Lokaler Kandidat 22.09.2026:** Der neue Release-Launcher startet `--supervise`; dieser erzeugt den
+> eigentlichen `--loop`-Kindprozess und schreibt `runtime/supervisor.json`. Der oben datierte installierte
+> IPC-Stand wurde dafür nicht live aktualisiert. Native Windows-/Task-Abnahme steht aus; siehe
+> `docs/VALIDIERUNG_2026-09-22.md` und `UPDATE_WARTUNG.md`.
+
 - Do not use `sc.exe start MiniEmsPoC` as a runtime path. The `MiniEmsPoC` Windows service entry is legacy and can fail with `StartService FEHLER 1053` because `mini_ems.py` is a console process, not a native Windows service.
 - **Production start path (default): the release task.** `windows/install_task.ps1 -Mode release` plus `run_mini_ems_release.cmd` start `mini_ems.exe` from `C:\Program Files\MiniEMS` with `--site-dir C:\ProgramData\MiniEMS`. UI configuration is persisted in `site.sqlite`; Caddy exposes the dashboard/API on `https://192.168.244.10`.
 - **Development/fallback start path:** `windows/install_task.ps1` (`-Mode checkout`) plus `run_mini_ems.cmd` use the same site directory and store, without a config file.

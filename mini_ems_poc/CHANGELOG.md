@@ -9,9 +9,43 @@ Pflege-Regel: Änderungen werden während der Arbeit unter `[Unreleased]`
 gesammelt. Beim Release-Build wird der `[Unreleased]`-Stand als versionierter
 **Schnappschuss** in die `CHANGELOG.md` **im Release-Paket** übernommen; diese
 Repo-Datei wird vom Build nicht umgeschrieben, sondern bleibt manuelle Pflege
-(siehe `packaging/README.md`, Abschnitt "Release erstellen").
+(siehe `packaging/README.md`, Abschnitt "Paket und Version").
 
 ## [Unreleased]
+
+### Stabilisiert und vereinfacht – lokaler Prüfstand 22.09.2026
+
+- Unabhängiger Prozesswächter (`--supervise`) erkennt Stillstand/Absturz anhand Run-ID und Zyklusfortschritt.
+  Maximal drei Startversuche einschließlich Erststart in 15 Minuten; das Budget bleibt über Neustarts erhalten.
+  OS-Dateisperren verhindern parallele Runtime-/Supervisor-Instanzen desselben Standorts.
+- Speicherfehler erscheinen in Health/API und Oberfläche; ein fortschreitender gestörter Zyklus wird nicht
+  blind neu gestartet. Zyklus-IDs bleiben auch bei verlorenem Zustand über Neustarts eindeutig.
+- Runtime-/Supervisor-Logs rotieren bei 5 MiB mit je drei Sicherungen. Windows-Launcher nutzt den Wächter;
+  Task-Wiederholungen sind begrenzt. Update übernimmt die Task-Einstellungen, prüft das vollständige Manifest
+  und verlangt den Smoketest. Windows-Ausführung und Task-Abnahme bleiben offen.
+- Standardübersicht auf Zustand und wenige Kennzahlen reduziert; Preise/Details bleiben eingeklappt.
+  Analyse zeigt nur historisierte bekannte Kanäle. Vier unwirksame Regler-/Fallback-Felder aus dem Formular
+  entfernt; Altwerte bleiben für Kompatibilität erhalten. Wetter verwendet optionale Standortkoordinaten,
+  schreibt in den SiteDir und lädt erst bei Bedarf, unabhängig von der Hauptaktualisierung.
+- Ungenutzten alten Spotmarkt-Regler samt drei exklusiven Tests entfernt; Zustandskompatibilität erhalten.
+  HTML-Darstellung aus `runtime_db.py` nach `reporting.py` verschoben. Bericht-CSS wird gezielt per CSP-Hash
+  erlaubt. Stunden-/Tagesaggregate behandeln die Zeitumstellung eindeutig; Altaggregate werden nicht rückwirkend geändert.
+- Festes schlankes Paketprofil mit gepinnten Build-Werkzeugen und Zeitzonen; keine optionalen PDF-/Discovery-
+  Bibliotheken oder Legacy-Service-Helfer im Paket. Binary-Test prüft Crash-Recovery, Rollen, Restore und Prüfsummen.
+- Lokaler Nachweis: `docs/VALIDIERUNG_2026-09-22.md`. Keine Produktivinstallation, kein echter Anlagenzugriff.
+
+### Hinzugefügt – lokale Beobachtung 20.09.2026
+
+- Expliziter Beobachtungsmodus ohne reguläre Ausgaben, Heartbeat, Schreibtests oder Relinquish.
+  Offene Rückgaben bleiben gespeichert und sichtbar. Bestehende Standorte bleiben im Steuerungsmodus.
+- Messwerterfassung und Historie laufen bei fehlenden Preisen weiter; SMARD-Abrufe laufen außerhalb des Zyklus.
+  Der Cache wird je aktuellem UTC-Intervall ausgewertet; nutzbarer Cache und gestörte Preisquelle bleiben getrennt.
+- Empfangszeit, letzter erfolgreicher Read und optionale Quellzeit in Diagnose/API/Rohhistorie; tatsächliches
+  Alter zwischen Reads, keine doppelten Historienwerte aus dem Lesecache. Ohne Quellzeit keine Frischebehauptung.
+- Additive SQLite-Migration; frühere Werte erhalten keinen erfundenen Qualitätsnachweis. Dashboard und Berichte
+  erklären Beobachtungsmodus, fehlende Preise und Datenqualität; gestörte Werte gehen nicht als gültig in Diagramme ein.
+- Lokal mit Fake-Geräten, Simulation und macOS-Paket geprüft; keine Installation auf IPC oder Windows-Abnahme.
+  Details: `docs/VALIDIERUNG_2026-09-20.md`.
 
 ### Hinzugefügt
 
