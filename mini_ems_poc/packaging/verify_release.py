@@ -19,6 +19,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -143,7 +144,7 @@ def verify(package, directory):
         finally:
             stop_child(parent, grace_seconds=15)
         assert parent.returncode == 0, parent.returncode
-        with sqlite3.connect(config.database_path) as db:
+        with closing(sqlite3.connect(config.database_path)) as db:
             assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
             before = db.execute("SELECT COUNT(*) FROM cycle_runs").fetchone()[0]
             assert before >= 3
@@ -166,7 +167,7 @@ def verify(package, directory):
         finally:
             stop_child(parent, grace_seconds=15)
         restored_config = validate_raw_config(raw, base_dir=restored)
-        with sqlite3.connect(restored_config.database_path) as db:
+        with closing(sqlite3.connect(restored_config.database_path)) as db:
             assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
             after = db.execute("SELECT COUNT(*) FROM cycle_runs").fetchone()[0]
             assert after > before
