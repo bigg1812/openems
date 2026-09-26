@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+from contextlib import closing
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -224,7 +225,7 @@ class MonitoringBoundaryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "history.sqlite"
             # Schema shipped before receipt/quality metadata was persisted.
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection:
                 connection.execute("""CREATE TABLE channel_samples (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, cycle_id TEXT NOT NULL,
                     timestamp TEXT NOT NULL, channel_id TEXT NOT NULL, direction TEXT NOT NULL,
@@ -234,6 +235,7 @@ class MonitoringBoundaryTest(unittest.TestCase):
                 connection.execute("""INSERT INTO channel_samples
                     (cycle_id, timestamp, channel_id, direction, value, source)
                     VALUES ('old', '2026-09-19T10:00:00Z', 'temperature', 'input', 18, 'bacnet_read')""")
+                connection.commit()
             for _ in range(2):  # Restart must also be safe after the additive migration.
                 row = RuntimeDatabase(path).get_channel_history("temperature", 10)[0]
                 self.assertEqual(row["value"], 18)

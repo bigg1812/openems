@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -75,6 +76,13 @@ class StorageHealthTest(unittest.TestCase):
         self.assertEqual(len(self.runner.runtime_db.get_recent_cycles(10)), 2)
 
     def test_live_runtime_with_lost_supervisor_is_degraded_without_altering_evidence(self):
+        # This test checks supervisor liveness; keep the short-lived sensor fixture
+        # fresh even on slow Windows CI workers.
+        self.fixture.config = replace(self.fixture.config, additional_inputs={
+            key: replace(input_config, max_age_seconds=300)
+            for key, input_config in self.fixture.config.additional_inputs.items()
+        })
+        self.runner = self.fixture.runner()
         self.runner.run_id = "test-supervised-run"
         self.runner.run_cycle()
         config = self.fixture.config
