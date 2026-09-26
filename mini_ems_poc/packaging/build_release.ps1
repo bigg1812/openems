@@ -69,7 +69,16 @@ $BuildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $GitCommit = (& git -c core.excludesFile=NUL -C $ProjectDir rev-parse --short=12 HEAD 2>$null)
 if (-not $GitCommit) { $GitCommit = "unknown" }
 $GitChanges = (& git -c core.excludesFile=NUL -c core.safecrlf=false -C $ProjectDir status --porcelain --untracked-files=normal 2>$null)
-if ($LASTEXITCODE -ne 0 -or $GitChanges) {
+$GitStatusExit = $LASTEXITCODE
+if ($GitStatusExit -ne 0) {
+    # Some Windows Git versions reject the NUL device as core.excludesFile.
+    $GitChanges = (& git -c core.safecrlf=false -C $ProjectDir status --porcelain --untracked-files=normal 2>$null)
+    $GitStatusExit = $LASTEXITCODE
+}
+if ($GitStatusExit -ne 0) {
+    Write-Warning "[build] Git-Status nicht lesbar (Exit $GitStatusExit)"
+    $GitCommit = "$GitCommit+dirty"
+} elseif ($GitChanges) {
     Write-Warning "[build] Git-Arbeitsstand: $($GitChanges -join '; ')"
     $GitCommit = "$GitCommit+dirty"
 }
