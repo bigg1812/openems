@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,7 @@ from unittest.mock import patch
 from mini_ems_poc.tests import test_monitoring as fixtures
 from mini_ems_poc.mini_ems_runtime.logging_utils import setup_logging
 from mini_ems_poc.mini_ems_runtime.http_api import MiniEmsApiServer
+from mini_ems_poc.mini_ems_runtime.state_store import write_json_atomic
 from mini_ems_poc.mini_ems_runtime.supervisor import site_lock, supervise_runtime
 
 
@@ -25,6 +27,23 @@ class StorageHealthTest(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.runner = self.fixture.runner()
+
+    def test_atomic_json_write_retries_a_transient_reader_lock(self):
+        path = self.fixture.config.base_dir / "lock-test.json"
+        original_replace = os.replace
+        calls = 0
+
+        def replace_after_lock(source, target):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise PermissionError("temporary Windows reader lock")
+            return original_replace(source, target)
+
+        with patch("mini_ems_poc.mini_ems_runtime.state_store.os.replace", side_effect=replace_after_lock):
+            write_json_atomic(path, {"status": "healthy"})
+        self.assertEqual(calls, 2)
+        self.assertEqual(json.loads(path.read_text()), {"status": "healthy"})
 
     def test_database_failure_is_visible_and_recovers_without_inventing_history(self):
         original = self.runner.runtime_db.path
@@ -215,16 +234,15 @@ class SupervisorTest(unittest.TestCase):
     @staticmethod
     def child_script(after_publish, *, cycles=1, storage_status="ok"):
         return f"""
-import json, os, sys, time
+import os, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
+from mini_ems_poc.mini_ems_runtime.state_store import write_json_atomic
 path = Path(sys.argv[1])
 for index in range({cycles}):
     payload = {{"run_id": os.environ["MINI_EMS_RUN_ID"], "cycle_id": str(index),
                "timestamp": datetime.now(timezone.utc).isoformat(),
                "status": "degraded", "storage_status": "{storage_status}"}}
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(payload))
-    temporary.replace(path)
+    write_json_atomic(path, payload)
     {after_publish}
 """

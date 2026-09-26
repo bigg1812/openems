@@ -69,7 +69,10 @@ $BuildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $GitCommit = (& git -c core.excludesFile=NUL -C $ProjectDir rev-parse --short=12 HEAD 2>$null)
 if (-not $GitCommit) { $GitCommit = "unknown" }
 $GitChanges = (& git -c core.excludesFile=NUL -c core.safecrlf=false -C $ProjectDir status --porcelain --untracked-files=normal 2>$null)
-if ($LASTEXITCODE -ne 0 -or $GitChanges) { $GitCommit = "$GitCommit+dirty" }
+if ($LASTEXITCODE -ne 0 -or $GitChanges) {
+    Write-Warning "[build] Git-Arbeitsstand: $($GitChanges -join '; ')"
+    $GitCommit = "$GitCommit+dirty"
+}
 $Platform = "Windows-$env:PROCESSOR_ARCHITECTURE"
 @(
     "version=$Version",

@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, Optional
@@ -175,7 +176,15 @@ def write_json_atomic(path: Path, payload: Dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_suffix(path.suffix + ".tmp")
     temp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    os.replace(temp_path, path)
+    for attempt in range(5):
+        try:
+            os.replace(temp_path, path)
+            return
+        except PermissionError:
+            # Windows can briefly lock the destination while a reader opens it.
+            if attempt == 4:
+                raise
+            time.sleep(0.01)
 
 
 def _optional_string(value: object) -> Optional[str]:
